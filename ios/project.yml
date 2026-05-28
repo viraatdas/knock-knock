@@ -48,6 +48,9 @@ targets:
     # MinimumOSVersion, DTPlatformName, UIDeviceFamily). A hand-written plist
     # that omits them produces a bundle the simulator refuses to install
     # ("Missing bundle ID"). Custom keys are supplied via INFOPLIST_KEY_* below.
+    # Note: UIBackgroundModes (audio/voip/remote-notification) is declared via
+    # INFOPLIST_KEY_UIBackgroundModes and is only exercised once VoIP push is
+    # enabled, which itself requires a paid Apple Developer account (see README).
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.exla.slide
