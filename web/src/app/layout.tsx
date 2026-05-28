@@ -14,11 +14,11 @@ const siteUrl = "https://web-viraatdas-projects.vercel.app";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Slide — the cleanest way to call",
+    default: "Slide — does one thing well",
     template: "%s — Slide",
   },
   description:
-    "Slide is a phone-only video calling app for the friends who never call. No passwords, no clutter — just clear 1:1 and group video, screen share, and end-to-end quality.",
+    "Slide does one thing well: video calls. Nothing else. Sign up with your phone number — no passwords, no feeds, no clutter. Clear 1:1 and group video with screen share.",
   keywords: [
     "video calling",
     "phone number signup",
