@@ -54,7 +54,11 @@ impl TokenSigner {
     }
 
     /// Mint an access token valid for `ttl_secs`.
-    pub fn sign_access(&self, user_id: Uuid, ttl_secs: i64) -> jsonwebtoken::errors::Result<String> {
+    pub fn sign_access(
+        &self,
+        user_id: Uuid,
+        ttl_secs: i64,
+    ) -> jsonwebtoken::errors::Result<String> {
         let now = Utc::now().timestamp();
         let claims = AccessClaims {
             sub: user_id,
@@ -68,6 +72,9 @@ impl TokenSigner {
     pub fn verify_access(&self, token: &str) -> jsonwebtoken::errors::Result<AccessClaims> {
         let mut v = Validation::new(Algorithm::HS256);
         v.set_audience(&[ACCESS_AUD]);
+        // Strict expiry: no grace window. Access tokens are short-lived and the
+        // client silently refreshes, so we don't want expired tokens to linger.
+        v.leeway = 0;
         Ok(decode::<AccessClaims>(token, &self.decoding, &v)?.claims)
     }
 
@@ -96,6 +103,7 @@ impl TokenSigner {
     pub fn verify_join(&self, token: &str) -> jsonwebtoken::errors::Result<JoinClaims> {
         let mut v = Validation::new(Algorithm::HS256);
         v.set_audience(&[JOIN_AUD]);
+        v.leeway = 0;
         Ok(decode::<JoinClaims>(token, &self.decoding, &v)?.claims)
     }
 }
@@ -128,7 +136,8 @@ mod tests {
     #[test]
     fn expired_is_rejected() {
         let s = TokenSigner::new("secret");
-        let t = s.sign_access(Uuid::new_v4(), -10).unwrap();
+        // Expired well beyond any clock-skew window; verify uses leeway = 0.
+        let t = s.sign_access(Uuid::new_v4(), -120).unwrap();
         assert!(s.verify_access(&t).is_err());
     }
 }

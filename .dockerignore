@@ -1,0 +1,11 @@
+target
+ios
+android
+web
+.git
+**/*.md
+screenshots
+node_modules
+.env
+.env.*
+!.env.example

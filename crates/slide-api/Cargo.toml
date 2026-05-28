@@ -36,3 +36,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
 futures.workspace = true
+reqwest.workspace = true

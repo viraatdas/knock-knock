@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FFFFFFFF</color>
+    <color name="ink">#FF0A0A0A</color>
+    <color name="danger">#FFE5484D</color>
+</resources>

@@ -1,0 +1,87 @@
+name: backend
+
+# Build, test, and (on main) deploy the Rust backend.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - "deploy/**"
+      - "scripts/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: slide
+          POSTGRES_PASSWORD: slide
+          POSTGRES_DB: slide
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U slide"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://slide:slide@localhost:5432/slide
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+      - name: Build release binaries
+        run: cargo build --release --bin slide-api --bin slide-sfu
+      - name: Smoke test (API end-to-end)
+        run: |
+          set -a; source .env.example; set +a
+          export SMS_PROVIDER=console
+          ./target/release/slide-api &
+          for i in $(seq 1 30); do curl -fsS http://localhost:8080/v1/health && break || sleep 1; done
+          ./scripts/smoke.sh
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy coturn / sfu / api
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: |
+          flyctl deploy -c deploy/fly/coturn.fly.toml --remote-only || true
+          flyctl deploy -c deploy/fly/slide-sfu.fly.toml --remote-only
+          flyctl deploy -c deploy/fly/slide-api.fly.toml --remote-only
+      - name: Note when no token
+        if: ${{ env.FLY_API_TOKEN == '' }}
+        run: echo "FLY_API_TOKEN secret not set — skipping deploy. Add it in repo settings to enable auto-deploy."

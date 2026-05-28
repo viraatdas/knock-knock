@@ -28,3 +28,8 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
+
+# WebRTC media engine (SFU).
+webrtc = "0.12"
+tokio-tungstenite = "0.24"
+bytes = "1"

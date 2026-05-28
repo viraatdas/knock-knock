@@ -1,0 +1,40 @@
+# Fly.io config for coturn (STUN/TURN) — NAT traversal + media relay.
+#   fly deploy -c deploy/fly/coturn.fly.toml
+# Uses the upstream coturn image directly. The static auth secret MUST match
+# the backend's TURN_SHARED_SECRET so REST credentials validate.
+#
+# Set the secret:  fly secrets set TURN_SECRET=<same as TURN_SHARED_SECRET>
+
+app = "slide-turn"
+primary_region = "iad"
+
+[build]
+  image = "coturn/coturn:4.6"
+
+[experimental]
+  cmd = [
+    "turnserver",
+    "--realm=slide.app",
+    "--use-auth-secret",
+    "--static-auth-secret=$TURN_SECRET",
+    "--no-cli", "--no-tls", "--no-dtls",
+    "--min-port=49160", "--max-port=49200",
+    "--listening-port=3478", "--fingerprint", "--lt-cred-mech",
+  ]
+
+# TURN listener (UDP + TCP) on 3478, relay range 49160-49200/udp.
+[[services]]
+  protocol = "udp"
+  internal_port = 3478
+  [[services.ports]]
+    port = 3478
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 3478
+  [[services.ports]]
+    port = 3478
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

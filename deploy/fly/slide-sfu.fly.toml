@@ -1,0 +1,38 @@
+# Fly.io config for the Slide SFU (media + signaling).
+#   fly deploy -c deploy/fly/slide-sfu.fly.toml
+#
+# The SFU needs real UDP for WebRTC media. Fly supports UDP services; the media
+# port range must match the SFU's configured ICE port range. For a first cut we
+# expose the signaling WebSocket over HTTPS and rely on TURN (coturn) for the
+# actual media relay, which sidesteps per-node UDP port mapping. Once direct
+# host candidates are wanted, add a [[services]] UDP block + SFU_PUBLIC_IP.
+
+app = "slide-sfu"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../Dockerfile"
+  [build.args]
+    BIN = "slide-sfu"
+
+[env]
+  SFU_BIND = "0.0.0.0:9000"
+  SFU_NODE_ID = "sfu-fly-iad-1"
+  RUST_LOG = "info,slide_sfu=debug"
+
+[http_service]
+  internal_port = 9000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "2s"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1024mb"

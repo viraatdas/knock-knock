@@ -1,0 +1,36 @@
+# Fly.io config for the Slide control-plane API.
+#   fly deploy -c deploy/fly/slide-api.fly.toml
+# Secrets (set once, not in this file):
+#   fly secrets set DATABASE_URL=... REDIS_URL=... JWT_SECRET=... \
+#       SFU_JWT_SECRET=... OTP_PEPPER=... SFU_PUBLIC_URL=wss://slide-sfu.fly.dev \
+#       TURN_URIS=... TURN_SHARED_SECRET=... SMS_PROVIDER=twilio \
+#       TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=...
+
+app = "slide-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../Dockerfile"
+  [build.args]
+    BIN = "slide-api"
+
+[env]
+  API_BIND = "0.0.0.0:8080"
+  RUST_LOG = "info,slide_api=debug,tower_http=info"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/v1/health"
+    interval = "15s"
+    timeout = "2s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

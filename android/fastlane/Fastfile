@@ -1,0 +1,44 @@
+# Fastlane lanes for building and shipping Slide to Google Play.
+# Requires: `gem install fastlane` (or a Gemfile), a release keystore, and a
+# Play Console service-account JSON (see Appfile + README).
+
+default_platform(:android)
+
+platform :android do
+  desc "Build a signed release AAB (App Bundle) for the Play Store"
+  lane :build do
+    gradle(task: "clean")
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: ".",
+    )
+  end
+
+  desc "Upload to the internal testing track (draft)"
+  lane :internal do
+    build
+    upload_to_play_store(
+      track: "internal",
+      aab: "app/build/outputs/bundle/release/app-release.aab",
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+    )
+  end
+
+  desc "Promote the latest internal build to production (staged rollout)"
+  lane :production do
+    upload_to_play_store(
+      track: "production",
+      aab: "app/build/outputs/bundle/release/app-release.aab",
+      rollout: "0.1", # 10% staged rollout
+    )
+  end
+
+  desc "Run the debug build + unit checks (CI smoke)"
+  lane :ci do
+    gradle(task: "assembleDebug")
+  end
+end

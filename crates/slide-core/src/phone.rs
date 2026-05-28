@@ -18,10 +18,7 @@ pub fn normalize_e164(input: &str, default_region: &str) -> Result<String, AppEr
         return Err(AppError::validation("invalid phone number"));
     }
 
-    Ok(parsed
-        .format()
-        .mode(phonenumber::Mode::E164)
-        .to_string())
+    Ok(parsed.format().mode(phonenumber::Mode::E164).to_string())
 }
 
 /// Best-effort normalization for a batch of contact numbers. Numbers that fail
@@ -54,7 +51,10 @@ mod tests {
 
     #[test]
     fn accepts_already_e164() {
-        assert_eq!(normalize_e164("+14155550123", "US").unwrap(), "+14155550123");
+        assert_eq!(
+            normalize_e164("+14155550123", "US").unwrap(),
+            "+14155550123"
+        );
     }
 
     #[test]
