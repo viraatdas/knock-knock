@@ -1,0 +1,32 @@
+[package]
+name = "slide-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+jsonwebtoken.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+# crypto
+sha2.workspace = true
+sha1.workspace = true
+hmac.workspace = true
+hex.workspace = true
+base64.workspace = true
+rand.workspace = true
+constant_time_eq.workspace = true
+
+# phone
+phonenumber.workspace = true
+
+# error -> http response
+axum.workspace = true
+http.workspace = true

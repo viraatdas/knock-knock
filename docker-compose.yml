@@ -1,0 +1,52 @@
+# Local development infrastructure for Slide.
+#   docker compose up -d
+# Brings up Postgres, Redis, and coturn (TURN/STUN) so the full backend can run
+# and be tested locally with no cloud dependencies.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: slide
+      POSTGRES_PASSWORD: slide
+      POSTGRES_DB: slide
+    ports:
+      - "5432:5432"
+    volumes:
+      - slide_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slide"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    command:
+      - turnserver
+      - --realm=slide.local
+      - --use-auth-secret
+      - --static-auth-secret=dev-only-turn-secret-change-me-0000000000000000000000000000
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --min-port=49160
+      - --max-port=49200
+      - --listening-port=3478
+      - --fingerprint
+      - --lt-cred-mech
+
+volumes:
+  slide_pg:

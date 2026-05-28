@@ -1,0 +1,77 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/slide-core",
+    "crates/slide-api",
+    "crates/slide-sfu",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+authors = ["Slide"]
+repository = "https://github.com/viraatdas/slide"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Web / HTTP
+axum = { version = "0.8", features = ["ws", "macros", "multipart"] }
+tower = { version = "0.5", features = ["limit", "util"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "limit"] }
+http = "1"
+
+# Database
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "macros",
+    "migrate",
+] }
+
+# Cache / ephemeral state
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Identifiers / time
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Auth / crypto
+jsonwebtoken = "9"
+sha2 = "0.10"
+sha1 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+base64 = "0.22"
+rand = "0.8"
+constant_time_eq = "0.3"
+
+# Phone normalization
+phonenumber = "0.3"
+
+# Errors / logging
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Config
+dotenvy = "0.15"
+
+# Internal
+slide-core = { path = "crates/slide-core" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

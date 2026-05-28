@@ -1,0 +1,56 @@
+RUDDER.md
+
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.p12
+*.keystore
+*.jks
+secrets/
+.aws/
+
+# macOS
+.DS_Store
+
+# Xcode / iOS
+ios/build/
+ios/DerivedData/
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/Pods/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.apk
+*.aab
+
+# fastlane
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/screenshots/**/*.png
+**/fastlane/test_output
+
+# Node (landing site)
+node_modules/
+.vercel
+.next/
+dist/
+
+# Logs
+*.log
