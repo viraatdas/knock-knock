@@ -1,0 +1,127 @@
+# fastlane Fastfile — Slide iOS
+#
+# The App Store pipeline, CLI-driven. Auth uses an App Store Connect API key
+# (no 2FA, CI-friendly) read from the environment:
+#   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH  (path to the .p8)
+# plus APP_IDENTIFIER (default app.slide) and APPLE_TEAM_ID for signing.
+#
+# Lanes:
+#   build_sim   — unsigned Simulator build (no account needed; CI smoke).
+#   archive     — signed .ipa via gym (needs Team ID + signing).
+#   beta        — archive + upload to TestFlight.
+#   release     — archive + upload to App Store + submit for review.
+#   bootstrap   — create the App Store Connect app record (idempotent).
+#
+# The /app-store-deploy skill wraps these and handles project generation,
+# version bumping, and the one-time API-key check.
+
+default_platform(:ios)
+
+APP_ID   = ENV["APP_IDENTIFIER"] || "app.slide"
+SCHEME   = "Slide"
+PROJECT  = "Slide.xcodeproj"
+
+def asc_api_key
+  # Returns an App Store Connect API token from env, or nil if not configured.
+  return nil unless ENV["ASC_KEY_ID"] && ENV["ASC_ISSUER_ID"] && ENV["ASC_KEY_PATH"]
+  app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: ENV["ASC_KEY_PATH"],
+    in_house: false,
+  )
+end
+
+platform :ios do
+  before_all do
+    # Always (re)generate the Xcode project from project.yml so the build is
+    # reproducible from source.
+    sh("cd .. && xcodegen generate")
+  end
+
+  desc "Unsigned Simulator build — verifies the app compiles (no account needed)."
+  lane :build_sim do
+    xcodebuild(
+      scheme: SCHEME,
+      project: PROJECT,
+      configuration: "Debug",
+      sdk: "iphonesimulator",
+      destination: "generic/platform=iOS Simulator",
+      xcargs: "CODE_SIGNING_ALLOWED=NO -skipMacroValidation",
+    )
+    UI.success("Simulator build succeeded.")
+  end
+
+  desc "Create the App Store Connect app record (idempotent)."
+  lane :bootstrap do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured — see the app-store-deploy skill") unless key
+    produce(
+      api_key: key,
+      app_identifier: APP_ID,
+      app_name: "Slide",
+      language: "en-US",
+      app_version: "1.0.0",
+      sku: "slide-#{APP_ID}",
+      team_id: ENV["APPLE_TEAM_ID"],
+    )
+  end
+
+  desc "Signed archive (.ipa) via gym."
+  lane :archive do
+    key = asc_api_key
+    increment_build_number_if_possible
+    gym(
+      scheme: SCHEME,
+      project: PROJECT,
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "build",
+      output_name: "Slide.ipa",
+      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES",
+    )
+  end
+
+  desc "Build + upload to TestFlight."
+  lane :beta do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured — see the app-store-deploy skill") unless key
+    archive
+    upload_to_testflight(
+      api_key: key,
+      app_identifier: APP_ID,
+      skip_waiting_for_build_processing: true,
+    )
+  end
+
+  desc "Build + upload to App Store + submit for review."
+  lane :release do
+    key = asc_api_key
+    UI.user_error!("ASC API key not configured — see the app-store-deploy skill") unless key
+    archive
+    upload_to_app_store(
+      api_key: key,
+      app_identifier: APP_ID,
+      skip_screenshots: false,
+      skip_metadata: false,
+      submit_for_review: true,
+      automatic_release: true,
+      precheck_include_in_app_purchases: false,
+      force: true,
+      submission_information: { add_id_info_uses_idfa: false },
+    )
+  end
+
+  # Bump build number from the latest TestFlight build when an API key exists;
+  # otherwise leave it (first upload).
+  def increment_build_number_if_possible
+    key = asc_api_key
+    return unless key
+    begin
+      latest = latest_testflight_build_number(api_key: key, app_identifier: APP_ID)
+      increment_build_number(xcodeproj: PROJECT, build_number: (latest + 1).to_s)
+    rescue => e
+      UI.message("No prior TestFlight build (#{e.message}); keeping current build number.")
+    end
+  end
+end

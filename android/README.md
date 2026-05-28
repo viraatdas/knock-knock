@@ -5,7 +5,7 @@ ViewModels + StateFlow, built against the contracts in
 [`docs/API.md`](../docs/API.md) and [`docs/DESIGN.md`](../docs/DESIGN.md).
 
 - `minSdk` 26, `targetSdk` / `compileSdk` 34
-- Application id `ai.exla.slide` (debug builds use `ai.exla.slide.debug`)
+- Application id `app.slide` (debug builds use `app.slide.debug`)
 - Gradle (Kotlin DSL) with the version catalog in `gradle/libs.versions.toml`
 
 The build is verified: `./gradlew assembleDebug` produces
@@ -94,7 +94,7 @@ avdmanager create avd -n slide_test \
 emulator -avd slide_test -no-snapshot -gpu swiftshader_indirect &
 adb wait-for-device
 adb install -r -g app/build/outputs/apk/debug/app-debug.apk
-adb shell am start -n ai.exla.slide.debug/ai.exla.slide.MainActivity
+adb shell am start -n app.slide.debug/app.slide.MainActivity
 ```
 
 ### Backend base URL
@@ -117,7 +117,7 @@ MVVM. Compose UI ← ViewModel (StateFlow) ← Repository ← Retrofit/OkHttp.
 Manual DI via a small `AppContainer` constructed in `SlideApp` (Application).
 
 ```
-ai.exla.slide
+app.slide
 ├── SlideApp                Application; builds AppContainer, registers Telecom account
 ├── AppContainer            Manual DI graph (lazy singletons)
 ├── MainActivity            Edge-to-edge Compose host + splash
@@ -236,7 +236,7 @@ keyPassword=…
 
 ### d. Play Console (manual, account required)
 
-1. Create the app `ai.exla.slide` in the Play Console.
+1. Create the app `app.slide` in the Play Console.
 2. Complete the content rating, data-safety form, privacy policy URL, and
    store listing (Slide does video calls — declare camera/mic usage).
 3. **Play App Signing**: upload the AAB; let Google manage the app signing key.

@@ -55,3 +55,7 @@ dist/
 
 # Logs
 *.log
+
+# App Store Connect API key config (never commit)
+ios/fastlane/.asc.env
+.appstoreconnect/

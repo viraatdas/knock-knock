@@ -5,7 +5,7 @@ import Security
 struct Keychain {
     let service: String
 
-    init(service: String = "ai.exla.slide.tokens") {
+    init(service: String = "app.slide.tokens") {
         self.service = service
     }
 

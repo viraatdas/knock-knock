@@ -1,6 +1,6 @@
 # Android — Google Play submission
 
-**Application ID:** `ai.exla.slide` (matches `android/app/build.gradle.kts`).
+**Application ID:** `app.slide` (matches `android/app/build.gradle.kts`).
 
 ## Prerequisites (gated — needs Google Play Console account, $25 one-time)
 1. Create a Play Console developer account.

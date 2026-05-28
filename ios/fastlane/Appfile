@@ -1,0 +1,12 @@
+# fastlane Appfile — Slide iOS
+# Identity is read from the environment so nothing secret lives in git.
+#
+#   APP_IDENTIFIER  app.slide (the bundle id / App ID)
+#   APPLE_TEAM_ID   your 10-char Apple Developer Team ID
+#   ASC_*           App Store Connect API key (see fastlane/README or the
+#                   app-store-deploy skill) — preferred over Apple-ID login.
+
+app_identifier(ENV["APP_IDENTIFIER"] || "app.slide")
+apple_id(ENV["APPLE_ID"]) if ENV["APPLE_ID"]
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]
+itc_team_id(ENV["APPLE_ITC_TEAM_ID"]) if ENV["APPLE_ITC_TEAM_ID"]

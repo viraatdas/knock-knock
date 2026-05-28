@@ -21,7 +21,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "ai.exla.slide"
+        applicationId = "app.slide"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

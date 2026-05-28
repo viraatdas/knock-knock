@@ -32,7 +32,7 @@ final class SignalingClient: NSObject, @unchecked Sendable {
     private var isStarted = false
     private var reconnectAttempt = 0
     private var heartbeatTimer: Timer?
-    private let queue = DispatchQueue(label: "ai.exla.slide.signaling")
+    private let queue = DispatchQueue(label: "app.slide.signaling")
 
     init(baseURL: URL = Config.apiBaseURL, tokens: TokenStore = .shared) {
         self.baseURL = baseURL
