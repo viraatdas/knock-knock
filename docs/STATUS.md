@@ -1,43 +1,46 @@
 # Slide — build status
 
-_Living checklist toward the goal: a polished white/thin-black phone-only video
-caller, deployed to the App Store and Google Play._
+_Toward the goal: a polished white/thin-black phone-only video caller, deployed
+to the App Store and Google Play._
 
-## Done
-- [x] Cargo workspace: `slide-core`, `slide-api`, `slide-sfu`.
-- [x] `slide-core`: models, JWT (access + SFU join), OTP hashing, phone E.164,
-      TURN REST creds. Unit-tested.
-- [x] Postgres schema (`crates/slide-api/migrations/0001_init.sql`).
-- [x] `slide-api`: phone-OTP auth (request/verify/refresh/logout), `/me`,
-      avatar, devices, contacts sync/list, full call control plane
-      (create/accept/decline/leave/history), app-signaling WebSocket + presence,
-      Redis OTP + rate limiting.
-- [x] `slide-sfu`: join-token auth, JSON signaling, webrtc-rs selective
-      forwarding (publish → fan-out → renegotiate).
-- [x] Local infra: docker-compose (Postgres, Redis, coturn).
-- [x] Contracts: `docs/API.md`, `docs/DESIGN.md`.
-- [x] Deploy artifacts: Dockerfile, Fly configs (api/sfu/coturn), deploy +
-      smoke scripts.
+## ✅ Done & verified
+- **slide-core**: models, JWT (access + SFU join, strict expiry), OTP hashing,
+  phone E.164, TURN REST creds. Unit-tested.
+- **slide-api** (axum): phone-OTP auth (request/verify/refresh/logout) with Redis
+  OTP + per-phone rate limiting, `/me` + avatar + devices, contacts sync/list,
+  call control plane (create/accept/decline/leave/history) with SFU room
+  allocation + scoped join tokens + ephemeral TURN creds, app-signaling
+  WebSocket + presence hub.
+- **slide-sfu** (webrtc-rs): join-token auth gate, JSON SDP/ICE signaling,
+  selective forwarding (publish → fan-out → renegotiate → RTP pump), 1:1 + group.
+- **Backend gates GREEN**: `cargo fmt --check`, `clippy -D warnings` (zero),
+  13/13 tests, release build. `scripts/smoke.sh` (full phone-auth → contacts →
+  1:1 call → history) and `scripts/sfu-handshake.mjs` (join-token upgrade +
+  ping/pong; bad token rejected) both pass against live Postgres + Redis + SFU.
+- **iOS** (SwiftUI): `xcodebuild -sdk iphonesimulator build` → **BUILD SUCCEEDED**;
+  Slide.app launches in the Simulator; Welcome screenshots captured
+  (`ios/screenshots/`). Onboarding/tabs/in-call/CallKit, APIClient + Keychain +
+  silent refresh, app-signaling WS, CallService (WebRTC + mock).
+- **Android** (Kotlin/Compose): `./gradlew assembleDebug` → APK at
+  `android/app/build/outputs/apk/debug/`; Welcome + Enter-phone screenshots
+  captured. Parity app + Telecom + WebRTC (mock default).
+- **Landing site** (Next.js): **LIVE** at
+  https://web-viraatdas-projects.vercel.app (+ `/privacy`, `/terms`).
+- **Infra/CI/store**: docker-compose, multi-bin Dockerfile, Fly configs,
+  deploy/smoke/handshake scripts, GitHub Actions, `store/` submission package.
 
-## In progress (parallel agents)
-- [ ] iOS app (SwiftUI) — onboarding, tabs, calls, CallKit; build + screenshots.
-- [ ] Android app (Compose) — toolchain install + parity app; `assembleDebug`.
-- [ ] Landing site (Next.js) — deploy to Vercel, `/privacy` + `/terms`.
+## ⛔ Blocked on the user (cannot be automated here)
+- **Backend cloud deploy** — Fly.io refuses `apps create`: *"You must add a
+  payment method to your account."* Add a card at fly.io/dashboard → Billing,
+  then run `./scripts/deploy-backend.sh`. (Or deploy the same Docker image to
+  AWS; rotate the pasted AWS key first.)
+- **App Store** — needs Apple Developer Program ($99/yr) + signing + review.
+- **Play Store** — needs Google Play Console ($25) + upload keystore + review.
+- **Production SMS** — Twilio (or similar) credentials for real OTP delivery.
+- **Rotate the AWS access key that was pasted into chat.**
 
-## Pending verification (blocked only on a tool-transport hiccup; code is on disk)
-- [ ] `cargo build` / `cargo test` whole workspace green.
-- [ ] Run `slide-api` + `slide-sfu` locally; `./scripts/smoke.sh` passes.
-- [ ] Deploy backend to Fly + Supabase; health checks green.
-
-## Gated on external accounts (cannot be automated here)
-- [ ] Apple Developer Program → signing, TestFlight, App Store review.
-- [ ] Google Play Console → keystore, AAB upload, review.
-- [ ] Twilio (or other SMS) production credentials.
-- [ ] **Rotate the AWS key that was pasted into chat.**
-
-## Notes / risks
-- The `slide-sfu` media engine is the most version-sensitive code (webrtc-rs
-  0.12) and the hardest to verify without two real devices on real networks; it
-  may need a compile pass + device smoke test.
-- 1:1 calls route through the SFU in v1 for consistent metrics; P2P fast-path is
-  a later optimization.
+## Media-path caveat
+The SFU **signaling** path is verified end-to-end (auth + SDP/ICE plumbing). Live
+audio/video between two real devices over the SFU/TURN was not verifiable in this
+environment (no two devices on real networks); clients default to a mock
+CallService so all UI renders. Flip to the real WebRTC service on-device.
