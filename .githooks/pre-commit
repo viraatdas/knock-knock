@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Block commits that contain secrets. Enable: git config core.hooksPath .githooks
+# Patterns match secret VALUES (not keywords) so docs that mention them are fine.
+set -u
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail() { echo "pre-commit BLOCKED: $1 (see SECURITY.md)" >&2; exit 1; }
+
+# 1. Secret-shaped filenames must never be staged.
+echo "$staged" | grep -iE '(\.asc\.env$|(^|/)\.env$|aws\.env$|/secrets/|\.p8$|\.p12$|\.pem$|\.keystore$|\.jks$|keystore\.properties$|service-account.*\.json$|AuthKey_.*\.p8$)' \
+  && fail "secret-shaped file staged"
+
+# 2. Secret-shaped VALUES in staged additions (added lines only).
+added=$(git diff --cached --diff-filter=ACM -U0 -- $staged | grep '^+' | grep -v '^+++')
+printf '%s\n' "$added" | grep -qE 'AKIA[0-9A-Z]{16}'                       && fail "AWS access key id"
+printf '%s\n' "$added" | grep -qE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' && fail "private key block"
+printf '%s\n' "$added" | grep -qE 'aws_secret_access_key[[:space:]]*=[[:space:]]*[A-Za-z0-9/+]{40}' && fail "AWS secret key"
+printf '%s\n' "$added" | grep -qE 'DAWTKN[A-Za-z0-9+/]{80,}'              && fail "Apple session value"
+exit 0

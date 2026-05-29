@@ -14,13 +14,15 @@ const siteUrl = "https://web-viraatdas-projects.vercel.app";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Slide — does one thing well",
+    default: "Slide — video calls built for bad internet",
     template: "%s — Slide",
   },
   description:
-    "Slide does one thing well: video calls. Nothing else. Sign up with your phone number — no passwords, no feeds, no clutter. Clear 1:1 and group video with screen share.",
+    "Slide is the video calling app built for shitty internet. One bar, hotel wifi, a train tunnel — the call keeps going while other apps freeze. Just your phone number; no passwords, no feeds, no clutter.",
   keywords: [
     "video calling",
+    "bad internet video call",
+    "low bandwidth video call",
     "phone number signup",
     "group video",
     "screen share",
@@ -28,9 +30,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Slide" }],
   openGraph: {
-    title: "Slide — does one thing well",
+    title: "Slide — video calls built for bad internet",
     description:
-      "Video calls. Nothing else. A phone-only video calling app — no passwords, no clutter.",
+      "The video call that holds up on bad internet. Just your number — no passwords, no clutter.",
     url: siteUrl,
     siteName: "Slide",
     type: "website",
@@ -38,9 +40,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Slide — does one thing well",
+    title: "Slide — video calls built for bad internet",
     description:
-      "Video calls. Nothing else. A phone-only video calling app — no passwords, no clutter.",
+      "The video call that holds up on bad internet. Just your number — no passwords, no clutter.",
   },
   icons: {
     icon: [

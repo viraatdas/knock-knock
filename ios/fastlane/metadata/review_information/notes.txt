@@ -1,0 +1,10 @@
+Slide is a phone-number-based video calling app. Sign-in is via phone-number OTP (one-time SMS code) - there is no username/password.
+
+HOW TO SIGN IN FOR REVIEW:
+1. Launch the app and tap to get started.
+2. Enter a phone number on the phone screen.
+3. The app sends a one-time verification code via SMS. Enter the 6-digit code on the verification screen to complete sign-in.
+
+If the reviewer cannot receive SMS, please contact viraat@exla.ai and we will provision a test number + code, or enable the staging SMS provider that returns the code in-app.
+
+To experience a call, sign in on two devices and call one from the other (tap a contact / recent and start a video call). Camera and microphone permissions are required for video calls; contacts permission is optional (used to find friends already on Slide).
