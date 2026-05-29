@@ -14,29 +14,29 @@ import {
 
 const features = [
   {
+    icon: VideoIcon,
+    title: "Made for weak signal.",
+    body: "Slide adapts in real time to whatever bandwidth you've got — gracefully scaling quality instead of freezing or dropping. One bar, packet loss, a crowded conference wifi: the call keeps going.",
+  },
+  {
+    icon: WaveformIcon,
+    title: "Audio survives anything.",
+    body: "When the network really tanks, Slide protects the voice first — so even at your worst signal you can still hear each other clearly, no robot-stutter, no awkward 'you're cutting out.'",
+  },
+  {
     icon: PhoneIcon,
     title: "Your number is your account.",
     body: "No passwords, no emails, no usernames to forget. Sign in with the phone number you already have.",
   },
   {
-    icon: VideoIcon,
-    title: "Crystal-clear video, one-to-one.",
-    body: "Adaptive quality that stays sharp on the train, on hotel wifi, on the edge of a signal.",
-  },
-  {
     icon: PeopleIcon,
     title: "Bring everyone into the room.",
-    body: "Group calls that feel calm, not crowded. Tap a name, they slide in.",
+    body: "Group calls that stay smooth even when someone's on the subway. Tap a name, they slide in.",
   },
   {
     icon: ShareIcon,
     title: "Share your screen in a tap.",
     body: "Walk through a recipe, a slide, a bug. What you see, they see — instantly.",
-  },
-  {
-    icon: WaveformIcon,
-    title: "Quality you can hear.",
-    body: "Wideband audio and motion-smooth video, tuned end to end so nothing feels far away.",
   },
   {
     icon: LockIcon,
@@ -57,7 +57,7 @@ export default function Home() {
             <div>
               <Reveal>
                 <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
-                  Phone-only video calling
+                  Built for bad internet
                 </p>
               </Reveal>
 
@@ -69,15 +69,15 @@ export default function Home() {
 
               <Reveal delay={120}>
                 <p className="mt-6 max-w-md text-[22px] font-light leading-snug text-text sm:text-[26px]">
-                  Does one thing well.
+                  The video call that holds up on bad internet.
                 </p>
               </Reveal>
 
               <Reveal delay={180}>
                 <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-                  Video calls. Nothing else. Sign up with your number — no
-                  passwords, no feeds, no clutter. Just clear video with the
-                  people you keep meaning to talk to.
+                  One bar, hotel wifi, a train tunnel — Slide keeps the call
+                  alive while other apps freeze. Just your number. No passwords,
+                  no feeds, no clutter.
                 </p>
               </Reveal>
 
@@ -135,8 +135,8 @@ export default function Home() {
           <div className="mx-auto max-w-5xl px-6 py-28 text-center">
             <Reveal>
               <h2 className="mx-auto max-w-2xl text-[36px] font-light leading-tight tracking-tight text-text sm:text-[48px]">
-                One app. One thing.
-                <br className="hidden sm:block" /> Done well.
+                Calls that don&apos;t drop
+                <br className="hidden sm:block" /> when your signal does.
               </h2>
             </Reveal>
             <Reveal delay={80}>
