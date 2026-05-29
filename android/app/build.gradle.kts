@@ -52,8 +52,12 @@ android {
             isDebuggable = true
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Minification is off for the first store submission: R8 strict mode
+            // trips on optional Play Core / WebRTC classes that need keep-rules.
+            // The app ships unminified (Play accepts this); revisit with proper
+            // proguard-rules.pro before optimizing size.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
