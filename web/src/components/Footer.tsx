@@ -13,7 +13,7 @@ export default function Footer() {
             Slide
           </Link>
           <p className="text-[13px] font-light text-text-secondary">
-            does one thing well — video calls
+            video calls built for bad internet
           </p>
         </div>
 
