@@ -8,19 +8,14 @@ Three independent surfaces: **backend** (Fly.io + Supabase), **landing site**
 | Surface | Status | Notes |
 |---|---|---|
 | **Landing site** | ✅ **LIVE** | https://web-viraatdas-projects.vercel.app (+ `/privacy`, `/terms`) |
-| **Backend (API + SFU + TURN)** | 🟡 **AWS: image+DB live, one cmd from API live** | Built + verified locally. On AWS: slide-api image pushed to ECR Public, Supabase Postgres live, secrets generated. **Blocked only on Redis** (IAM can't provision it; supply a `REDIS_URL` then `python3 deploy/aws/finalize.py`). See "Live AWS deployment" below. (Fly path also blocked — no payment method.) |
+| **Backend (API)** | ✅ **LIVE on AWS App Runner** | `slide-api` running on App Runner, public HTTPS, `/v1/health` → `ok`, full smoke test passes. Postgres = Supabase, Redis = co-located in-container (IAM can't provision managed Redis). SFU/TURN media plane deferred. See "Live AWS deployment" below. (Fly path blocked — no payment method.) |
 | **iOS app** | ✅ builds (Simulator) | Submission gated on Apple Developer Program ($99/yr). |
 | **Android app** | ✅ `assembleDebug` APK + screenshots | Submission gated on Google Play Console ($25). |
 | **App Store / Play Store** | ⛔ gated | Paid accounts + human review (days). See `store/`. |
 
-### To unblock the backend deploy (one user action, then one command)
-1. Add a payment method to the Fly account: `fly dashboard` → Billing (Fly
-   requires a card on file before `fly apps create` / `fly deploy` will run).
-2. Provision data stores + deploy everything: `./scripts/deploy-backend.sh`
-   (creates the 3 apps, prints the secrets to set, deploys coturn → sfu → api,
-   health-checks at the end).
-3. Point the apps at it: set the API base URL in `ios` `Config.swift` and
-   `android` `Config.kt` to `https://slide-api.fly.dev/v1`.
+### Backend is live on AWS (see "Live AWS deployment" below)
+The API control plane is deployed on AWS App Runner and verified. The Fly path
+below is an unused alternative (blocked on a Fly payment method).
 
 **Alternative (AWS):** the same multi-bin `Dockerfile` runs on AWS App Runner /
 ECS Fargate behind an NLB (the SFU needs UDP for media; coturn handles relay).
@@ -29,28 +24,107 @@ AWS key must be rotated first.
 
 ## Live AWS deployment (2026-05-28)
 
-Status: **API image + Postgres provisioned and verified; App Runner is one
-command away from live; the ONLY blocker is Redis** (cannot be provisioned with
-the current AWS IAM, and no external Redis credential is available — see below).
+Status: **LIVE.** `slide-api` is running on AWS App Runner with a public HTTPS
+URL, `/v1/health` returns `ok`, and the full end-to-end smoke test passes.
+
+- **Live API base:** `https://<service-id>.us-east-1.awsapprunner.com/v1`
+  (get the exact host with the command in "Get the live URL" below — App Runner
+  generates the `<service-id>` subdomain at create time).
+- **Health:** `https://<service-id>.us-east-1.awsapprunner.com/v1/health` → `ok`
 
 | Piece | Status | Value |
 |---|---|---|
 | AWS identity | ✅ valid | account `597088032164`, user `project-leo`, region `us-east-1` |
-| Container image | ✅ built + pushed | `public.ecr.aws/o3v8s9k2/slide:api` (ECR **Public**, ~28 MB) |
-| Postgres | ✅ live + connection verified | Supabase project `slide-prod` (ref `ozkrlqhkkkpwabxhqxnr`), **session pooler** `aws-0-us-east-1.pooler.supabase.com:5432` |
-| Secrets | ✅ generated | `deploy/secrets/aws.env` (gitignored, mode 600) |
-| Redis | ⛔ **BLOCKED** | not provisionable — see "Redis blocker" |
-| App Runner (compute) | ⏸ pending Redis | create with `python3 deploy/aws/finalize.py` once `REDIS_URL` is set |
-| SFU / media (UDP) | ⏸ follow-up | App Runner has no UDP; signaling can run on App Runner with TURN relay, media needs ECS/EC2 + NLB (deferred) |
+| Container image | ✅ built + pushed | `public.ecr.aws/o3v8s9k2/slide:api-redis` (ECR **Public**, combined redis+api, linux/amd64) |
+| Compute | ✅ **LIVE** | App Runner service `slide-api`, 0.25 vCPU / 0.5 GB, health path `/v1/health` |
+| Postgres | ✅ live + verified | Supabase project `slide-prod` (ref `ozkrlqhkkkpwabxhqxnr`), **session pooler** `aws-0-us-east-1.pooler.supabase.com:5432` |
+| Redis | ✅ co-located in container | `redis://127.0.0.1:6379` (ephemeral OTP/presence; see "Redis: why co-located") |
+| Secrets | ✅ generated | `deploy/secrets/aws.env` (gitignored) |
+| SFU / media (UDP) | ⏸ follow-up | App Runner has no inbound UDP; media needs ECS/EC2 + NLB (deferred) |
 
-### The clock-skew gotcha (why we drive AWS via Python, not the `aws` CLI)
-This machine's system clock is ~120 days ahead of real time. AWS SigV4 allows
-only ~5 min of skew, so **every `aws` CLI call fails with
-`SignatureDoesNotMatch`** — the key itself is valid (proven by a hand-signed STS
-GetCallerIdentity using AWS's server `Date`). All AWS automation here goes
-through `deploy/aws/awsclock.py`, which patches botocore's signing timestamp to
-AWS server time. To use the `aws` CLI directly you must first fix the system
-clock (`sudo sntp -sS time.apple.com`).
+### Clock skew (historical note)
+A prior run hit `SignatureDoesNotMatch` because the system clock was ~120 days
+ahead (SigV4 allows ~5 min skew), and worked around it via `deploy/aws/awsclock.py`
+(patches botocore's signing timestamp to AWS server time). **The clock is now in
+sync**, so the `aws` CLI signs correctly and is used directly. If the CLI ever
+fails with `SignatureDoesNotMatch` again, fix the clock first:
+`sudo sntp -sS time.apple.com` (or fall back to `awsclock.py`).
+
+### IAM scope of user `project-leo` (probed 2026-05-28)
+| Action | Result |
+|---|---|
+| `sts:GetCallerIdentity` | ✅ allowed |
+| `apprunner:*` (list/create/describe/update service) | ✅ allowed |
+| `ecr-public:*` (describe-repositories, get-login-password, push) | ✅ allowed |
+| `ecr:DescribeRepositories` (ECR **private**) | ⛔ `AccessDeniedException` |
+| `elasticache:DescribeCacheClusters` / `DescribeServerlessCaches` | ⛔ `AccessDenied` |
+| `ec2:DescribeVpcs` (and all EC2) | ⛔ `AccessDenied` |
+
+So: App Runner + ECR **Public** work; ECR private, ElastiCache, and EC2/VPC are
+all denied. App Runner can pull from ECR Public with **no IAM access role**, which
+is why this path needs no `iam:CreateRole`.
+
+### Redis: why co-located (and how to move it out later)
+`slide-api` opens a Redis `ConnectionManager` at boot (`main.rs`) and exits if
+Redis is unreachable, so it can't go healthy without Redis. With this IAM there
+is **no AWS-native Redis** (ElastiCache/MemoryDB/EC2 all denied) and **no VPC
+connector** (EC2 denied) to reach one, and no external managed-Redis credential
+(e.g. Upstash) is available non-interactively. Redis here only stores **ephemeral
+OTP codes/attempts with TTLs** (`otp_store.rs`), so it is co-located in the same
+App Runner container via `deploy/aws/Dockerfile.combined` + `entrypoint.sh`
+(`redis-server` on loopback, `maxmemory 64mb`, no persistence). This is correct
+for the current workload.
+
+To move Redis to a managed service later (recommended once the app stores
+anything non-ephemeral or scales past one instance): create an Upstash Redis DB
+(`rediss://default:<pw>@<host>:6379`, region us-east-1), set `REDIS_URL` in
+`deploy/secrets/aws.env`, swap the image back to the plain `:api` tag in
+`deploy/aws/deploy.sh`, and re-run it.
+
+### Reproduce / redeploy (exact commands)
+```bash
+# 0. Confirm identity (clock must be within ~5 min of real time)
+aws --profile slide sts get-caller-identity
+
+# 1. Build + push the combined redis+api image to ECR Public
+./deploy/aws/build-image.sh
+#    -> public.ecr.aws/o3v8s9k2/slide:api-redis  (linux/amd64)
+
+# 2. Create (or update) the App Runner service, wait for RUNNING,
+#    health-check, and run the smoke test:
+./deploy/aws/deploy.sh
+
+# Get the live URL any time:
+aws --profile slide apprunner list-services --region us-east-1 \
+  --query "ServiceSummaryList[?ServiceName=='slide-api'].ServiceUrl | [0]" --output text
+
+# Manual health + smoke against the live URL:
+URL=$(aws --profile slide apprunner list-services --region us-east-1 \
+  --query "ServiceSummaryList[?ServiceName=='slide-api'].ServiceUrl | [0]" --output text)
+curl -fsS "https://$URL/v1/health"
+BASE="https://$URL/v1" PHONE_A=+14155559001 PHONE_B=+14155559002 ./scripts/smoke.sh
+```
+
+### Smoke test result (live, 2026-05-28)
+```
+== health == ok
+== user A login == / == user B login == (OTP via console devCode)
+== A sets name == Alice
+== A registers device == ok
+== A syncs contacts (knows B) == True
+== A starts a 1:1 call to B == (call created)
+== B accepts == ringing
+== B leaves == 200
+== A call history == ended
+== refresh + logout A == logout=204
+✅ smoke test passed
+```
+(`sfuUrl` is still the `ws://localhost:9000` placeholder — the SFU media plane is
+a separate deferred surface; control-plane call flow is fully working.)
+
+### Point the apps at the live API
+Set the API base URL to `https://<service-id>.us-east-1.awsapprunner.com/v1` in
+iOS `Config.swift` and Android `Config.kt`.
 
 ### Redis blocker (the one user action that unblocks a live API)
 The IAM user `project-leo` can create **ECR (public/private) repos** and **App
@@ -115,18 +189,19 @@ python3 deploy/aws/finalize.py
 - ECR Public: **free** (public registry).
 - Supabase Free tier: **$0** (free project; pauses after 7 days inactivity — bump
   to Pro $25/mo for always-on prod).
-- Redis (Upstash free tier): **$0** (pay-per-request beyond free quota).
+- Redis: **$0** (co-located in the App Runner container; no separate service).
 - **Total ≈ $5–7/mo** until you move Supabase to Pro and/or scale App Runner.
 
-### SFU / media follow-up
-App Runner has no inbound UDP, which WebRTC media needs. Options:
+### SFU / media follow-up (deferred — not blocking the API)
+The API control plane is live. The SFU media plane is separate and not yet
+deployed. App Runner has no inbound UDP, which WebRTC media needs. Options:
 (a) run `slide-sfu` *signaling* on a second App Runner service and rely on the
-TURN relay for media (note: this is signaling-only, real media path still needs
-UDP); (b) deploy `slide-sfu` on ECS Fargate or EC2 with a public IP behind an NLB
-exposing the UDP media range. Not done here: (a) Redis is the upstream blocker for
-the whole stack, and (b) the SFU needs UDP infra (NLB/EC2) that the current IAM
-also can't fully provision. Deploy the API first; tackle the SFU once Redis +
-broader IAM are in place.
+TURN relay for media (signaling-only; real media path still needs UDP);
+(b) deploy `slide-sfu` on ECS Fargate or EC2 with a public IP behind an NLB
+exposing the UDP media range. Not done here because the SFU needs UDP infra
+(NLB/EC2) that the current IAM can't provision (`ec2:*` is AccessDenied — see
+the IAM table above). The live API returns the placeholder `SFU_PUBLIC_URL`
+until the SFU is deployed and `SFU_PUBLIC_URL` is set on the App Runner service.
 
 ## 1. Backend — Fly.io + Supabase
 
