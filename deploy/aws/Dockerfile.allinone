@@ -1,0 +1,38 @@
+# All-in-one Slide API image: Postgres + Redis + slide-api in one container.
+#
+# Purpose: a self-contained deploy that goes healthy on App Runner with NO
+# external managed database. Postgres and Redis run locally inside the container
+# and slide-api connects over localhost. State is ephemeral (fine for a demo /
+# first public deploy); swap DATABASE_URL/REDIS_URL env vars to point at managed
+# services later without changing the image.
+#
+#   docker build -f deploy/aws/Dockerfile.allinone --platform linux/amd64 -t slide-allinone .
+
+# ── Stage 1: build slide-api ──────────────────────────────────────────────────
+FROM rust:1.94-slim AS builder
+WORKDIR /app
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pkg-config cmake build-essential \
+ && rm -rf /var/lib/apt/lists/*
+COPY . .
+RUN cargo build --release --bin slide-api && cp target/release/slide-api /app/slide-api
+
+# ── Stage 2: runtime with Postgres + Redis ────────────────────────────────────
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      postgresql postgresql-contrib redis-server ca-certificates gosu \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/slide-api /usr/local/bin/slide-api
+COPY deploy/aws/entrypoint-allinone.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# slide-api listens on 8080; App Runner routes to it.
+ENV API_BIND=0.0.0.0:8080 \
+    DATABASE_URL=postgres://slide:slide@localhost:5432/slide \
+    REDIS_URL=redis://localhost:6379 \
+    SMS_PROVIDER=console \
+    RUST_LOG=info,slide_api=info
+EXPOSE 8080
+CMD ["/usr/local/bin/entrypoint.sh"]
