@@ -1,5 +1,9 @@
 package ai.exla.slide.call.telecom
 
+import android.content.Context
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Bundle
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
@@ -19,6 +23,11 @@ class SlideConnectionService : ConnectionService() {
         request: ConnectionRequest?,
     ): Connection {
         val connection = SlideConnection()
+        // Conditional custom ringtone: use res/raw/ringtone if bundled, else the
+        // system default ringtone. See res/raw/RINGTONE.md.
+        connection.extras = Bundle(connection.extras ?: Bundle()).apply {
+            putParcelable(EXTRA_RINGTONE_URI, ringtoneUri(this@SlideConnectionService))
+        }
         connection.setRinging()
         connection.setCallerDisplayName(
             request?.extras?.getString(EXTRA_CALLER_NAME) ?: "Slide",
@@ -38,6 +47,20 @@ class SlideConnectionService : ConnectionService() {
     companion object {
         const val EXTRA_CALLER_NAME = "ai.exla.slide.CALLER_NAME"
         const val EXTRA_CALL_ID = "ai.exla.slide.CALL_ID"
+        const val EXTRA_RINGTONE_URI = "ai.exla.slide.RINGTONE_URI"
+
+        /**
+         * Resolves the incoming-call ringtone: the bundled `res/raw/ringtone` if
+         * one was added at build time, otherwise the system default ringtone.
+         */
+        fun ringtoneUri(context: Context): Uri {
+            val rawId = context.resources.getIdentifier("ringtone", "raw", context.packageName)
+            return if (rawId != 0) {
+                Uri.parse("android.resource://${context.packageName}/$rawId")
+            } else {
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            }
+        }
     }
 }
 

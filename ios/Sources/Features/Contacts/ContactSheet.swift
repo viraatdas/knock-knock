@@ -4,6 +4,9 @@ struct ContactSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     let contact: Contact
+    /// Invoked when the user taps "Invite to Slide". The presenter handles the
+    /// actual SMS / share-sheet composer.
+    var onInvite: () -> Void = {}
 
     var body: some View {
         VStack(spacing: Theme.Space.xl) {
@@ -44,11 +47,8 @@ struct ContactSheet: View {
                 .padding(.top, Theme.Space.md)
             } else {
                 PrimaryButton(title: "Invite to Slide") {
-                    let text = "Let's talk on Slide."
-                    if let url = URL(string: "sms:\(contact.phone)&body=\(text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")") {
-                        UIApplication.shared.open(url)
-                    }
                     dismiss()
+                    onInvite()
                 }
                 .padding(.horizontal, Theme.Space.lg)
                 .padding(.top, Theme.Space.md)

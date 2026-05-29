@@ -9,7 +9,7 @@ struct MainTabView: View {
     /// Screenshot/debug hook to land on a specific tab.
     private static var initialTab: Tab {
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("-tabContacts") { return .contacts }
+        if args.contains("-tabContacts") || args.contains("-uiPreviewContacts") { return .contacts }
         if args.contains("-tabProfile") { return .profile }
         return .calls
     }

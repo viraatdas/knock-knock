@@ -5,14 +5,13 @@ import Contacts
 final class ContactsViewModel: ObservableObject {
     @Published var contacts: [Contact] = []
     @Published var isLoading = false
+    @Published var isImporting = false
 
     private let api = APIClient.shared
 
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        // Best-effort device contacts sync, then fetch the server list.
-        await syncDeviceContacts()
         do {
             let list = try await api.contacts()
             contacts = list.sorted { $0.displayName < $1.displayName }
@@ -23,13 +22,26 @@ final class ContactsViewModel: ObservableObject {
         }
     }
 
+    /// User-triggered: request Contacts permission, read names + numbers, sync,
+    /// then refresh so on-Slide vs not is reflected.
+    func importContacts() async {
+        isImporting = true
+        defer { isImporting = false }
+        await syncDeviceContacts()
+        await load()
+    }
+
     private func syncDeviceContacts() async {
         let store = CNContactStore()
         guard CNContactStore.authorizationStatus(for: .contacts) != .denied else { return }
         do {
             let granted = try await store.requestAccess(for: .contacts)
             guard granted else { return }
-            let keys = [CNContactPhoneNumbersKey as CNKeyDescriptor]
+            let keys = [
+                CNContactPhoneNumbersKey as CNKeyDescriptor,
+                CNContactGivenNameKey as CNKeyDescriptor,
+                CNContactFamilyNameKey as CNKeyDescriptor,
+            ]
             let request = CNContactFetchRequest(keysToFetch: keys)
             var phones: [String] = []
             try store.enumerateContacts(with: request) { contact, _ in
@@ -72,6 +84,7 @@ struct ContactsView: View {
     @StateObject private var vm = ContactsViewModel()
     @State private var query = ""
     @State private var selected: Contact?
+    @State private var inviteTarget: Contact?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,6 +95,14 @@ struct ContactsView: View {
                         .font(Theme.Font.title)
                         .foregroundStyle(Theme.Color.text)
                     Spacer()
+                    // Header import action.
+                    Button(action: { Task { await vm.importContacts() } }) {
+                        Image(systemName: "square.and.arrow.down")
+                            .font(.system(size: 20, weight: .light))
+                            .foregroundStyle(Theme.Color.text)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .disabled(vm.isImporting)
                 }
                 .padding(.horizontal, Theme.Space.lg)
                 .padding(.top, Theme.Space.sm)
@@ -93,7 +114,14 @@ struct ContactsView: View {
             HairlineDivider()
 
             if vm.contacts.isEmpty && !vm.isLoading {
-                EmptyStateView(message: "No contacts yet", systemImage: "person.2")
+                VStack(spacing: Theme.Space.lg) {
+                    EmptyStateView(message: "No contacts yet", systemImage: "person.2")
+                    PrimaryButton(title: "Import contacts", isLoading: vm.isImporting) {
+                        Task { await vm.importContacts() }
+                    }
+                    .padding(.horizontal, Theme.Space.xxl)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -102,7 +130,7 @@ struct ContactsView: View {
                                 ForEach(section.items) { contact in
                                     ContactRow(contact: contact,
                                                onTap: { selected = contact },
-                                               onInvite: { invite(contact) })
+                                               onInvite: { inviteTarget = contact })
                                     HairlineDivider(leadingInset: Theme.Space.lg + 40 + Theme.Space.md)
                                 }
                             } header: {
@@ -117,17 +145,13 @@ struct ContactsView: View {
         .background(Theme.Color.bg)
         .task { await vm.load() }
         .sheet(item: $selected) { contact in
-            ContactSheet(contact: contact)
+            ContactSheet(contact: contact, onInvite: { inviteTarget = contact })
                 .environmentObject(appState)
                 .presentationDetents([.medium, .large])
         }
-    }
-
-    private func invite(_ contact: Contact) {
-        // Best-effort SMS invite; on simulator this is a no-op.
-        let text = "Let's talk on Slide — get it here."
-        if let url = URL(string: "sms:\(contact.phone)&body=\(text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")") {
-            UIApplication.shared.open(url)
+        .sheet(item: $inviteTarget) { contact in
+            InviteComposer(phone: contact.phone)
+                .ignoresSafeArea()
         }
     }
 }

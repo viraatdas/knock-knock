@@ -10,10 +10,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * Single source of truth for the SMS invite text. Verbatim — do not reword.
+ */
+object InviteMessage {
+    const val BODY =
+        "yo big dog - the hottest video calling app has dropped. drop your shi and download this asap so i can ring you mothereffer" +
+            "\n\n" +
+            "https://slide.viraat.dev"
+}
+
 data class ContactsState(
     val query: String = "",
     val all: List<Contact> = emptyList(),
     val loading: Boolean = true,
+    val importing: Boolean = false,
     val error: String? = null,
 ) {
     /** Filtered + grouped by first letter, sorted alphabetically. */
@@ -57,8 +68,12 @@ class ContactsViewModel(private val repo: SlideRepository) : ViewModel() {
     /** Sync device phone numbers, then reload the matched/known set. */
     fun sync(phones: List<String>) {
         viewModelScope.launch {
+            _state.update { it.copy(importing = true) }
             repo.syncContacts(phones)
+            _state.update { it.copy(importing = false) }
             load()
         }
     }
+
+    fun setImporting(value: Boolean) = _state.update { it.copy(importing = value) }
 }

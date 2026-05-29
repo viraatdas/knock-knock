@@ -1,5 +1,13 @@
 package ai.exla.slide.ui.contacts
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.ContactsContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +24,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -34,9 +44,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.exla.slide.call.CallPeer
 import ai.exla.slide.data.model.Contact
@@ -44,13 +56,36 @@ import ai.exla.slide.ui.components.AvatarCircle
 import ai.exla.slide.ui.components.CircleIconButton
 import ai.exla.slide.ui.components.EmptyState
 import ai.exla.slide.ui.components.Hairline
+import ai.exla.slide.ui.components.PrimaryButton
 import ai.exla.slide.ui.components.quietClickable
 import ai.exla.slide.ui.theme.SlideColors
 
 @Composable
 fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var sheetContact by remember { mutableStateOf<Contact?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            vm.sync(readDevicePhoneNumbers(context))
+        } else {
+            vm.setImporting(false)
+        }
+    }
+
+    val importContacts: () -> Unit = {
+        vm.setImporting(true)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            vm.sync(readDevicePhoneNumbers(context))
+        } else {
+            permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -63,6 +98,16 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Contacts", style = MaterialTheme.typography.titleLarge, color = SlideColors.Ink)
+            Spacer(Modifier.weight(1f))
+            // Header import action.
+            IconButton(onClick = importContacts, enabled = !state.importing) {
+                Icon(
+                    Icons.Outlined.FileDownload,
+                    contentDescription = "Import contacts",
+                    tint = SlideColors.Ink,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
 
         // Pinned search field.
@@ -72,7 +117,24 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
         val groups = state.grouped
         when {
             state.loading && state.all.isEmpty() -> EmptyState("", Modifier.fillMaxSize())
-            groups.isEmpty() -> EmptyState("No contacts yet", Modifier.fillMaxSize())
+            groups.isEmpty() -> Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "No contacts yet",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = SlideColors.InkSecondary,
+                )
+                Spacer(Modifier.height(24.dp))
+                PrimaryButton(
+                    text = "Import contacts",
+                    onClick = importContacts,
+                    loading = state.importing,
+                    modifier = Modifier.padding(horizontal = 40.dp),
+                )
+            }
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 groups.forEach { (letter, contacts) ->
                     item(key = "header-$letter") { SectionHeader(letter) }
@@ -83,6 +145,7 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
                                 onClick = {
                                     if (contact.onSlide) sheetContact = contact
                                 },
+                                onInvite = { invite(context, contact.phone) },
                             )
                             Hairline(startInset = 56.dp)
                         }
@@ -105,6 +168,39 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
                 onCall(contact.toPeer())
             },
         )
+    }
+}
+
+/** Reads name + phone numbers from the device address book. Caller must hold READ_CONTACTS. */
+private fun readDevicePhoneNumbers(context: Context): List<String> {
+    val phones = mutableListOf<String>()
+    val resolver = context.contentResolver
+    val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER)
+    runCatching {
+        resolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            projection, null, null, null,
+        )?.use { cursor ->
+            val numberIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (cursor.moveToNext() && phones.size < 1000) {
+                if (numberIdx >= 0) cursor.getString(numberIdx)?.let { phones.add(it) }
+            }
+        }
+    }
+    return phones
+}
+
+/** Fires an SMS intent pre-filled with the verbatim invite, with a chooser fallback. */
+private fun invite(context: Context, phone: String) {
+    val sms = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$phone")).apply {
+        putExtra("sms_body", InviteMessage.BODY)
+    }
+    runCatching { context.startActivity(sms) }.onFailure {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, InviteMessage.BODY)
+        }
+        runCatching { context.startActivity(Intent.createChooser(send, "Invite to Slide")) }
     }
 }
 
@@ -147,7 +243,7 @@ private fun SectionHeader(letter: String) {
 }
 
 @Composable
-private fun ContactRow(contact: Contact, onClick: () -> Unit) {
+private fun ContactRow(contact: Contact, onClick: () -> Unit, onInvite: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().height(64.dp).quietClickable(onClick),
         verticalAlignment = Alignment.CenterVertically,
@@ -169,6 +265,7 @@ private fun ContactRow(contact: Contact, onClick: () -> Unit) {
                 "Invite",
                 style = MaterialTheme.typography.bodyMedium,
                 color = SlideColors.InkSecondary,
+                modifier = Modifier.quietClickable(onInvite),
             )
         }
     }

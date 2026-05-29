@@ -28,6 +28,11 @@ final class CallKitManager: NSObject, @unchecked Sendable {
         config.maximumCallsPerCallGroup = 1
         config.supportedHandleTypes = [.phoneNumber, .generic]
         config.includesCallsInRecents = true
+        // Use a bundled custom ringtone only when one is present; otherwise CallKit
+        // falls back to the default system ringtone. (See Resources/RINGTONE.md.)
+        if Bundle.main.url(forResource: "ringtone", withExtension: "caf") != nil {
+            config.ringtoneSound = "ringtone.caf"
+        }
         provider = CXProvider(configuration: config)
         super.init()
         provider.setDelegate(self, queue: nil)
