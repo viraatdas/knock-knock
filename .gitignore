@@ -64,3 +64,8 @@ ios/fastlane/.asc.env
 ios/*.xcodeproj/
 __pycache__/
 *.pyc
+android/keystore.properties
+android/*.keystore
+android/*.jks
+android/fastlane/play-service-account.json
+**/play-service-account.json
