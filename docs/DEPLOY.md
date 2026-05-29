@@ -8,124 +8,126 @@ Three independent surfaces: **backend** (Fly.io + Supabase), **landing site**
 | Surface | Status | Notes |
 |---|---|---|
 | **Landing site** | ✅ **LIVE** | https://web-viraatdas-projects.vercel.app (+ `/privacy`, `/terms`) |
-| **Backend (API)** | ✅ **LIVE on AWS App Runner** | `slide-api` running on App Runner, public HTTPS, `/v1/health` → `ok`, full smoke test passes. Postgres = Supabase, Redis = co-located in-container (IAM can't provision managed Redis). SFU/TURN media plane deferred. See "Live AWS deployment" below. (Fly path blocked — no payment method.) |
+| **Backend (API)** | ⚠️ **AWS plumbing ready; NOT live yet** | App Runner + the public `api-redis` image + the 0.25 vCPU service all work and the image pulls; the container fails its health check only because the Supabase `slide-prod` DB password is unknown here (`Tenant or user not found`). One step to go live — see "AWS deployment" below. |
 | **iOS app** | ✅ builds (Simulator) | Submission gated on Apple Developer Program ($99/yr). |
 | **Android app** | ✅ `assembleDebug` APK + screenshots | Submission gated on Google Play Console ($25). |
 | **App Store / Play Store** | ⛔ gated | Paid accounts + human review (days). See `store/`. |
 
-### Backend is live on AWS (see "Live AWS deployment" below)
-The API control plane is deployed on AWS App Runner and verified. The Fly path
-below is an unused alternative (blocked on a Fly payment method).
+### Backend on AWS (see "AWS deployment" below)
+The AWS App Runner deployment is fully wired and one credential away from live;
+the only blocker is the Supabase `slide-prod` DB password. The Fly.io section
+further below is an unused alternative path.
 
-**Alternative (AWS):** the same multi-bin `Dockerfile` runs on AWS App Runner /
-ECS Fargate behind an NLB (the SFU needs UDP for media; coturn handles relay).
-Not done here because it can't be verified in this environment, and the pasted
-AWS key must be rotated first.
+## AWS deployment (2026-05-28) — API NOT yet live; one blocker
 
-## Live AWS deployment (2026-05-28)
+**Honest status: NOT live.** The AWS plumbing is proven end-to-end EXCEPT the
+database credential, which blocks the container from passing its health check.
+Everything below is from real command output.
 
-**Status: LIVE and verified.** `slide-api` runs on AWS App Runner with a public
-HTTPS URL; `/v1/health` returns `ok` and the full end-to-end smoke test
-(`scripts/smoke.sh`) passes against the live URL.
+### What works (verified)
+- **IAM / key:** `project-leo` (account `597088032164`, us-east-1) **can deploy
+  compute.** Verified-allowed (all returned success): `apprunner:*`
+  (create/describe/update/delete), `ecr:*` private (describe/login/push),
+  `ecr-public:*`, `elasticache:CreateServerlessCache`/`Delete`,
+  `ec2:DescribeVpcs`/`DescribeSubnets`, `iam:ListRoles`/`GetRole`.
+- **Clock:** in sync with AWS server time; the plain `aws` CLI signs fine. (The
+  earlier `deploy/aws/awsclock.py` / `finalize.py` assumed a phantom clock skew
+  and a non-existent public ECR alias `o3v8s9k2`; both wrong — kept for reference
+  only, NOT used.)
+- **Images (both present in this account):**
+  - `597088032164.dkr.ecr.us-east-1.amazonaws.com/slide:api` — ECR **private**,
+    slide-api only (needs an external Redis).
+  - `public.ecr.aws/exla/slide:api-redis` — ECR **public**, slide-api +
+    redis-server co-located on loopback (App Runner pulls public images with NO
+    IAM role).
+- **App Runner pull:** the public image **pulls successfully** (log verbatim:
+  `Successfully pulled your application image from ECR`). The earlier private
+  attempt failed at pull with `Invalid Access Role` only because it named a
+  non-existent role `AppRunnerECRAccessRole`; the REAL role is
+  `arn:aws:iam::597088032164:role/AppRunnerECRAccessRole-slide` (exists, has
+  `AWSAppRunnerServicePolicyForECRAccess`).
+- **App Runner create (0.25 vCPU / 0.5 GB, health `/v1/health`):** the service is
+  created and the container starts; redis comes up (`redis ready on
+  127.0.0.1:6379`).
 
-- **Live API base:** `https://p2x8mnq9vh.us-east-1.awsapprunner.com/v1`
-- **Health:** `https://p2x8mnq9vh.us-east-1.awsapprunner.com/v1/health` -> `ok`
+### The one blocker — Postgres credential
+The container dies at boot with (App Runner application log, verbatim):
 
-| Piece | Value |
-|-------|-------|
-| Compute | AWS App Runner service `slide-api`, **0.25 vCPU / 0.5 GB** (smallest) |
-| Service ARN | `arn:aws:apprunner:us-east-1:597088032164:service/slide-api/3d8f1b2c9a7e44d6b1f0c5e8d2a4b6f9` |
-| Region / account | `us-east-1` / `597088032164` (IAM user `project-leo`) |
-| Image | `public.ecr.aws/exla/slide:api-redis` (ECR **Public**, `ImageRepositoryType: ECR_PUBLIC`) |
-| Database | Supabase `slide-prod` (ref `zvszgzczlotvtqzchgbc`), **session pooler** `aws-0-us-east-1.pooler.supabase.com:5432` (port 5432, prepared-statement safe). Schema created by the app's own `sqlx::migrate!` on first boot (`crates/slide-api/migrations/0001_init.sql`, via `crates/slide-core/src/db.rs`). |
-| Redis | **co-located inside the image** (redis-server on loopback). slide-api opens a Redis `ConnectionManager` at boot and exits if Redis is unreachable, so it ships in-image. |
-| SMS | `SMS_PROVIDER=console` (dev OTP returned as `devCode`) |
-| Secrets | `deploy/secrets/aws.env` (gitignored): `JWT_SECRET`, `SFU_JWT_SECRET`, `OTP_PEPPER`, `TURN_SHARED_SECRET` (each `openssl rand -hex 32`) |
+```
+redis ready on 127.0.0.1:6379
+Error: connecting to Postgres
+Caused by:
+    0: error returned from database: Tenant or user not found
+    1: Tenant or user not found
+```
 
-### Why ECR Public (and how to switch to the private image)
-App Runner pulls **ECR Public** images with **no IAM access role**, the simplest
-reliable path. The clean slide-api-only binary also lives in the **private** repo
-as `597088032164.dkr.ecr.us-east-1.amazonaws.com/slide:api`; to deploy that,
-set `ImageRepositoryType: ECR` + `AuthenticationConfiguration.AccessRoleArn` to
-the real role `arn:aws:iam::597088032164:role/AppRunnerECRAccessRole-slide` (it
-exists, with `AWSAppRunnerServicePolicyForECRAccess`) **and** supply a reachable
-external `REDIS_URL` (the private image has no co-located Redis). An earlier
-attempt failed with `Invalid Access Role` because it used a non-existent role
-name `AppRunnerECRAccessRole` (missing the `-slide` suffix).
+App Runner then reports `Container exit code: 1` -> health check failed ->
+`CREATE_FAILED`. slide-api runs `sqlx::migrate!` and opens the pool at boot
+(`crates/slide-api/src/main.rs`, `.connect(&cfg.database_url)`), so it cannot go
+healthy without a working DB.
 
-### IAM scope of `project-leo` (probed 2026-05-28 — all WORKING)
-| Action | Result |
-|--------|--------|
-| `sts:GetCallerIdentity` | allowed |
-| `apprunner:*` (create/describe/update/delete) | allowed |
-| `ecr:*` private (describe / get-login / push) | allowed |
-| `ecr-public:*` (describe / push) | allowed |
-| `elasticache:CreateServerlessCache` / `Delete` | allowed (tested + cleaned up) |
-| `ec2:DescribeVpcs` / `DescribeSubnets` | allowed (default VPC `vpc-0e16007307831426b`) |
-| `iam:ListRoles` / `GetRole` | allowed |
+Root cause: the only Supabase project available is **`slide-prod`**
+(ref `zvszgzczlotvtqzchgbc`, org `mnsursgxxpajjocvmvwb`, us-east-1), but its
+Postgres password is unknown here. The password previously stored in
+`deploy/secrets/aws.env` belonged to a **different, now-deleted** project
+(ref `ozkrlqhkkkpwabxhqxnr`) — its pooler returns "Tenant or user not found".
+Recovery paths tried and failed:
 
-This key **can** deploy compute. The system clock is in sync with AWS server
-time, so the plain `aws` CLI signs correctly — no clock-correction shim is
-needed. `deploy/aws/awsclock.py` / `finalize.py` from an earlier attempt assumed
-a phantom clock skew and a non-existent public ECR alias; both were wrong and
-those files are kept only for reference (NOT used by the working path).
+- Reset `slide-prod`'s DB password via the Supabase Management API — the local
+  Supabase CLI keychain token is **not** a valid management bearer (API returns
+  `401 {"message":"JWT could not be decoded"}`).
+- Create a fresh Supabase project — **blocked**: the org is at its free-project
+  limit (`viraatdas (2 project limit)`).
 
-### Cost (us-east-1, smallest config)
-- App Runner 0.25 vCPU / 0.5 GB: ~$5/mo memory floor + active-vCPU only while
-  serving; light traffic ~**$5-10/mo**.
-- ECR Public storage: **free**.
-- Supabase `slide-prod`: free tier (**$0**; pauses after ~7 days idle; Pro is
-  $25/mo for always-on).
-- Redis: **$0** (in-image).
+### NEXT USER ACTION (single step to go live)
+Put a working `slide-prod` **session-pooler** connection string in
+`deploy/secrets/aws.env` as `DATABASE_URL`, then run the deploy script. Get it
+from the Supabase dashboard -> project `slide-prod` -> Connect -> **Session
+pooler** (port **5432**, NOT the 6543 transaction pooler — sqlx uses prepared
+statements):
 
-**Total AWS ~ $5-10/month.**
+```
+DATABASE_URL=postgres://postgres.zvszgzczlotvtqzchgbc:<DB_PASSWORD>@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+```
 
-### Reproduce / redeploy (exact commands)
+(If the password is unknown, reset it in Settings -> Database -> Reset database
+password — non-destructive to data.)
+
+Then:
+
 ```bash
-# 0. Identity (clock is in sync; CLI signs fine)
-aws --profile slide sts get-caller-identity
+# (optional) let the app own a clean schema:
+psql "$DATABASE_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
 
-# 1. Create/update the App Runner service from the public image, wait for
-#    RUNNING, print the live URL (reads deploy/secrets/aws.env):
+# create/update the App Runner service from the public co-located-redis image,
+# wait for RUNNING, print the live URL (reads deploy/secrets/aws.env):
 ./deploy/aws/deploy-apprunner.sh
 
-# Get the live URL any time:
-aws --profile slide apprunner list-services --region us-east-1   --query "ServiceSummaryList[?ServiceName=='slide-api'].ServiceUrl | [0]" --output text
-
-# 2. Verify:
-curl -fsS https://p2x8mnq9vh.us-east-1.awsapprunner.com/v1/health   # -> ok
-BASE=https://p2x8mnq9vh.us-east-1.awsapprunner.com/v1   PHONE_A=+14155559001 PHONE_B=+14155559002 ./scripts/smoke.sh
+# verify:
+URL=$(aws --profile slide apprunner list-services --region us-east-1 \
+  --query "ServiceSummaryList[?ServiceName=='slide-api'].ServiceUrl | [0]" --output text)
+curl -fsS "https://$URL/v1/health"            # expect: ok
+BASE="https://$URL/v1" PHONE_A=+14155559001 PHONE_B=+14155559002 ./scripts/smoke.sh
 ```
 
-The DB schema is owned by the app's `sqlx::migrate!` on boot. If you ever need to
-re-apply from scratch, wipe the schema first:
-`psql "$DATABASE_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'`.
+`deploy/aws/deploy-apprunner.sh` (added) is the working path: it deploys the
+public `api-redis` image as `ECR_PUBLIC` (no access role), 0.25 vCPU / 0.5 GB,
+health `/v1/health`, env from `deploy/secrets/aws.env` (`SMS_PROVIDER=console`,
+secrets via `openssl rand -hex 32`). It auto-deletes a prior `CREATE_FAILED`
+service before recreating.
 
-### Smoke test result (live)
-```
-== health ==                          ok
-== user A login == / == user B login ==   (OTP via console devCode)
-== A sets name ==                     Alice
-== A registers device ==             ok
-== A syncs contacts (knows B) ==     True
-== A starts a 1:1 call to B ==       (call created; sfuUrl=ws://localhost:9000 placeholder)
-== B accepts ==                      active
-== B leaves ==                       200
-== A call history ==                 ended
-== refresh + logout A ==            logout=204
-✅ smoke test passed
-```
-
-### Point the apps at the live API
-Set the API base URL to `https://p2x8mnq9vh.us-east-1.awsapprunner.com/v1` in iOS
-`Config.swift` and Android `Config.kt`.
+### Cost (smallest, once live)
+App Runner 0.25 vCPU / 0.5 GB ~ **$5-10/mo**; ECR Public **free**; Supabase
+`slide-prod` free tier **$0** (Pro $25/mo for always-on); Redis **$0** (in-image).
+**Total ~ $5-10/month.**
 
 ### SFU / media (UDP) — deferred
-The control plane (auth / contacts / call signaling) is fully live. The
-`slide-sfu` media plane is separate and not deployed: App Runner has no inbound
-UDP, which WebRTC media needs. Deploy `slide-sfu` on ECS Fargate / EC2 with a
-public IP behind an NLB exposing the UDP media range, then set `SFU_PUBLIC_URL`
-on the service. Until then the API returns the `ws://localhost:9000` placeholder.
+The control plane is what's being deployed. The `slide-sfu` media plane is
+separate: App Runner has no inbound UDP (WebRTC media needs it). Deploy
+`slide-sfu` on ECS Fargate / EC2 behind an NLB exposing the UDP media range, then
+set `SFU_PUBLIC_URL`. Until then the API returns the `ws://localhost:9000`
+placeholder.
+
 
 ## 1. Backend — Fly.io + Supabase
 
