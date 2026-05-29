@@ -1,0 +1,8 @@
+{
+  "Protocol": "HTTP",
+  "Path": "/v1/health",
+  "Interval": 10,
+  "Timeout": 5,
+  "HealthyThreshold": 1,
+  "UnhealthyThreshold": 5
+}

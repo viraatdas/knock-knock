@@ -1,0 +1,13 @@
+{
+  "ImageRepository": {
+    "ImageIdentifier": "public.ecr.aws/h1f5g0k2/slide:allinone",
+    "ImageRepositoryType": "ECR_PUBLIC",
+    "ImageConfiguration": {
+      "Port": "8080",
+      "RuntimeEnvironmentVariables": {
+        "SMS_PROVIDER": "console"
+      }
+    }
+  },
+  "AutoDeploymentsEnabled": false
+}

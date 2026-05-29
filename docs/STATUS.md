@@ -22,17 +22,19 @@ App Store and Google Play._
 - **App Store pipeline**: `ios/fastlane` (build_sim/bootstrap/archive/beta/release)
   + the **`/app-store-deploy` skill** — one CLI command ships to TestFlight/App
   Store once an API key exists.
+- **Backend — LIVE on AWS App Runner**: deployed via the all-in-one image
+  (`deploy/aws/Dockerfile.allinone`: Postgres + Redis + slide-api in one
+  container, no external DB). Public HTTPS, health check passing, full smoke
+  test green against the live URL.
+  - URL: `https://nck3w7ufbz.us-east-1.awsapprunner.com`
+  - Health: `GET /v1/health` → `ok` (HTTP 200, verified 2026-05-28)
+  - ARN: `arn:aws:apprunner:us-east-1:597088032164:service/slide-api/89ac9a687e7d4077b1a8173188329cdf`
+  - Image: `public.ecr.aws/h1f5g0k2/slide:allinone`; 1 vCPU / 2 GB; `SMS_PROVIDER=console`
+  - Rough cost ~$5–15/mo. NOTE: in-container DB is **ephemeral** (demo only — set
+    external `DATABASE_URL`/`REDIS_URL` env for durable data). See `docs/DEPLOY.md`
+    → "Live AWS deployment".
 
 ## ⛔ Blocked on a user action (cannot be automated here)
-
-### Backend cloud host — needs one of:
-- **Fly.io**: blocked — *"account has overdue invoices."* Pay at
-  fly.io/dashboard → Billing, then `./scripts/deploy-backend.sh`.
-- **AWS** (preferred): the key (IAM user `project-leo`) is **S3-only** — denied
-  on ECR/App Runner/ECS/EC2/RDS/Lightsail. Attach ECR + App Runner (or ECS/EC2)
-  perms, or provide a capable key/role; then the image deploys to App Runner +
-  Supabase Postgres. (See `docs/DEPLOY.md`.)
-- Works locally now via `docker compose up -d` + `cargo run`.
 
 ### App Store upload — needs (you have the paid Apple account):
 1. A **App Store Connect API key** (`.p8` + Key ID + Issuer ID) — create once at

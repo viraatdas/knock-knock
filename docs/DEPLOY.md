@@ -173,3 +173,61 @@ Live: https://web-viraatdas-projects.vercel.app
 See `store/app-store-connect.md`, `store/play-console.md`, and
 `store/submission-checklist.md`. Privacy + terms are served by the landing site
 at `/privacy` and `/terms`.
+
+## Live AWS deployment
+
+Status: **LIVE** (verified 2026-05-28)
+
+- Platform: AWS App Runner (region `us-east-1`, account `597088032164`, IAM user `project-leo`)
+- Service ARN: `arn:aws:apprunner:us-east-1:597088032164:service/slide-api/89ac9a687e7d4077b1a8173188329cdf`
+- Service URL: `https://nck3w7ufbz.us-east-1.awsapprunner.com`
+- Health check: `GET /v1/health` (HTTP) → `ok` (HTTP 200)
+- Image: `public.ecr.aws/h1f5g0k2/slide:allinone` (ECR Public, alias `h1f5g0k2`)
+  - pushed digest: `sha256:81a8818cea68efd72933ca1b90357e75e57d1457939d1ba5a3853ec72e0276a7`
+- Instance: 1 vCPU / 2 GB, port 8080
+- Env: `SMS_PROVIDER=console`
+- Rough cost: **~$5–15/month** (1 vCPU + 2 GB App Runner: ~$0.064/vCPU-hr +
+  ~$0.007/GB-hr while active, plus ~$0.007/GB-hr provisioned-but-idle memory).
+
+The all-in-one image bundles Postgres + Redis + slide-api in a single container,
+so **no external database/cache is required**. NOTE: the in-container DB is
+**ephemeral** — data is lost on restart/redeploy. Fine for a public demo / smoke
+test, not for production user data. To make data durable, set `DATABASE_URL` /
+`REDIS_URL` to managed endpoints (the binary reads them from env) and redeploy;
+no image rebuild needed.
+
+### Reproduce
+
+```bash
+# 1. Build (linux/amd64; full Rust release build, ~10-20 min)
+docker build -f deploy/aws/Dockerfile.allinone --platform linux/amd64 \
+  -t public.ecr.aws/h1f5g0k2/slide:allinone .
+
+# 2. Push to ECR Public
+aws --profile slide ecr-public get-login-password --region us-east-1 \
+  | docker login --username AWS --password-stdin public.ecr.aws
+docker push public.ecr.aws/h1f5g0k2/slide:allinone
+
+# 3. Create the App Runner service (idempotent JSON payloads live in deploy/aws/)
+aws --profile slide apprunner create-service --region us-east-1 \
+  --service-name slide-api \
+  --source-configuration file://deploy/aws/allinone-source.json \
+  --health-check-configuration file://deploy/aws/allinone-health.json \
+  --instance-configuration file://deploy/aws/allinone-instance.json
+
+# 4. Poll until RUNNING
+aws --profile slide apprunner describe-service --region us-east-1 \
+  --service-arn <ServiceArn> --query 'Service.Status' --output text
+
+# 5. Verify health + run the end-to-end smoke test
+curl -fsS https://nck3w7ufbz.us-east-1.awsapprunner.com/v1/health   # -> ok
+BASE=https://nck3w7ufbz.us-east-1.awsapprunner.com/v1 \
+  PHONE_A=+14155559001 PHONE_B=+14155559002 ./scripts/smoke.sh
+```
+
+If the local clock is skewed and the `aws` CLI returns SigV4
+`SignatureDoesNotMatch`, use `python3 deploy/aws/finalize-allinone.py` instead —
+it signs with clock-corrected server time via `deploy/aws/awsclock.py`.
+
+Smoke test (phone-OTP → contacts → 1:1 call create/accept/leave → history) passed
+end-to-end against the live URL on 2026-05-28 (`✅ smoke test passed`).
