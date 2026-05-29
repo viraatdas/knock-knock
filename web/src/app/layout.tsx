@@ -28,9 +28,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Slide" }],
   openGraph: {
-    title: "Slide — the cleanest way to call",
+    title: "Slide — does one thing well",
     description:
-      "A phone-only video calling app for the friends who never call. No passwords. Just clear video.",
+      "Video calls. Nothing else. A phone-only video calling app — no passwords, no clutter.",
     url: siteUrl,
     siteName: "Slide",
     type: "website",
@@ -38,9 +38,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Slide — the cleanest way to call",
+    title: "Slide — does one thing well",
     description:
-      "A phone-only video calling app for the friends who never call.",
+      "Video calls. Nothing else. A phone-only video calling app — no passwords, no clutter.",
   },
   icons: {
     icon: [

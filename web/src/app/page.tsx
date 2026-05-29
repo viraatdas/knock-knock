@@ -69,14 +69,15 @@ export default function Home() {
 
               <Reveal delay={120}>
                 <p className="mt-6 max-w-md text-[22px] font-light leading-snug text-text sm:text-[26px]">
-                  The cleanest way to call.
+                  Does one thing well.
                 </p>
               </Reveal>
 
               <Reveal delay={180}>
                 <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-                  For the friends who never call. No passwords, no clutter —
-                  just clear video with the people you keep meaning to talk to.
+                  Video calls. Nothing else. Sign up with your number — no
+                  passwords, no feeds, no clutter. Just clear video with the
+                  people you keep meaning to talk to.
                 </p>
               </Reveal>
 
@@ -134,8 +135,8 @@ export default function Home() {
           <div className="mx-auto max-w-5xl px-6 py-28 text-center">
             <Reveal>
               <h2 className="mx-auto max-w-2xl text-[36px] font-light leading-tight tracking-tight text-text sm:text-[48px]">
-                Call the friends you keep
-                <br className="hidden sm:block" /> meaning to call.
+                One app. One thing.
+                <br className="hidden sm:block" /> Done well.
               </h2>
             </Reveal>
             <Reveal delay={80}>

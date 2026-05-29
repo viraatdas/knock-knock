@@ -13,7 +13,7 @@ export default function Footer() {
             Slide
           </Link>
           <p className="text-[13px] font-light text-text-secondary">
-            for the friends who never call
+            does one thing well — video calls
           </p>
         </div>
 
