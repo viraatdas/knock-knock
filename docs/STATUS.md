@@ -53,3 +53,10 @@ SFU signaling verified end-to-end (auth + SDP/ICE). Live audio/video between two
 real devices over SFU/TURN not verifiable here (no two devices on real
 networks); clients default to a mock CallService so all UI renders. Flip to the
 real WebRTC service on-device.
+
+## iOS — UPLOADED to App Store Connect (2026-05-30)
+
+- Signed IPA (`app.exla.slide`, v1.0.0) **uploaded via App Store Connect API key** — `altool --validate-app` clean, `altool --upload-app` RC=0 (accepted by Apple).
+- App record: "Slide Video Calls", apple_id 1780017294.
+- Status: Apple **processing** the build (async ~15-30 min); then submit for review → Apple human review (~1-2 days).
+- Auth that worked: ASC API key `7BM5WGWC32` (issuer 69a6de93-…); creds in gitignored `ios/fastlane/.asc.env`.
