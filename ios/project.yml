@@ -62,7 +62,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Slide
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSCameraUsageDescription: "Slide needs camera access for video calls."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Slide needs microphone access for calls."
         INFOPLIST_KEY_NSContactsUsageDescription: "Slide uses your contacts to find friends already on Slide."
