@@ -295,6 +295,91 @@ platform :ios do
     end
   end
 
+  # Raw App Store Connect REST call using spaceship's JWT. Bypasses broken helpers.
+  def asc_raw(method, path, body = nil)
+    require "net/http"; require "json"; require "uri"
+    tok = Spaceship::ConnectAPI.token
+    jwt = tok.text  # current signed JWT
+    uri = URI("https://api.appstoreconnect.apple.com/#{path}")
+    klass = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch,
+              delete: Net::HTTP::Delete }[method]
+    req = klass.new(uri)
+    req["Authorization"] = "Bearer #{jwt}"
+    req["Content-Type"] = "application/json"
+    req.body = body.to_json if body
+    http = Net::HTTP.new(uri.host, uri.port); http.use_ssl = true
+    res = http.request(req)
+    parsed = (JSON.parse(res.body) rescue res.body)
+    [res.code.to_i, parsed]
+  end
+
+  desc "Set Free pricing via the modern appPriceSchedule REST endpoint."
+  lane :asc_price_free do
+    app = asc_connect
+    # 1) Find the USA $0 price point for this app
+    code, pp = asc_raw(:get, "v1/apps/#{app.id}/appPricePoints?filter%5Bterritory%5D=USA&limit=200")
+    UI.user_error!("price points GET #{code}: #{pp.inspect[0,200]}") unless code == 200
+    points = pp["data"] || []
+    free = points.find { |p| (p.dig("attributes", "customerPrice") || "x").to_f == 0.0 }
+    UI.user_error!("no $0 price point found (#{points.size} points)") unless free
+    UI.message "free price point id=#{free['id']}"
+
+    # 2) Create the price schedule: base USA, manual price = free point
+    body = {
+      data: {
+        type: "appPriceSchedules",
+        relationships: {
+          app: { data: { type: "apps", id: app.id } },
+          baseTerritory: { data: { type: "territories", id: "USA" } },
+          manualPrices: { data: [{ type: "appPrices", id: "${price1}" }] },
+        },
+      },
+      included: [{
+        type: "appPrices", id: "${price1}",
+        attributes: { startDate: nil },
+        relationships: {
+          appPricePoint: { data: { type: "appPricePoints", id: free["id"] } },
+          territory: { data: { type: "territories", id: "USA" } },
+        },
+      }],
+    }
+    # What's in the existing schedule?
+    mc, mp = asc_raw(:get, "v1/appPriceSchedules/#{app.id}/manualPrices?include=appPricePoint&limit=200")
+    prices = (mp["data"] || [])
+    UI.message "existing manualPrices GET #{mc}: count=#{prices.size}"
+    bc, bt = asc_raw(:get, "v1/appPriceSchedules/#{app.id}/baseTerritory")
+    UI.message "baseTerritory GET #{bc}: #{(bt.dig('data','id') rescue bt.inspect[0,120])}"
+
+    if prices.any?
+      UI.success "Price schedule already has #{prices.size} price(s) — pricing is set."
+      next
+    end
+
+    # POST replaces the schedule (create-or-replace per ASC API).
+    code, resp = asc_raw(:post, "v1/appPriceSchedules", body)
+    if [200, 201].include?(code)
+      UI.success "FREE pricing set (appPriceSchedule created)"
+    else
+      UI.error "price schedule POST #{code}: #{resp.inspect[0,600]}"
+    end
+  end
+
+  desc "Discover the App Privacy endpoint names from the app's relationship list."
+  lane :asc_privacy do
+    app = asc_connect
+    # The app's full relationship set tells us the exact privacy path names.
+    # Probe the documented privacy paths directly (collection + publish state).
+    [
+      "v1/apps/#{app.id}/appDataUsages?limit=5",
+      "v1/apps/#{app.id}/dataUsagePublishState",
+      "v1/apps/#{app.id}/appDataUsagesPublishState",
+      "v1/dataUsagePublishStates?filter%5Bapp%5D=#{app.id}",
+    ].each do |path|
+      c, b = asc_raw(:get, path)
+      UI.message "GET #{path.split('?').first} -> #{c} : #{b.inspect[0,180]}"
+    end
+  end
+
   desc "Probe App Privacy (data usage) categories + purposes + grants."
   lane :asc_priv_probe do
     app = asc_connect
