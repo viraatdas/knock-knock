@@ -143,4 +143,38 @@ platform :ios do
     )
   end
 
+  desc "Provision TestFlight internal testing for the latest build (installable today)."
+  lane :tf_internal do
+    require "spaceship"
+    token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    Spaceship::ConnectAPI.token = token
+
+    app = Spaceship::ConnectAPI::App.find(APP_ID)
+    UI.user_error!("App #{APP_ID} not found") unless app
+    UI.message("App: #{app.name} (#{app.id})")
+
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+    UI.user_error!("No build found on App Store Connect") unless build
+    UI.success("Latest build: #{build.app_version} (#{build.version}) state=#{build.processing_state}")
+
+    # Clear export compliance (Info.plist declares ITSAppUsesNonExemptEncryption=NO)
+    begin
+      build.update(attributes: { usesNonExemptEncryption: false })
+      UI.success("Export compliance cleared (usesNonExemptEncryption=false)")
+    rescue => e
+      UI.important("Compliance update note: #{e.message}")
+    end
+
+    groups = Spaceship::ConnectAPI::BetaGroup.all(app_id: app.id)
+    groups.each { |g| UI.message("Group: #{g.name.inspect} internal=#{g.is_internal_group}") }
+    internal = groups.find { |g| g.is_internal_group }
+    if internal
+      UI.success("Internal group present: #{internal.name.inspect} — account-holder Apple ID can install build #{build.version} from the TestFlight app.")
+    else
+      UI.important("No internal group found; create one in App Store Connect > TestFlight.")
+    end
+  end
+
 end
