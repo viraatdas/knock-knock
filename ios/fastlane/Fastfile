@@ -313,6 +313,30 @@ platform :ios do
     [res.code.to_i, parsed]
   end
 
+  desc "Delete the dangling empty review submission (the 'No Items' one)."
+  lane :asc_clean_review do
+    app = asc_connect
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/reviewSubmissions?limit=50")
+    subs = body["data"] || []
+    UI.message "found #{subs.size} review submission(s)"
+    subs.each do |s|
+      st = s.dig("attributes", "state")
+      UI.message "  #{s['id']} state=#{st}"
+      # Only nuke ones that are not actually in/awaiting review
+      if %w[READY_FOR_REVIEW COMPLETE CANCELING UNRESOLVED_ISSUES].include?(st)
+        dc, dr = asc_raw(:delete, "v1/reviewSubmissions/#{s['id']}")
+        if (200..299).include?(dc)
+          UI.success "  deleted #{s['id']} (#{dc})"
+        else
+          # Some states need a cancel PATCH instead of delete
+          pc, pr = asc_raw(:patch, "v1/reviewSubmissions/#{s['id']}",
+            { data: { type: "reviewSubmissions", id: s["id"], attributes: { canceled: true } } })
+          UI.message "  delete #{dc}; cancel PATCH -> #{pc}: #{pr.inspect[0,160]}"
+        end
+      end
+    end
+  end
+
   desc "Set Free pricing via the modern appPriceSchedule REST endpoint."
   lane :asc_price_free do
     app = asc_connect
@@ -546,8 +570,9 @@ platform :ios do
     UI.message "app_info locales: " + locs.map(&:locale).join(", ")
     loc = locs.find { |l| l.locale == "en-US" } || locs.first
     UI.message "before: name=#{loc.name.inspect} subtitle=#{loc.subtitle.inspect}"
-    loc.update(attributes: { name: "Slide Video Calls", subtitle: "Calls that beat bad internet" })
-    UI.success "set name + subtitle (28 chars) on #{loc.locale}"
+    new_name = ENV["SLIDE_APP_NAME"] || "Slide Video Calls"
+    loc.update(attributes: { name: new_name, subtitle: "Calls that beat bad internet" })
+    UI.success "set name (#{new_name}) + subtitle (28 chars) on #{loc.locale}"
   end
 
   desc "Probe pricing + privacy API surface."
