@@ -570,7 +570,7 @@ platform :ios do
     UI.message "app_info locales: " + locs.map(&:locale).join(", ")
     loc = locs.find { |l| l.locale == "en-US" } || locs.first
     UI.message "before: name=#{loc.name.inspect} subtitle=#{loc.subtitle.inspect}"
-    new_name = ENV["SLIDE_APP_NAME"] || "Slide Video Calls"
+    new_name = ENV["SLIDE_APP_NAME"] || "Slide - Fast Video Calls"
     loc.update(attributes: { name: new_name, subtitle: "Calls that beat bad internet" })
     UI.success "set name (#{new_name}) + subtitle (28 chars) on #{loc.locale}"
   end
