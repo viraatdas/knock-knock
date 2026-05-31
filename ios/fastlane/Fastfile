@@ -364,6 +364,55 @@ platform :ios do
     end
   end
 
+  desc "Write App Privacy data usages directly (phone number + contacts) and publish."
+  lane :asc_privacy_set do
+    app = asc_connect
+    # Apple enum IDs (stable strings used as resource ids)
+    categories = %w[PHONE_NUMBER CONTACTS]
+    purpose     = "APP_FUNCTIONALITY"
+    protection  = "DATA_LINKED_TO_YOU"   # linked, not used for tracking
+
+    posted = 0
+    categories.each do |cat|
+      body = {
+        data: {
+          type: "appDataUsages",
+          relationships: {
+            app:        { data: { type: "apps", id: app.id } },
+            category:   { data: { type: "appDataUsageCategories", id: cat } },
+            purpose:    { data: { type: "appDataUsagePurposes", id: purpose } },
+            dataProtection: { data: { type: "appDataUsageDataProtections", id: protection } },
+          },
+        },
+      }
+      code, resp = asc_raw(:post, "v1/appDataUsages", body)
+      if [200, 201].include?(code)
+        UI.success "posted data usage #{cat}/#{purpose}/#{protection}"
+        posted += 1
+      else
+        UI.important "POST #{cat} -> #{code}: #{resp.inspect[0,260]}"
+      end
+    end
+
+    # Publish the privacy answers
+    %w[
+      v1/apps/#{app.id}/relationships/appDataUsagesPublishState
+      v1/appDataUsagesPublishStates
+    ].each do |path|
+      pubbody = {
+        data: {
+          type: "appDataUsagesPublishStates",
+          id: app.id,
+          attributes: { published: true },
+        },
+      }
+      code, resp = asc_raw(:patch, "v1/appDataUsagesPublishStates/#{app.id}", pubbody)
+      UI.message "PATCH publishState -> #{code}: #{resp.inspect[0,200]}"
+      break
+    end
+    UI.message "posted=#{posted}"
+  end
+
   desc "Discover the App Privacy endpoint names from the app's relationship list."
   lane :asc_privacy do
     app = asc_connect
