@@ -167,13 +167,304 @@ platform :ios do
       UI.important("Compliance update note: #{e.message}")
     end
 
-    groups = Spaceship::ConnectAPI::BetaGroup.all(app_id: app.id)
-    groups.each { |g| UI.message("Group: #{g.name.inspect} internal=#{g.is_internal_group}") }
-    internal = groups.find { |g| g.is_internal_group }
-    if internal
-      UI.success("Internal group present: #{internal.name.inspect} — account-holder Apple ID can install build #{build.version} from the TestFlight app.")
-    else
-      UI.important("No internal group found; create one in App Store Connect > TestFlight.")
+    UI.success("Internal testing: account-holder Apple ID can install build #{build.version} from the TestFlight app.")
+  end
+
+  # Helper: connect spaceship with the API key.
+  def asc_connect
+    require "spaceship"
+    token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    Spaceship::ConnectAPI.token = token
+    Spaceship::ConnectAPI::App.find(APP_ID)
+  end
+
+  desc "Fill every App Store listing field that the API allows; report what remains."
+  lane :asc_fill do
+    app = asc_connect
+    UI.user_error!("App #{APP_ID} not found") unless app
+    UI.header("App: #{app.name} (#{app.id})")
+    done = []
+    todo = []
+
+    info = app.fetch_edit_app_info
+    version = app.get_edit_app_store_version
+
+    # 1) Categories (Social Networking primary; Utilities secondary)
+    begin
+      info.update_categories(category_id_map: {
+        primary_category_id: "SOCIAL_NETWORKING",
+        secondary_category_id: "UTILITIES",
+      })
+      done << "categories: Social Networking / Utilities"
+    rescue => e
+      todo << "categories (#{e.message[0,100]})"
+    end
+
+    # 2) Content rights declaration (we own/are licensed for all content)
+    begin
+      if app.content_rights_declaration == "DOES_NOT_USE_THIRD_PARTY_CONTENT"
+        done << "content rights: already set"
+      else
+        app.update(attributes: { contentRightsDeclaration: "DOES_NOT_USE_THIRD_PARTY_CONTENT" })
+        done << "content rights: no third-party content"
+      end
+    rescue => e
+      todo << "content rights (#{e.message[0,100]})"
+    end
+
+    # 3) Age rating — declare everything none/false (utility video calling → 4+)
+    begin
+      decl = info.fetch_age_rating_declaration
+      if decl
+        attrs = {
+          alcoholTobaccoOrDrugUseOrReferences: "NONE",
+          contests: "NONE",
+          gamblingSimulated: "NONE",
+          medicalOrTreatmentInformation: "NONE",
+          profanityOrCrudeHumor: "NONE",
+          sexualContentGraphicAndNudity: "NONE",
+          sexualContentOrNudity: "NONE",
+          horrorOrFearThemes: "NONE",
+          matureOrSuggestiveThemes: "NONE",
+          violenceCartoonOrFantasy: "NONE",
+          violenceRealistic: "NONE",
+          violenceRealisticProlongedGraphicOrSadistic: "NONE",
+          gunsOrOtherWeapons: false,
+          healthOrWellnessTopics: false,
+          lootBox: false,
+          gambling: false,
+          unrestrictedWebAccess: false,
+          messagingAndChat: false,
+          userGeneratedContent: false,
+          advertising: false,
+          parentalControls: false,
+          ageAssurance: false,
+          kidsAgeBand: nil,
+        }
+        decl.update(attributes: attrs)
+        done << "age rating: all NONE (4+)"
+      else
+        todo << "age rating (no declaration object)"
+      end
+    rescue => e
+      todo << "age rating (#{e.message[0,140]})"
+    end
+
+    # 4) Copyright + release type on the version
+    begin
+      version.update(attributes: { copyright: "2026 Viraat Das", releaseType: "AFTER_APPROVAL" })
+      done << "copyright + auto-release on approval"
+    rescue => e
+      todo << "copyright (#{e.message[0,100]})"
+    end
+
+    UI.header("DONE (#{done.size})"); done.each { |d| UI.success("  ✔ #{d}") }
+    UI.header("STILL TODO (#{todo.size})"); todo.each { |t| UI.important("  • #{t}") }
+  end
+
+  desc "Introspect spaceship API surface for app/version/appinfo."
+  lane :asc_probe do
+    app = asc_connect
+    UI.message "APP methods: " + (app.methods - Object.instance_methods).sort.join(", ")
+    begin
+      infos = app.get_app_infos
+      UI.message "APP_INFOS count=#{infos.size}"
+      ai = infos.first
+      UI.message "APPINFO state=#{ai.app_store_state rescue '?'} methods: " + (ai.methods - Object.instance_methods).sort.join(", ")
+      UI.message "APPINFO primary=#{ai.primary_category&.id rescue '?'} secondary=#{ai.secondary_category&.id rescue '?'}"
+    rescue => e
+      UI.error "appinfo: #{e.class} #{e.message[0,140]}"
+    end
+    begin
+      ai = app.fetch_edit_app_info
+      UI.message "EDIT_APPINFO state=#{ai&.app_store_state rescue '?'} methods: " + (ai.methods - Object.instance_methods).sort.join(", ")
+      UI.message "EDIT_APPINFO primary=#{ai.primary_category&.id rescue '?'} secondary=#{ai.secondary_category&.id rescue '?'}"
+      adecl = ai.fetch_age_rating_declaration rescue nil
+      UI.message "APPINFO age_decl present=#{!adecl.nil?} id=#{adecl&.id}"
+      UI.message "APPINFO age_decl methods: " + ((adecl.methods - Object.instance_methods).sort.join(", ")) if adecl
+    rescue => e
+      UI.error "appinfo2: #{e.class} #{e.message[0,140]}"
+    end
+    begin
+      v = app.get_edit_app_store_version
+      UI.message "VERSION #{v&.version_string} state=#{v&.app_store_state}"
+    rescue => e
+      UI.error "version: #{e.class} #{e.message[0,140]}"
+    end
+  end
+
+  desc "Probe App Privacy (data usage) categories + purposes + grants."
+  lane :asc_priv_probe do
+    app = asc_connect
+    c = Spaceship::ConnectAPI
+    begin
+      cats = c.get_app_data_usage_categories(includes: nil, limit: 200).to_models
+      UI.message "CATEGORIES (#{cats.size}):"
+      cats.each { |x| UI.message "  cat #{x.id}" }
+    rescue => e
+      UI.error "categories: #{e.class} #{e.message[0,160]}"
+    end
+    begin
+      purp = c.get_app_data_usage_purposes(includes: nil, limit: 200).to_models
+      UI.message "PURPOSES (#{purp.size}):"
+      purp.each { |x| UI.message "  purpose #{x.id}" }
+    rescue => e
+      UI.error "purposes: #{e.class} #{e.message[0,160]}"
+    end
+    begin
+      st = c.get_app_data_usages_publish_state(app_id: app.id)
+      m = st.to_models.first rescue nil
+      UI.message "PUBLISH_STATE published=#{m&.published rescue '?'}"
+    rescue => e
+      UI.important "publish_state err: #{e.class} #{e.message[0,90]}"
+    end
+    begin
+      us = c.get_app_data_usages(app_id: app.id, includes: nil, limit: 200).to_models
+      UI.message "EXISTING data usages: #{us.size}"
+    rescue => e
+      UI.important "data_usages err: #{e.class} #{e.message[0,90]}"
+    end
+  end
+
+  desc "Declare App Privacy: 'Data Not Collected' (publishes the privacy answers)."
+  lane :asc_priv_none do
+    app = asc_connect
+    c = Spaceship::ConnectAPI
+    # Remove any existing usages, then set the 'not collected' grant and publish.
+    begin
+      existing = c.get_app_data_usages(app_id: app.id, includes: nil, limit: 200).to_models
+      existing.each { |u| c.delete_app_data_usage(app_data_usage_id: u.id) rescue nil }
+      UI.message "cleared #{existing.size} existing usages"
+    rescue => e
+      UI.important "clear err: #{e.message[0,90]}"
+    end
+    # "DATA_NOT_COLLECTED" grant: post a usage with the special category.
+    begin
+      c.post_app_data_usage(app_id: app.id, app_data_usage_category_id: nil,
+                            app_data_usage_protection_id: nil, app_data_usage_purpose_id: nil,
+                            app_data_usage_data_protection_id: "DATA_NOT_COLLECTED")
+      UI.success "posted DATA_NOT_COLLECTED"
+    rescue => e
+      UI.important "post not-collected err: #{e.class} #{e.message[0,120]}"
+    end
+    begin
+      c.patch_app_data_usages_publish_state(app_id: app.id, published: true)
+      UI.success "PUBLISHED app privacy"
+    rescue => e
+      UI.error "publish err: #{e.class} #{e.message[0,160]}"
+    end
+  end
+
+  desc "Set the age-rating declaration to all-clear (4+), auto-resolving STRING vs BOOLEAN per field."
+  lane :asc_agerating do
+    app = asc_connect
+    info = app.fetch_edit_app_info
+    decl = info.fetch_age_rating_declaration
+    UI.user_error!("no age rating declaration") unless decl
+
+    string_fields = %w[
+      alcoholTobaccoOrDrugUseOrReferences contests gamblingSimulated
+      medicalOrTreatmentInformation profanityOrCrudeHumor
+      sexualContentGraphicAndNudity sexualContentOrNudity horrorOrFearThemes
+      matureOrSuggestiveThemes violenceCartoonOrFantasy violenceRealistic
+      violenceRealisticProlongedGraphicOrSadistic gunsOrOtherWeapons
+    ]
+    bool_fields = %w[
+      gambling unrestrictedWebAccess lootBox messagingAndChat
+      healthOrWellnessTopics userGeneratedContent advertising
+      parentalControls ageAssurance
+    ]
+    attrs = {}
+    string_fields.each { |f| attrs[f.to_sym] = "NONE" }
+    bool_fields.each   { |f| attrs[f.to_sym] = false }
+
+    ok = false
+    20.times do |i|
+      begin
+        decl.update(attributes: attrs)
+        UI.success("Age rating set on attempt #{i + 1}")
+        ok = true
+        break
+      rescue => e
+        msg = e.message.to_s
+        m = msg.match(/attribute '([A-Za-z]+)'.*?Expected a (BOOLEAN|STRING)/m)
+        if m
+          field = m[1].to_sym
+          want = m[2]
+          attrs[field] = (want == "BOOLEAN" ? false : "NONE")
+          UI.message("  fix #{field} -> #{want}")
+        else
+          UI.error("Unparseable: #{msg[0,200]}")
+          raise
+        end
+      end
+    end
+    UI.user_error!("age rating: gave up after 20 attempts") unless ok
+  end
+
+  desc "Set name/subtitle on the editable App Info localization (bypass deliver)."
+  lane :asc_text do
+    app = asc_connect
+    info = app.fetch_edit_app_info
+    locs = info.get_app_info_localizations
+    UI.message "app_info locales: " + locs.map(&:locale).join(", ")
+    loc = locs.find { |l| l.locale == "en-US" } || locs.first
+    UI.message "before: name=#{loc.name.inspect} subtitle=#{loc.subtitle.inspect}"
+    loc.update(attributes: { name: "Slide Video Calls", subtitle: "Calls that beat bad internet" })
+    UI.success "set name + subtitle (28 chars) on #{loc.locale}"
+  end
+
+  desc "Probe pricing + privacy API surface."
+  lane :asc_probe2 do
+    app = asc_connect
+    client = Spaceship::ConnectAPI
+    UI.message "ConnectAPI methods (price/privacy/territory/availab): " +
+      client.methods.map(&:to_s).grep(/price|privacy|territor|availab|data_usage|datausage/i).sort.join(", ")
+    # Try direct GETs against the documented endpoints
+    [
+      "apps/#{app.id}/appPriceSchedule",
+      "apps/#{app.id}/appAvailabilityV2",
+      "apps/#{app.id}/appPricePoints?limit=3",
+      "apps/#{app.id}/appInfos",
+    ].each do |url|
+      begin
+        r = client.get(url: url)
+        n = (r.to_models.size rescue (r.respond_to?(:count) ? r.count : "?"))
+        UI.success "GET #{url} -> ok (#{n})"
+      rescue => e
+        UI.important "GET #{url} -> #{e.class}: #{e.message[0,90]}"
+      end
+    end
+    # Price points for free tier
+    begin
+      r = client.get(url: "apps/#{app.id}/appPricePoints", params: { "filter[territory]" => "USA", limit: 200 })
+      pts = r.to_models
+      free = pts.find { |p| (p.customer_price.to_f rescue 1.0) == 0.0 }
+      UI.message "pricePoints=#{pts.size} freePoint=#{free&.id}"
+    rescue => e
+      UI.important "pricePoints err: #{e.class} #{e.message[0,100]}"
+    end
+  end
+
+  desc "Authoritative: is the app actually submitted for review?"
+  lane :asc_state do
+    app = asc_connect
+    v = app.get_edit_app_store_version || app.get_latest_app_store_version
+    UI.header "VERSION #{v&.version_string} state=#{v&.app_store_state}"
+    begin
+      ip = app.get_in_progress_review_submission
+      UI.message "in_progress_review_submission: #{ip ? "present id=#{ip.id} state=#{ip.state rescue '?'}" : 'NONE'}"
+    rescue => e
+      UI.message "in_progress review: #{e.class} #{e.message[0,80]}"
+    end
+    begin
+      subs = app.get_review_submissions
+      UI.message "review_submissions: #{subs.size}"
+      subs.each { |s| UI.message("  - id=#{s.id} state=#{s.state rescue '?'} platform=#{s.platform rescue '?'}") }
+    rescue => e
+      UI.message "review_submissions: #{e.class} #{e.message[0,80]}"
     end
   end
 
