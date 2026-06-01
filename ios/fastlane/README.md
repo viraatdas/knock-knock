@@ -63,6 +63,126 @@ Build + upload to App Store + submit for review.
 
 Submit the already-uploaded build for App Store review (waits for processing).
 
+### ios tf_internal
+
+```sh
+[bundle exec] fastlane ios tf_internal
+```
+
+Provision TestFlight internal testing for the latest build (installable today).
+
+### ios asc_fill
+
+```sh
+[bundle exec] fastlane ios asc_fill
+```
+
+Fill every App Store listing field that the API allows; report what remains.
+
+### ios asc_probe
+
+```sh
+[bundle exec] fastlane ios asc_probe
+```
+
+Introspect spaceship API surface for app/version/appinfo.
+
+### ios asc_clean_review
+
+```sh
+[bundle exec] fastlane ios asc_clean_review
+```
+
+Delete the dangling empty review submission (the 'No Items' one).
+
+### ios asc_price_free
+
+```sh
+[bundle exec] fastlane ios asc_price_free
+```
+
+Set Free pricing via the modern appPriceSchedule REST endpoint.
+
+### ios asc_privacy_set
+
+```sh
+[bundle exec] fastlane ios asc_privacy_set
+```
+
+Write App Privacy data usages directly (phone number + contacts) and publish.
+
+### ios asc_privacy
+
+```sh
+[bundle exec] fastlane ios asc_privacy
+```
+
+Discover the App Privacy endpoint names from the app's relationship list.
+
+### ios asc_priv_probe
+
+```sh
+[bundle exec] fastlane ios asc_priv_probe
+```
+
+Probe App Privacy (data usage) categories + purposes + grants.
+
+### ios asc_priv_none
+
+```sh
+[bundle exec] fastlane ios asc_priv_none
+```
+
+Declare App Privacy: 'Data Not Collected' (publishes the privacy answers).
+
+### ios asc_agerating
+
+```sh
+[bundle exec] fastlane ios asc_agerating
+```
+
+Set the age-rating declaration to all-clear (4+), auto-resolving STRING vs BOOLEAN per field.
+
+### ios asc_text
+
+```sh
+[bundle exec] fastlane ios asc_text
+```
+
+Set name/subtitle on the editable App Info localization (bypass deliver).
+
+### ios asc_probe2
+
+```sh
+[bundle exec] fastlane ios asc_probe2
+```
+
+Probe pricing + privacy API surface.
+
+### ios asc_state
+
+```sh
+[bundle exec] fastlane ios asc_state
+```
+
+Authoritative: is the app actually submitted for review?
+
+### ios asc_cancel_review
+
+```sh
+[bundle exec] fastlane ios asc_cancel_review
+```
+
+Cancel the in-progress review submission so the version becomes editable again.
+
+### ios attach_latest_build
+
+```sh
+[bundle exec] fastlane ios attach_latest_build
+```
+
+Poll build processing, then attach the newest build to the editable 1.0.0 version.
+
 ----
 
 This README.md is auto-generated and will be re-generated every time [_fastlane_](https://fastlane.tools) is run.

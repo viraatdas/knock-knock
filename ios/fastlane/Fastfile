@@ -627,4 +627,57 @@ platform :ios do
     end
   end
 
+  desc "Cancel the in-progress review submission so the version becomes editable again."
+  lane :asc_cancel_review do
+    app = asc_connect
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/reviewSubmissions?limit=50")
+    subs = body["data"] || []
+    UI.message "found #{subs.size} review submission(s)"
+    subs.each do |s|
+      st = s.dig("attributes", "state")
+      UI.message "  #{s['id']} state=#{st}"
+      next unless %w[WAITING_FOR_REVIEW IN_REVIEW READY_FOR_REVIEW].include?(st)
+      pc, pr = asc_raw(:patch, "v1/reviewSubmissions/#{s['id']}",
+        { data: { type: "reviewSubmissions", id: s["id"], attributes: { canceled: true } } })
+      if (200..299).include?(pc)
+        UI.success "  canceled #{s['id']} (#{pc})"
+      else
+        UI.important "  cancel PATCH #{s['id']} -> #{pc}: #{pr.inspect[0,200]}"
+      end
+    end
+  end
+
+  desc "Poll build processing, then attach the newest build to the editable 1.0.0 version."
+  lane :attach_latest_build do
+    app = asc_connect
+    target_version = ENV["SLIDE_TARGET_BUILD"] # optional specific build number
+    build = nil
+    40.times do |i|
+      builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 5)
+      build = if target_version
+                builds.find { |b| b.version.to_s == target_version.to_s }
+              else
+                builds.first
+              end
+      st = build&.processing_state
+      UI.message("[#{i}] build #{build&.version} state=#{st}")
+      break if st == "VALID"
+      sleep(15)
+    end
+    UI.user_error!("No build became VALID") unless build && build.processing_state == "VALID"
+
+    # Clear export compliance on the build.
+    begin
+      build.update(attributes: { usesNonExemptEncryption: false })
+      UI.success("Export compliance cleared on build #{build.version}")
+    rescue => e
+      UI.important("Compliance note: #{e.message}")
+    end
+
+    v = app.get_edit_app_store_version
+    UI.user_error!("No editable version to attach to (it may be locked in review)") unless v
+    v.select_build(build_id: build.id)
+    UI.success("Attached build #{build.version} to version #{v.version_string}")
+  end
+
 end
