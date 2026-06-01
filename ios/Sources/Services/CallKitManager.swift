@@ -21,6 +21,23 @@ final class CallKitManager: NSObject, @unchecked Sendable {
     /// Maps our UUIDs to call ids (server-side string ids).
     private(set) var activeCallId: UUID?
 
+    /// Short connected/ended chimes (see Resources/RINGTONE.md). Held strongly so
+    /// playback isn't cut off by deallocation.
+    private var chimePlayer: AVAudioPlayer?
+
+    private func playChime(_ name: String) {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "caf") else { return }
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.volume = 0.7
+            player.prepareToPlay()
+            player.play()
+            chimePlayer = player
+        } catch {
+            // Non-fatal: a missing/unreadable chime just means no sound.
+        }
+    }
+
     override init() {
         let config = CXProviderConfiguration()
         config.supportsVideo = true
@@ -74,6 +91,7 @@ final class CallKitManager: NSObject, @unchecked Sendable {
 
     func reportOutgoingConnected(uuid: UUID) {
         provider.reportOutgoingCall(with: uuid, connectedAt: Date())
+        playChime("pickup")
     }
 
     // MARK: - End
@@ -85,6 +103,7 @@ final class CallKitManager: NSObject, @unchecked Sendable {
 
     func reportCallEnded(uuid: UUID, reason: CXCallEndedReason = .remoteEnded) {
         provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+        playChime("hangup")
         if activeCallId == uuid { activeCallId = nil }
     }
 }
@@ -98,6 +117,7 @@ extension CallKitManager: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         delegate?.callKitDidAnswer(callId: action.callUUID)
+        playChime("pickup")
         action.fulfill()
     }
 
