@@ -21,6 +21,12 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
     private(set) var isMuted: Bool = false
     private(set) var isVideoEnabled: Bool = true
     private(set) var isUsingFrontCamera: Bool = true
+    private(set) var remoteParticipants: [RemoteParticipant] = []
+
+    /// Per-participant remote video renderers, keyed by SFU stream id. The SFU
+    /// tags each forwarded track's stream with the publisher's identity.
+    private var remoteRenderers: [String: RTCMTLVideoView] = [:]
+    private var remoteTracks: [String: RTCVideoTrack] = [:]
 
     private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
@@ -182,6 +188,12 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
 
     func makeLocalVideoView() -> AnyView { AnyView(RTCVideoViewRepresentable(view: localRenderer)) }
     func makeRemoteVideoView() -> AnyView { AnyView(RTCVideoViewRepresentable(view: remoteRenderer)) }
+    func makeRemoteVideoView(for participantId: String) -> AnyView {
+        if let view = remoteRenderers[participantId] {
+            return AnyView(RTCVideoViewRepresentable(view: view))
+        }
+        return AnyView(RTCVideoViewRepresentable(view: remoteRenderer))
+    }
 
     func leave() {
         videoCapturer?.stopCapture()
@@ -189,6 +201,9 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         peerConnection = nil
         signaling?.disconnect()
         signaling = nil
+        remoteRenderers.removeAll()
+        remoteTracks.removeAll()
+        remoteParticipants.removeAll()
         let audio = RTCAudioSession.sharedInstance()
         audio.lockForConfiguration()
         try? audio.setActive(false)
@@ -206,11 +221,31 @@ extension RealCallService: RTCPeerConnectionDelegate {
 
     func peerConnection(_ pc: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver,
                         streams: [RTCMediaStream]) {
-        if let track = rtpReceiver.track as? RTCVideoTrack {
-            self.remoteVideoTrack = track
-            track.add(remoteRenderer)
+        guard let track = rtpReceiver.track as? RTCVideoTrack else { return }
+        // The SFU tags each forwarded track's stream id with the publisher's
+        // identity; use it to key per-participant renderers for the group grid.
+        let pid = streams.first?.streamId ?? track.trackId
+        DispatchQueue.main.async {
+            let renderer = RTCMTLVideoView(frame: .zero)
+            track.add(renderer)
+            self.remoteRenderers[pid] = renderer
+            self.remoteTracks[pid] = track
+            // Keep the legacy single-remote view pointing at the first track so
+            // 1:1 calls keep working unchanged.
+            if self.remoteVideoTrack == nil {
+                self.remoteVideoTrack = track
+                track.add(self.remoteRenderer)
+            }
             self.hasRemoteVideo = true
-            DispatchQueue.main.async { self.delegate?.callServiceRemoteVideoBecameAvailable(self) }
+            self.rebuildParticipants()
+            self.delegate?.callServiceRemoteVideoBecameAvailable(self)
+            self.delegate?.callService(self, didUpdateParticipants: self.remoteParticipants)
+        }
+    }
+
+    private func rebuildParticipants() {
+        remoteParticipants = remoteRenderers.keys.sorted().enumerated().map { _, pid in
+            RemoteParticipant(id: pid, displayName: "", hasVideo: true)
         }
     }
 

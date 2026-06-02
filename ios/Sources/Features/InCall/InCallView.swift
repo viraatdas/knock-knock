@@ -20,8 +20,11 @@ struct InCallView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                // Background: video surface (black) or audio-only white.
-                if isVideoCall && vm.hasRemoteVideo {
+                // Background: group grid, 1:1 video surface, or audio-only white.
+                if vm.isGroup {
+                    groupGrid(in: geo)
+                        .ignoresSafeArea()
+                } else if isVideoCall && vm.hasRemoteVideo {
                     vm.service.makeRemoteVideoView()
                         .ignoresSafeArea()
                 } else if isVideoCall {
@@ -30,8 +33,9 @@ struct InCallView: View {
                     audioOnlyBackground
                 }
 
-                // Local self-view thumbnail (draggable, rounded).
-                if isVideoCall {
+                // Local self-view thumbnail (draggable, rounded) — 1:1 only; the
+                // group grid shows everyone including a self tile.
+                if isVideoCall && !vm.isGroup {
                     localThumbnail
                         .position(thumbPosition(in: geo))
                         .gesture(dragGesture(in: geo))
@@ -76,6 +80,39 @@ struct InCallView: View {
         .ignoresSafeArea()
     }
 
+    // MARK: Group grid
+
+    /// Adaptive tile grid for group calls: remote participants plus a self tile.
+    private func groupGrid(in geo: GeometryProxy) -> some View {
+        let participants = vm.displayParticipants
+        let tiles = participants.count + 1            // +1 for the self tile
+        let cols = tiles <= 1 ? 1 : (tiles <= 4 ? 2 : 3)
+        let rows = Int(ceil(Double(tiles) / Double(cols)))
+        let spacing: CGFloat = 4
+        let w = (geo.size.width - spacing * CGFloat(cols - 1)) / CGFloat(cols)
+        let h = (geo.size.height - spacing * CGFloat(rows - 1)) / CGFloat(rows)
+
+        return ZStack {
+            Theme.Color.text
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(w), spacing: spacing), count: cols),
+                      spacing: spacing) {
+                ForEach(participants) { p in
+                    GroupTile(name: p.displayName,
+                              showVideo: isVideoCall && p.hasVideo,
+                              video: { vm.service.makeRemoteVideoView(for: p.id) })
+                        .frame(width: w, height: h)
+                        .clipped()
+                }
+                // Self tile last.
+                GroupTile(name: "You",
+                          showVideo: isVideoCall && vm.isVideoEnabled,
+                          video: { vm.service.makeLocalVideoView() })
+                    .frame(width: w, height: h)
+                    .clipped()
+            }
+        }
+    }
+
     // MARK: Local thumbnail
 
     private var localThumbnail: some View {
@@ -110,11 +147,12 @@ struct InCallView: View {
         VStack {
             // Top: callee name + timer in thin white (or black on white for audio).
             VStack(spacing: 4) {
-                Text(call.remoteName)
+                Text(vm.isGroup ? "Group call" : call.remoteName)
                     .font(Theme.Font.title3)
                     .fontWeight(.light)
                     .foregroundStyle(chromeText)
-                Text(vm.statusText)
+                Text(vm.isGroup ? "\(call.memberNames.count + 1) people · \(vm.statusText)"
+                                : vm.statusText)
                     .font(Theme.Font.callout)
                     .foregroundStyle(chromeSubtext)
                     .monospacedDigit()
@@ -211,5 +249,39 @@ struct InCallView: View {
     private func endCall() {
         vm.end()
         appState.endActiveCall()
+    }
+}
+
+// MARK: - Group grid tile
+
+/// A single participant cell in the group grid: live video when available,
+/// otherwise an avatar on near-black, with a name chip in the corner.
+private struct GroupTile<Video: View>: View {
+    let name: String
+    let showVideo: Bool
+    @ViewBuilder var video: () -> Video
+
+    var body: some View {
+        ZStack {
+            if showVideo {
+                video()
+            } else {
+                Theme.Color.text
+                AvatarCircle(name: name.isEmpty ? "?" : name, size: 72)
+            }
+            VStack {
+                Spacer()
+                HStack {
+                    Text(name.isEmpty ? "" : name)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.black.opacity(0.45), in: Capsule())
+                    Spacer()
+                }
+            }
+            .padding(8)
+        }
     }
 }

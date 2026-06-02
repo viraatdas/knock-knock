@@ -85,6 +85,7 @@ struct ContactsView: View {
     @State private var query = ""
     @State private var selected: Contact?
     @State private var inviteTarget: Contact?
+    @State private var showGroupPicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,6 +96,14 @@ struct ContactsView: View {
                         .font(Theme.Font.title)
                         .foregroundStyle(Theme.Color.text)
                     Spacer()
+                    // Start a group call.
+                    Button(action: { showGroupPicker = true }) {
+                        Image(systemName: "person.2.badge.plus")
+                            .font(.system(size: 20, weight: .light))
+                            .foregroundStyle(Theme.Color.text)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityLabel("New group call")
                     // Header import action.
                     Button(action: { Task { await vm.importContacts() } }) {
                         Image(systemName: "square.and.arrow.down")
@@ -148,6 +157,11 @@ struct ContactsView: View {
             ContactSheet(contact: contact, onInvite: { inviteTarget = contact })
                 .environmentObject(appState)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showGroupPicker) {
+            GroupCallPicker(contacts: vm.contacts)
+                .environmentObject(appState)
+                .presentationDetents([.large])
         }
         .sheet(item: $inviteTarget) { contact in
             InviteComposer(phone: contact.phone)

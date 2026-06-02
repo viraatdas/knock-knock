@@ -36,6 +36,24 @@ final class AppState: ObservableObject {
 
         // Debug/screenshot hooks: jump straight to a screen in the simulator.
         let args = ProcessInfo.processInfo.arguments
+        if args.contains("-group") {
+            // Group-call grid for screenshots.
+            currentUser = MockData.me
+            phase = .home
+            let names = ["Amelia Stone", "Daniel Wu", "Grace Lin", "Marcus Reed", "Priya Nair"]
+            let demo = ActiveCall(direction: .outgoing,
+                                  remoteName: names[0],
+                                  remotePhone: "",
+                                  remoteUserId: "u_group",
+                                  isVideo: true,
+                                  status: .connecting,
+                                  isGroup: true,
+                                  memberNames: names)
+            demo.session = MockData.callSession(for: MockData.userForContact(MockData.contacts[0]),
+                                                video: true)
+            activeCall = demo
+            return
+        }
         if args.contains("-home") || args.contains("-incall") {
             currentUser = MockData.me
             phase = .home
@@ -136,6 +154,45 @@ final class AppState: ObservableObject {
                               status: .dialing)
         activeCall = call
         Task { await placeCall(to: user, video: video, local: call) }
+    }
+
+    /// Start a group call with several people selected up front. The backend
+    /// rings everyone and the SFU fans out each participant's media.
+    func startGroupCall(to users: [User], video: Bool) {
+        guard !users.isEmpty else { return }
+        guard users.count > 1 else { startCall(to: users[0], video: video); return }
+        let names = users.map { $0.displayName ?? $0.phone }
+        let call = ActiveCall(direction: .outgoing,
+                              remoteName: names.first ?? "Group",
+                              remotePhone: "",
+                              remoteUserId: users.first?.id,
+                              isVideo: video,
+                              status: .dialing,
+                              isGroup: true,
+                              memberNames: names)
+        activeCall = call
+        Task { await placeGroupCall(to: users, video: video, local: call) }
+    }
+
+    private func placeGroupCall(to users: [User], video: Bool, local: ActiveCall) async {
+        do {
+            let session = try await api.createCall(type: .group,
+                                                   participantUserIds: users.map { $0.id })
+            await MainActor.run {
+                local.session = session
+                local.callId = session.call.id
+                local.status = .connecting
+            }
+        } catch {
+            await MainActor.run {
+                if Config.useMockData {
+                    local.session = MockData.callSession(for: users[0], video: video)
+                    local.status = .connecting
+                } else {
+                    local.status = .failed
+                }
+            }
+        }
     }
 
     private func placeCall(to user: User, video: Bool, local: ActiveCall) async {

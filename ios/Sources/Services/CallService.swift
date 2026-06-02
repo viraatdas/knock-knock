@@ -12,9 +12,24 @@ enum CallConnectionState: Equatable {
     case ended
 }
 
+/// One remote person in a (possibly group) call. `id` is the SFU-assigned track
+/// stream identity; `hasVideo` drives whether we show their feed or an avatar.
+struct RemoteParticipant: Identifiable, Equatable {
+    let id: String
+    var displayName: String
+    var hasVideo: Bool
+}
+
 protocol CallServiceDelegate: AnyObject {
     func callService(_ service: CallService, didChange state: CallConnectionState)
     func callServiceRemoteVideoBecameAvailable(_ service: CallService)
+    /// Fired whenever the set of remote participants changes (join/leave/video).
+    func callService(_ service: CallService, didUpdateParticipants participants: [RemoteParticipant])
+}
+
+extension CallServiceDelegate {
+    // Optional: 1:1-only services need not implement roster updates.
+    func callService(_ service: CallService, didUpdateParticipants participants: [RemoteParticipant]) {}
 }
 
 /// Abstracts the WebRTC media layer. A real implementation (RealCallService)
@@ -30,6 +45,10 @@ protocol CallService: AnyObject {
     var isVideoEnabled: Bool { get }
     var isUsingFrontCamera: Bool { get }
 
+    /// All remote participants currently in the call (empty for a 1:1 that hasn't
+    /// connected). For 1:1 calls this holds a single entry once connected.
+    var remoteParticipants: [RemoteParticipant] { get }
+
     /// Join a room described by the control-plane response.
     func join(session: CallSession, videoEnabled: Bool)
 
@@ -41,8 +60,16 @@ protocol CallService: AnyObject {
     /// mock returns placeholders).
     func makeLocalVideoView() -> AnyView
     func makeRemoteVideoView() -> AnyView
+    /// Video view for a specific remote participant (group grid). Falls back to
+    /// the single remote view when a service doesn't track per-participant feeds.
+    func makeRemoteVideoView(for participantId: String) -> AnyView
 
     func leave()
+}
+
+extension CallService {
+    func makeRemoteVideoView(for participantId: String) -> AnyView { makeRemoteVideoView() }
+    var remoteParticipants: [RemoteParticipant] { [] }
 }
 
 // MARK: - Mock implementation (default in simulator)
@@ -56,6 +83,11 @@ final class MockCallService: CallService {
     private(set) var isMuted: Bool = false
     private(set) var isVideoEnabled: Bool = true
     private(set) var isUsingFrontCamera: Bool = true
+    private(set) var remoteParticipants: [RemoteParticipant] = []
+
+    /// Names to populate the mock roster with (set by the view model from the
+    /// ActiveCall's member list so the simulator renders a real group grid).
+    var mockMemberNames: [String] = []
 
     func join(session: CallSession, videoEnabled: Bool) {
         isVideoEnabled = videoEnabled
@@ -64,10 +96,15 @@ final class MockCallService: CallService {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self else { return }
             self.connectionState = .connected
+            let names = self.mockMemberNames.isEmpty ? ["Remote"] : self.mockMemberNames
+            self.remoteParticipants = names.enumerated().map { idx, name in
+                RemoteParticipant(id: "mock-\(idx)", displayName: name, hasVideo: videoEnabled)
+            }
             if videoEnabled {
                 self.hasRemoteVideo = true
                 self.delegate?.callServiceRemoteVideoBecameAvailable(self)
             }
+            self.delegate?.callService(self, didUpdateParticipants: self.remoteParticipants)
         }
     }
 
@@ -80,6 +117,10 @@ final class MockCallService: CallService {
 
     func makeLocalVideoView() -> AnyView {
         AnyView(MockVideoPlaceholder(kind: .local))
+    }
+    func makeRemoteVideoView(for participantId: String) -> AnyView {
+        // Deterministic per-participant tint so grid tiles look distinct.
+        AnyView(MockVideoPlaceholder(kind: .remote, seed: participantId))
     }
     func makeRemoteVideoView() -> AnyView {
         AnyView(MockVideoPlaceholder(kind: .remote))
@@ -96,12 +137,22 @@ final class MockCallService: CallService {
 struct MockVideoPlaceholder: View {
     enum Kind { case local, remote }
     let kind: Kind
+    var seed: String = ""
     @State private var phase: CGFloat = 0
+
+    private var tint: Color {
+        guard kind == .remote, !seed.isEmpty else {
+            return kind == .remote ? Theme.Color.text : Theme.Color.bgGrouped
+        }
+        // Deterministic dark tint per participant so grid tiles read as distinct.
+        let h = Double(abs(seed.hashValue) % 360) / 360.0
+        return Color(hue: h, saturation: 0.18, brightness: 0.16)
+    }
 
     var body: some View {
         ZStack {
             // Remote = near-black "video" surface; local = soft gray.
-            (kind == .remote ? Theme.Color.text : Theme.Color.bgGrouped)
+            tint
             GeometryReader { geo in
                 Path { p in
                     let y = geo.size.height * 0.5

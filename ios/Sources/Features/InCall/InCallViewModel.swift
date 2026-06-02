@@ -8,8 +8,11 @@ final class InCallViewModel: ObservableObject {
     @Published var isMuted = false
     @Published var isVideoEnabled: Bool
     @Published var hasRemoteVideo = false
+    @Published var remoteParticipants: [RemoteParticipant] = []
 
     let service: CallService
+    let isGroup: Bool
+    private let memberNames: [String]
     private weak var call: ActiveCall?
     private var timer: Timer?
     private var startedAt: Date?
@@ -18,10 +21,28 @@ final class InCallViewModel: ObservableObject {
     init(call: ActiveCall) {
         self.call = call
         self.isVideoEnabled = call.isVideo
+        self.isGroup = call.isGroup
+        self.memberNames = call.memberNames
         self.service = CallServiceFactory.make()
+        // Seed the mock roster so the simulator renders a real group grid.
+        if let mock = service as? MockCallService {
+            mock.mockMemberNames = call.memberNames
+        }
         let box = Delegate(owner: self)
         self.delegateBox = box
         self.service.delegate = box
+    }
+
+    /// Participants with display names filled in from the call's member list
+    /// (the SFU doesn't carry names, so we map by position for the roster).
+    var displayParticipants: [RemoteParticipant] {
+        remoteParticipants.enumerated().map { idx, p in
+            var copy = p
+            if copy.displayName.isEmpty, idx < memberNames.count {
+                copy.displayName = memberNames[idx]
+            }
+            return copy
+        }
     }
 
     var timerText: String {
@@ -89,6 +110,10 @@ final class InCallViewModel: ObservableObject {
         hasRemoteVideo = service.hasRemoteVideo
     }
 
+    fileprivate func participantsChanged(_ participants: [RemoteParticipant]) {
+        remoteParticipants = participants
+    }
+
     private func startTimer() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -108,6 +133,9 @@ final class InCallViewModel: ObservableObject {
         }
         func callServiceRemoteVideoBecameAvailable(_ service: CallService) {
             Task { @MainActor in self.owner?.remoteVideoAvailable() }
+        }
+        func callService(_ service: CallService, didUpdateParticipants participants: [RemoteParticipant]) {
+            Task { @MainActor in self.owner?.participantsChanged(participants) }
         }
     }
 }

@@ -44,8 +44,32 @@ def vgrad(w, h, c0, c1):
         d.line([(0, y), (w, y)], fill=tuple(int(c0[i] + (c1[i]-c0[i])*t) for i in range(3)))
     return img
 
-def portrait(box_w, box_h, p, head_scale=1.0):
-    """Head + shoulders portrait on the person's soft gradient bg."""
+FACES_DIR = os.path.join(os.path.dirname(__file__), "faces")
+_face_cache = {}
+
+def face_photo(box_w, box_h, key):
+    """Return a real AI-generated (StyleGAN) face photo cropped to fill the box.
+    Falls back to the illustrated portrait if the photo isn't on disk."""
+    path = os.path.join(FACES_DIR, f"{key}.jpg")
+    if not os.path.exists(path):
+        return None
+    src = _face_cache.get(key) or Image.open(path).convert("RGB")
+    _face_cache[key] = src
+    sw, sh = src.size
+    scale = max(box_w/sw, box_h/sh)
+    rw, rh = int(sw*scale), int(sh*scale)
+    r = src.resize((rw, rh), Image.LANCZOS)
+    # center-crop, biased slightly up so faces sit nicely
+    left = (rw - box_w)//2
+    top = max(0, int((rh - box_h)*0.40))
+    return r.crop((left, top, left+box_w, top+box_h))
+
+def portrait(box_w, box_h, p, head_scale=1.0, key=None):
+    """Real AI face photo when available; else an illustrated head+shoulders."""
+    if key is not None:
+        photo = face_photo(box_w, box_h, key)
+        if photo is not None:
+            return photo
     img = vgrad(box_w, box_h, *p["bg"])
     d = ImageDraw.Draw(img)
     cx = box_w // 2
@@ -99,8 +123,8 @@ def status_bar(d, time="4:25", dark=False):
     d.rounded_rectangle((bx, 56, bx+96, 90), radius=10, outline=col, width=4)
     d.rounded_rectangle((bx+6, 62, bx+78, 84), radius=5, fill=col)
 
-def round_avatar(canvas, center, r, p):
-    av = portrait(2*r, 2*r, p, head_scale=1.15)
+def round_avatar(canvas, center, r, p, key=None):
+    av = portrait(2*r, 2*r, p, head_scale=1.15, key=key)
     mask = Image.new("L", (2*r, 2*r), 0)
     ImageDraw.Draw(mask).ellipse((0,0,2*r,2*r), fill=255)
     canvas.paste(av, (center[0]-r, center[1]-r), mask)
@@ -130,7 +154,7 @@ def ctrl_button(d, center, r, fill, icon, icon_col=(255,255,255)):
 
 
 def scene_incall_video(person_key="daniela", name="Daniela Wu", time="12:04", you="alex"):
-    base = portrait(W, H, PEOPLE[person_key], head_scale=1.35)
+    base = portrait(W, H, PEOPLE[person_key], head_scale=1.35, key=person_key)
     d = ImageDraw.Draw(base)
     # top scrim for legibility
     scrim = Image.new("RGBA", (W, 360), (255,255,255,0))
@@ -146,7 +170,7 @@ def scene_incall_video(person_key="daniela", name="Daniela Wu", time="12:04", yo
     # self-view PIP
     pw, ph = 300, 410
     px, py = W-pw-60, 360
-    pip = portrait(pw, ph, PEOPLE[you], head_scale=1.2)
+    pip = portrait(pw, ph, PEOPLE[you], head_scale=1.2, key=you)
     rr = Image.new("L", (pw, ph), 0)
     ImageDraw.Draw(rr).rounded_rectangle((0,0,pw,ph), radius=44, fill=255)
     base.paste(pip, (px, py), rr)
@@ -169,8 +193,9 @@ def scene_group(time="08:31"):
     d.text((W//2, 220), "Group call", font=font(64), fill=NEAR_BLACK, anchor="mm")
     d.text((W//2, 292), "4 people", font=font(44), fill=GRAY, anchor="mm")
     # 2x2 grid
+    # Names chosen to match each AI face's apparent gender.
     keys = ["daniela","isla","grace","ben"]
-    names = ["Daniela","Isla","Grace","Ben"]
+    names = ["Daniel","Isla","Marcus","Ben"]
     gx, gy = 70, 400
     gw = (W - 3*70)//2
     gh = int(gw*1.18)
@@ -179,7 +204,7 @@ def scene_group(time="08:31"):
         r, c = divmod(i, 2)
         x = gx + c*(gw+gap)
         y = gy + r*(gh+gap)
-        tile = portrait(gw, gh, PEOPLE[k], head_scale=1.05)
+        tile = portrait(gw, gh, PEOPLE[k], head_scale=1.05, key=k)
         rr = Image.new("L",(gw,gh),0)
         ImageDraw.Draw(rr).rounded_rectangle((0,0,gw,gh), radius=40, fill=255)
         base.paste(tile,(x,y),rr)
@@ -199,7 +224,7 @@ def scene_incoming(person_key="grace", name="Grace Lin", time="4:25"):
     status_bar(d, time=time)
     # big round portrait
     r = 230
-    round_avatar(base, (W//2, 760), r, PEOPLE[person_key])
+    round_avatar(base, (W//2, 760), r, PEOPLE[person_key], key=person_key)
     d.ellipse((W//2-r, 760-r, W//2+r, 760+r), outline=(0xEC,0xEC,0xEE), width=3)
     d = ImageDraw.Draw(base)
     d.text((W//2, 1130), name, font=font(86), fill=NEAR_BLACK, anchor="mm")
@@ -230,8 +255,9 @@ def regen_variants():
     print("regenerated all 6.5 + iPad variants")
 
 if __name__ == "__main__":
-    scene_incall_video()
+    # person_key picks the AI face; name matches its apparent gender.
+    scene_incall_video(person_key="daniela", name="Daniel Wu", you="alex")
     scene_group()
-    scene_incoming()
+    scene_incoming(person_key="grace", name="Marcus Reed")
     regen_variants()
     print("done")
