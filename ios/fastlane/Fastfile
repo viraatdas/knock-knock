@@ -78,7 +78,7 @@ platform :ios do
       export_method: "app-store",
       output_directory: "build",
       output_name: "Slide.ipa",
-      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES",
+      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES TARGETED_DEVICE_FAMILY=1",
     )
   end
 
