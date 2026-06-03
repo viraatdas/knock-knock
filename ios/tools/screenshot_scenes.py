@@ -129,28 +129,50 @@ def round_avatar(canvas, center, r, p, key=None):
     ImageDraw.Draw(mask).ellipse((0,0,2*r,2*r), fill=255)
     canvas.paste(av, (center[0]-r, center[1]-r), mask)
 
-def ctrl_button(d, center, r, fill, icon, icon_col=(255,255,255)):
-    d.ellipse((center[0]-r, center[1]-r, center[0]+r, center[1]+r), fill=fill)
+def _handset(size, col):
+    """A clean solid telephone-handset glyph (earpiece + handle + mouthpiece),
+    centered in a size×size RGBA tile. Drawn upright; the caller rotates it
+    (135° for the classic red hang-up look). Supersampled for smooth edges."""
+    SS = 4
+    big = size*SS
+    img = Image.new("RGBA", (big, big), (0,0,0,0))
+    d = ImageDraw.Draw(img)
+    c = big//2
+    sc = big/100.0
+    # vertical handle (the grip)
+    d.rounded_rectangle((c-8*sc, c-26*sc, c+8*sc, c+26*sc), radius=8*sc, fill=col)
+    # earpiece (top) + mouthpiece (bottom): wide rounded caps
+    d.rounded_rectangle((c-24*sc, c-40*sc, c+24*sc, c-22*sc), radius=10*sc, fill=col)
+    d.rounded_rectangle((c-24*sc, c+22*sc, c+24*sc, c+40*sc), radius=10*sc, fill=col)
+    return img.resize((size, size), Image.LANCZOS)
+
+def ctrl_button(d, center, r, fill, icon, icon_col=(255,255,255), base=None):
     cx, cy = center
+    # soft drop shadow for depth
+    d.ellipse((cx-r, cy-r+4, cx+r, cy+r+4), fill=(0,0,0,30) if False else None)
+    d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=fill)
     if icon == "end":
-        d.ellipse((cx-r, cy-r, cx+r, cy+r), fill=RED)
-        # handset rotated
-        d.rounded_rectangle((cx-26, cy-10, cx+26, cy+12), radius=12, fill=(255,255,255))
-        d.ellipse((cx-34, cy-2, cx-10, cy+22), fill=RED)
-        d.ellipse((cx+10, cy-2, cx+34, cy+22), fill=RED)
+        # rotated handset (classic red hang-up). Composite onto base if given.
+        size = int(r*1.5)
+        hs = _handset(size, (255,255,255,255)).rotate(135, resample=Image.BICUBIC, expand=False)
+        if base is not None:
+            base.paste(hs, (cx-size//2, cy-size//2), hs)
+        else:
+            d.bitmap((cx-size//2, cy-size//2), hs.convert("1"), fill=(255,255,255))
     elif icon == "video":
-        d.rounded_rectangle((cx-30, cy-18, cx+8, cy+18), radius=8, fill=icon_col)
+        d.rounded_rectangle((cx-30, cy-18, cx+8, cy+18), radius=10, fill=icon_col)
         d.polygon([(cx+12,cy-12),(cx+30,cy-22),(cx+30,cy+22),(cx+12,cy+12)], fill=icon_col)
     elif icon == "mic":
         d.rounded_rectangle((cx-12, cy-26, cx+12, cy+8), radius=12, fill=icon_col)
-        d.arc((cx-22, cy-12, cx+22, cy+24), 0, 180, fill=icon_col, width=5)
-        d.line((cx, cy+24, cx, cy+36), fill=icon_col, width=5)
+        d.arc((cx-22, cy-12, cx+22, cy+24), 0, 180, fill=icon_col, width=6)
+        d.line((cx, cy+24, cx, cy+38), fill=icon_col, width=6)
+        d.line((cx-12, cy+38, cx+12, cy+38), fill=icon_col, width=6)
     elif icon == "flip":
-        d.arc((cx-24, cy-24, cx+24, cy+24), 40, 300, fill=icon_col, width=6)
-        d.polygon([(cx+18,cy-26),(cx+30,cy-12),(cx+10,cy-12)], fill=icon_col)
+        d.arc((cx-24, cy-24, cx+24, cy+24), 40, 300, fill=icon_col, width=7)
+        d.polygon([(cx+18,cy-26),(cx+32,cy-10),(cx+8,cy-10)], fill=icon_col)
     elif icon == "speaker":
         d.polygon([(cx-22,cy-10),(cx-6,cy-10),(cx+6,cy-22),(cx+6,cy+22),(cx-6,cy+10),(cx-22,cy+10)], fill=icon_col)
-        d.arc((cx+2, cy-18, cx+30, cy+18), 300, 60, fill=icon_col, width=5)
+        d.arc((cx+2, cy-18, cx+30, cy+18), 300, 60, fill=icon_col, width=6)
 
 
 def scene_incall_video(person_key="daniela", name="Daniela Wu", time="12:04", you="alex"):
@@ -182,7 +204,7 @@ def scene_incall_video(person_key="daniela", name="Daniela Wu", time="12:04", yo
     cy = by+110
     ctrl_button(d, (int(cxs[0]),cy), 70, (0xF0,0xF0,0xF2), "mic", NEAR_BLACK)
     ctrl_button(d, (int(cxs[1]),cy), 70, (0xF0,0xF0,0xF2), "flip", NEAR_BLACK)
-    ctrl_button(d, (int(cxs[2]),cy), 70, RED, "end")
+    ctrl_button(d, (int(cxs[2]),cy), 70, RED, "end", base=base)
     base.save(f"{OUT}/05_APP_IPHONE_6_9_06-incall-video.png")
     print("wrote 05 incall-video")
 
@@ -195,7 +217,7 @@ def scene_group(time="08:31"):
     # 2x2 grid
     # Names chosen to match each AI face's apparent gender.
     keys = ["daniela","isla","grace","ben"]
-    names = ["Daniel","Isla","Marcus","Ben"]
+    names = ["Sofia","Isla","Mia","Ben"]
     gx, gy = 70, 400
     gw = (W - 3*70)//2
     gh = int(gw*1.18)
@@ -214,7 +236,7 @@ def scene_group(time="08:31"):
         d.text((x+44, y+gh-44), nm, font=font(34), fill=NEAR_BLACK, anchor="lm")
     # end button
     cy = gy + 2*gh + gap + 130
-    ctrl_button(d, (W//2, cy), 78, RED, "end")
+    ctrl_button(d, (W//2, cy), 78, RED, "end", base=base)
     base.save(f"{OUT}/06_APP_IPHONE_6_9_07-incall-audio.png")
     print("wrote 06 group call")
 
@@ -231,7 +253,7 @@ def scene_incoming(person_key="grace", name="Grace Lin", time="4:25"):
     d.text((W//2, 1230), "Incoming video call", font=font(50), fill=GRAY, anchor="mm")
     # decline / accept
     cy = H - 560
-    ctrl_button(d, (int(W*0.30), cy), 95, RED, "end")
+    ctrl_button(d, (int(W*0.30), cy), 95, RED, "end", base=base)
     ctrl_button(d, (int(W*0.70), cy), 95, NEAR_BLACK, "video")
     d.text((int(W*0.30), cy+150), "DECLINE", font=font(38), fill=GRAY, anchor="mm")
     d.text((int(W*0.70), cy+150), "ACCEPT", font=font(38), fill=GRAY, anchor="mm")
@@ -256,8 +278,8 @@ def regen_variants():
 
 if __name__ == "__main__":
     # person_key picks the AI face; name matches its apparent gender.
-    scene_incall_video(person_key="daniela", name="Daniel Wu", you="alex")
+    scene_incall_video(person_key="daniela", name="Sofia Reyes", you="alex")
     scene_group()
-    scene_incoming(person_key="grace", name="Marcus Reed")
+    scene_incoming(person_key="grace", name="Mia Carter")
     regen_variants()
     print("done")
