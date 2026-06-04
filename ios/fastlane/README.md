@@ -199,6 +199,14 @@ Fill the TestFlight beta metadata (description + feedback email + review contact
 
 Submit the latest build for TestFlight Beta App Review (needed for EXTERNAL testers).
 
+### ios tf_beta_cancel
+
+```sh
+[bundle exec] fastlane ios tf_beta_cancel
+```
+
+Cancel any in-flight Beta App Review submissions so a newer build can be submitted.
+
 ### ios tf_public_link
 
 ```sh

@@ -28,6 +28,19 @@ platform :android do
     )
   end
 
+  desc "Upload to internal testing AND push store listing metadata + images"
+  lane :internal_full do
+    build
+    upload_to_play_store(
+      track: "internal",
+      aab: "app/build/outputs/bundle/release/app-release.aab",
+      release_status: "draft",
+      skip_upload_metadata: false,
+      skip_upload_images: false,
+      skip_upload_screenshots: false,
+    )
+  end
+
   desc "Promote the latest internal build to production (staged rollout)"
   lane :production do
     build
