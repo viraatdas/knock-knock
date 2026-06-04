@@ -11,8 +11,9 @@
 # ── Stage 1: build slide-api ──────────────────────────────────────────────────
 FROM rust:1.94-slim AS builder
 WORKDIR /app
+# libssl-dev: web-push -> isahc/curl-sys + ece -> openssl-sys need OpenSSL headers.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends pkg-config cmake build-essential \
+ && apt-get install -y --no-install-recommends pkg-config cmake build-essential libssl-dev \
  && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN cargo build --release --bin slide-api && cp target/release/slide-api /app/slide-api
