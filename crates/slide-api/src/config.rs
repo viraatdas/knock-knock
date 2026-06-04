@@ -21,6 +21,14 @@ pub struct Config {
     pub twilio_account_sid: String,
     pub twilio_auth_token: String,
     pub twilio_from: String,
+    /// AWS region for SNS (SMS). Defaults to us-east-1.
+    pub aws_region: String,
+    /// Sender ID shown on the SMS where carriers support it (optional).
+    pub sms_sender_id: String,
+    /// DANGEROUS: when true, /auth/request-otp echoes the code in its response.
+    /// MUST be false in production. Decoupled from sms_provider so a "console"
+    /// provider never implies leaking the code.
+    pub expose_dev_otp: bool,
 
     pub sfu_public_url: String,
     pub sfu_jwt_secret: String,
@@ -72,6 +80,10 @@ impl Config {
             twilio_account_sid: var("TWILIO_ACCOUNT_SID", ""),
             twilio_auth_token: var("TWILIO_AUTH_TOKEN", ""),
             twilio_from: var("TWILIO_FROM_NUMBER", ""),
+            aws_region: var("AWS_REGION", "us-east-1"),
+            sms_sender_id: var("SMS_SENDER_ID", ""),
+            // Only ever true when explicitly opted in. Never derive from provider.
+            expose_dev_otp: var("EXPOSE_DEV_OTP", "false") == "true",
 
             sfu_public_url: var("SFU_PUBLIC_URL", "ws://localhost:9000"),
             sfu_jwt_secret: var("SFU_JWT_SECRET", "dev-only-sfu-secret-change-me"),
@@ -92,8 +104,11 @@ impl Config {
         }
     }
 
-    /// `true` in dev mode (SMS printed to logs, dev OTP returned in responses).
+    /// `true` only when the OTP code may be echoed in the API response. This is
+    /// a SECURITY-sensitive override that must be explicitly enabled and is NOT
+    /// implied by the SMS provider. In production this is false, so even if SMS
+    /// delivery is misconfigured the code is never leaked to the caller.
     pub fn is_dev_sms(&self) -> bool {
-        self.sms_provider == "console"
+        self.expose_dev_otp
     }
 }

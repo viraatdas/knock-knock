@@ -68,6 +68,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # HTTP client (Twilio, etc.)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
+# AWS SDK (SNS for OTP SMS). Credentials resolve from the App Runner instance
+# role / standard AWS env vars; rustls to match the rest of the stack.
+aws-config = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
+aws-sdk-sns = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
+
 # Config
 dotenvy = "0.15"
 

@@ -34,7 +34,9 @@ pub async fn request_otp(
 
     state.sms.send_code(&e164, &code).await?;
 
-    // In dev mode, return the code so the flow is testable without a real SMS.
+    // Only echo the code when explicitly opted in for dev (EXPOSE_DEV_OTP=true,
+    // gated at startup to console-only). In production this is false, so the
+    // code is delivered solely via SMS and never returned to the caller.
     if state.cfg.is_dev_sms() {
         Ok(Json(json!({ "status": "sent", "devCode": code })))
     } else {

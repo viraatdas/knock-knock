@@ -37,3 +37,5 @@ tracing-subscriber.workspace = true
 dotenvy.workspace = true
 futures.workspace = true
 reqwest.workspace = true
+aws-config.workspace = true
+aws-sdk-sns.workspace = true

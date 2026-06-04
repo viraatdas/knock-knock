@@ -31,6 +31,16 @@ async fn main() -> anyhow::Result<()> {
 
     let cfg = Config::from_env();
 
+    // ── Safety guards: fail loudly instead of shipping an insecure config ──
+    // The OTP code may only be echoed in API responses when SMS is the console
+    // (dev) provider. With a real provider, exposing it is an auth bypass.
+    if cfg.expose_dev_otp && cfg.sms_provider != "console" {
+        anyhow::bail!(
+            "EXPOSE_DEV_OTP=true with SMS_PROVIDER={} would leak OTP codes — refusing to start",
+            cfg.sms_provider
+        );
+    }
+
     // ── Postgres ──
     let db = PgPoolOptions::new()
         .max_connections(20)
@@ -51,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("connecting to Redis")?;
 
-    let sms = SmsSender::from_config(&cfg);
+    let sms = SmsSender::from_config(&cfg).await;
     let hub = Hub::new();
 
     let bind = cfg.api_bind.clone();
