@@ -3,6 +3,7 @@
 
 mod auth;
 mod config;
+mod firebase;
 mod hub;
 mod otp_store;
 mod routes;

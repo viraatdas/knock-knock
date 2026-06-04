@@ -7,7 +7,7 @@ use sqlx::PgPool;
 
 use slide_core::jwt::TokenSigner;
 
-use crate::{config::Config, hub::Hub, sms::SmsSender};
+use crate::{config::Config, firebase::FirebaseVerifier, hub::Hub, sms::SmsSender};
 
 #[derive(Clone)]
 pub struct AppState(pub Arc<Inner>);
@@ -21,6 +21,8 @@ pub struct Inner {
     /// Signs SFU join tokens under the SFU's separate secret.
     pub sfu_signer: TokenSigner,
     pub sms: SmsSender,
+    /// Verifies Firebase phone-auth ID tokens (POST /auth/firebase).
+    pub firebase: FirebaseVerifier,
     /// In-memory fan-out for the app-signaling WebSocket.
     pub hub: Hub,
 }
@@ -42,6 +44,7 @@ impl AppState {
     ) -> Self {
         let access_signer = TokenSigner::new(&cfg.jwt_secret);
         let sfu_signer = TokenSigner::new(&cfg.sfu_jwt_secret);
+        let firebase = FirebaseVerifier::new(cfg.firebase_project_id.clone());
         AppState(Arc::new(Inner {
             cfg,
             db,
@@ -49,6 +52,7 @@ impl AppState {
             access_signer,
             sfu_signer,
             sms,
+            firebase,
             hub,
         }))
     }

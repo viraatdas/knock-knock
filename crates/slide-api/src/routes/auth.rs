@@ -79,9 +79,17 @@ pub async fn verify_otp(
         }
     }
 
-    // Upsert user by phone.
+    issue_session_for_phone(&state, &e164).await.map(Json)
+}
+
+/// Upsert the user by phone and mint an access + refresh token pair. Shared by
+/// both the OTP flow and Firebase phone auth so they behave identically.
+pub async fn issue_session_for_phone(
+    state: &AppState,
+    e164: &str,
+) -> AppResult<TokenResponse> {
     let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE phone = $1")
-        .bind(&e164)
+        .bind(e164)
         .fetch_optional(&state.db)
         .await?;
 
@@ -89,7 +97,7 @@ pub async fn verify_otp(
         Some(u) => (u, false),
         None => {
             let u: User = sqlx::query_as("INSERT INTO users (phone) VALUES ($1) RETURNING *")
-                .bind(&e164)
+                .bind(e164)
                 .fetch_one(&state.db)
                 .await?;
             (u, true)
@@ -99,14 +107,36 @@ pub async fn verify_otp(
     let access_token = state
         .access_signer
         .sign_access(user.id, state.cfg.access_ttl_secs)?;
-    let refresh_token = tokens::issue(&state, user.id).await?;
+    let refresh_token = tokens::issue(state, user.id).await?;
 
-    Ok(Json(TokenResponse {
+    Ok(TokenResponse {
         access_token,
         refresh_token,
         is_new_user,
         user,
-    }))
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FirebaseAuthBody {
+    /// The Firebase ID token obtained on-device after the phone+SMS flow.
+    pub id_token: String,
+}
+
+/// POST /auth/firebase — verify a Firebase phone-auth ID token and mint Slide
+/// session tokens. The phone number comes from the verified token, so there's no
+/// separate code to check here (Firebase already verified the SMS on-device).
+pub async fn firebase_auth(
+    State(state): State<AppState>,
+    Json(body): Json<FirebaseAuthBody>,
+) -> AppResult<Json<TokenResponse>> {
+    let claims = state.firebase.verify(&body.id_token).await?;
+    let raw_phone = claims
+        .phone_number
+        .ok_or_else(|| AppError::bad_request("Firebase token has no phone number"))?;
+    let e164 = phone::normalize_e164(&raw_phone, &state.cfg.default_region)?;
+    issue_session_for_phone(&state, &e164).await.map(Json)
 }
 
 #[derive(Deserialize)]

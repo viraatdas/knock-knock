@@ -23,6 +23,9 @@ pub struct Config {
     pub twilio_from: String,
     /// AWS region for SNS (SMS). Defaults to us-east-1.
     pub aws_region: String,
+    /// Firebase project id; when set, POST /auth/firebase verifies Firebase ID
+    /// tokens (phone auth via the Firebase SDK on-device).
+    pub firebase_project_id: String,
     /// Sender ID shown on the SMS where carriers support it (optional).
     pub sms_sender_id: String,
     /// DANGEROUS: when true, /auth/request-otp echoes the code in its response.
@@ -81,6 +84,7 @@ impl Config {
             twilio_auth_token: var("TWILIO_AUTH_TOKEN", ""),
             twilio_from: var("TWILIO_FROM_NUMBER", ""),
             aws_region: var("AWS_REGION", "us-east-1"),
+            firebase_project_id: var("FIREBASE_PROJECT_ID", ""),
             sms_sender_id: var("SMS_SENDER_ID", ""),
             // Only ever true when explicitly opted in. Never derive from provider.
             expose_dev_otp: var("EXPOSE_DEV_OTP", "false") == "true",

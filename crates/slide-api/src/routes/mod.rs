@@ -20,6 +20,7 @@ pub fn router(state: AppState) -> Router {
         // auth
         .route("/auth/request-otp", post(auth::request_otp))
         .route("/auth/verify-otp", post(auth::verify_otp))
+        .route("/auth/firebase", post(auth::firebase_auth))
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
         // me
