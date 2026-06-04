@@ -728,6 +728,28 @@ platform :ios do
     end
   end
 
+  desc "Report each recent build's beta-review state + assign the newest VALID build to the Friends group."
+  lane :tf_serve_latest do
+    app = asc_connect
+    code, body = asc_raw(:get, "v1/builds?filter%5Bapp%5D=#{app.id}&sort=-version&limit=12")
+    builds = body["data"] || []
+    newest = nil
+    builds.each do |b|
+      ver = b.dig("attributes", "version")
+      rc, rb = asc_raw(:get, "v1/builds/#{b['id']}/betaAppReviewSubmission")
+      st = (rb["data"] && rb.dig("data", "attributes", "betaReviewState")) || "NONE"
+      UI.message "build #{ver}: betaReview=#{st}"
+      newest ||= b if b.dig("attributes", "processingState") == "VALID"
+    end
+    if newest
+      ver = newest.dig("attributes", "version")
+      gid = "40bdc726-6421-4611-b9dc-d23d712fb92f" # Friends (external)
+      ac, _ = asc_raw(:post, "v1/betaGroups/#{gid}/relationships/builds",
+                      { data: [{ type: "builds", id: newest["id"] }] })
+      UI.success "Assigned build #{ver} to Friends group (#{ac})"
+    end
+  end
+
   desc "Cancel any in-flight Beta App Review submissions so a newer build can be submitted."
   lane :tf_beta_cancel do
     app = asc_connect
