@@ -180,6 +180,33 @@ platform :ios do
     Spaceship::ConnectAPI::App.find(APP_ID)
   end
 
+  desc "Enable Push Notifications capability on the App ID (needed for Firebase phone auth + VoIP)."
+  lane :enable_push_capability do
+    require "spaceship"
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], filepath: ENV["ASC_KEY_PATH"]
+    )
+    bundle = Spaceship::ConnectAPI::BundleId.all.find { |b| b.identifier == APP_ID }
+    UI.user_error!("Bundle id #{APP_ID} not found in the portal") unless bundle
+    UI.message "bundle: #{bundle.name} (#{bundle.identifier}) id=#{bundle.id}"
+    code, body = asc_raw(:get, "v1/bundleIds/#{bundle.id}/bundleIdCapabilities")
+    caps = (body["data"] || []).map { |c| c.dig("attributes", "capabilityType") }
+    UI.message "existing capabilities: #{caps.inspect}"
+    if caps.include?("PUSH_NOTIFICATIONS")
+      UI.success "Push already enabled."
+    else
+      pc, pb = asc_raw(:post, "v1/bundleIdCapabilities", {
+        data: { type: "bundleIdCapabilities",
+                attributes: { capabilityType: "PUSH_NOTIFICATIONS" },
+                relationships: { bundleId: { data: { type: "bundleIds", id: bundle.id } } } } })
+      if (200..299).include?(pc)
+        UI.success "Enabled PUSH_NOTIFICATIONS on #{APP_ID}."
+      else
+        UI.user_error!("enable push #{pc}: #{pb.inspect[0,200]}")
+      end
+    end
+  end
+
   desc "Fill every App Store listing field that the API allows; report what remains."
   lane :asc_fill do
     app = asc_connect
