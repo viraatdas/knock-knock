@@ -9,7 +9,7 @@ import {
   PeopleIcon,
   ShareIcon,
   WaveformIcon,
-  LockIcon,
+  CodeIcon,
 } from "@/components/icons";
 
 const features = [
@@ -39,9 +39,9 @@ const features = [
     body: "Walk through a recipe, a slide, a bug. What you see, they see — instantly.",
   },
   {
-    icon: LockIcon,
-    title: "Private by default.",
-    body: "Contacts are matched as hashed numbers. We never sell your data — there's nothing to sell.",
+    icon: CodeIcon,
+    title: "Open source.",
+    body: "Slide is fully open source — anyone can read the code, audit how calls and contacts are handled, and verify there's nothing hidden. Private by default, provable by design.",
   },
 ];
 
@@ -56,6 +56,17 @@ export default function Home() {
           <div className="grid items-center gap-16 lg:grid-cols-[1.1fr_0.9fr]">
             <div>
               <Reveal>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/slide-logo.svg"
+                  alt="Slide"
+                  width={72}
+                  height={72}
+                  className="mb-6 h-16 w-16 rounded-2xl border border-hairline shadow-sm sm:h-[72px] sm:w-[72px]"
+                />
+              </Reveal>
+
+              <Reveal delay={40}>
                 <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
                   Built for bad internet
                 </p>
@@ -69,7 +80,8 @@ export default function Home() {
 
               <Reveal delay={120}>
                 <p className="mt-6 max-w-md text-[22px] font-light leading-snug text-text sm:text-[26px]">
-                  The video call that holds up on bad internet.
+                  The clearest video calls with the people you know. On any
+                  device.
                 </p>
               </Reveal>
 

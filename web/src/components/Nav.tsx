@@ -6,8 +6,10 @@ export default function Nav() {
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
         <Link
           href="/"
-          className="text-[17px] font-light tracking-wordmark text-text transition-opacity duration-150 ease-out hover:opacity-70"
+          className="flex items-center gap-2 text-[17px] font-light tracking-wordmark text-text transition-opacity duration-150 ease-out hover:opacity-70"
         >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/slide-logo.svg" alt="" width={28} height={28} className="h-7 w-7 rounded-lg border border-hairline" />
           Slide
         </Link>
         <a

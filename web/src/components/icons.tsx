@@ -67,6 +67,16 @@ export function LockIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function CodeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M8.5 8.5 4 12l4.5 3.5" />
+      <path d="M15.5 8.5 20 12l-4.5 3.5" />
+      <path d="M13 6l-2 12" />
+    </svg>
+  );
+}
+
 export function AppleIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
