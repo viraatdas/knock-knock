@@ -59,6 +59,22 @@ targets:
         INFOPLIST_KEY_NSContactsUsageDescription: "Slide uses your contacts to find friends already on Slide."
         INFOPLIST_KEY_UIBackgroundModes: "audio voip remote-notification"
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+    info:
+      path: Generated-Info.plist
+      properties:
+        # URL scheme = Firebase encoded app id, used by phone-auth's reCAPTCHA
+        # fallback when silent push verification isn't available.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - app-1-561354442144-ios-898901de87c419eec650c5
+      configs:
+        # Push Notifications capability via the entitlements file. APNs env is
+        # "development" for Debug and "production" for Release/TestFlight. The
+        # App ID (app.exla.slide) must have Push enabled in the Apple portal.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Slide.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: SlideRelease.entitlements
     dependencies:
       - package: WebRTC
         product: WebRTC
