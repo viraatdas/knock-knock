@@ -37,7 +37,7 @@ import ai.exla.slide.ui.theme.SlideColors
 
 /**
  * Primary button — pure-black fill, white text, height 52, radius 14, no shadow.
- * Press: 96% scale + slight opacity (≈150ms). (DESIGN.md)
+ * Press: 96% scale + slight opacity (≈150ms). (AGENTS.md)
  */
 @Composable
 fun PrimaryButton(
@@ -170,7 +170,7 @@ fun initialsOf(name: String?): String {
 
 /**
  * Thin circular icon button — outlined (1.5px) by default, or filled (for
- * end-call in danger). Icon centered. (DESIGN.md)
+ * end-call in danger). Icon centered. (AGENTS.md)
  */
 @Composable
 fun CircleIconButton(

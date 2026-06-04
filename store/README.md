@@ -20,4 +20,4 @@ which can be automated from this machine:
 
 Everything up to "press Submit" is prepared here and in the per-platform
 fastlane lanes. Once the accounts + signing credentials exist, submission is:
-`cd ios && fastlane release` and `cd android && fastlane deploy`.
+`cd ios && fastlane release` and `cd android && fastlane production`.

@@ -80,7 +80,7 @@ fun MainShell(
                             }
                         },
                         icon = { Icon(tab.icon, tab.label, modifier = Modifier.size(24.dp)) },
-                        // Active tab label only (DESIGN.md).
+                        // Active tab label only (AGENTS.md).
                         label = if (selected) {
                             { Text(tab.label, style = MaterialTheme.typography.labelSmall) }
                         } else null,

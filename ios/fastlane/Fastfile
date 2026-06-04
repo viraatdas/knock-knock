@@ -3,7 +3,7 @@
 # The App Store pipeline, CLI-driven. Auth uses an App Store Connect API key
 # (no 2FA, CI-friendly) read from the environment:
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH  (path to the .p8)
-# plus APP_IDENTIFIER (default app.slide) and APPLE_TEAM_ID for signing.
+# plus APP_IDENTIFIER (default app.exla.slide) and APPLE_TEAM_ID for signing.
 #
 # Lanes:
 #   build_sim   — unsigned Simulator build (no account needed; CI smoke).
@@ -17,7 +17,7 @@
 
 default_platform(:ios)
 
-APP_ID   = ENV["APP_IDENTIFIER"] || "app.slide"
+APP_ID   = ENV["APP_IDENTIFIER"] || "app.exla.slide"
 SCHEME   = "Slide"
 PROJECT  = "Slide.xcodeproj"
 
@@ -724,7 +724,7 @@ platform :ios do
     if (200..299).include?(code)
       UI.success "Submitted build #{build.version} for Beta App Review."
     else
-      UI.important "beta submit #{code}: #{body.inspect[0,200]}"
+      UI.user_error!("beta submit #{code}: #{body.inspect[0,200]}")
     end
   end
 

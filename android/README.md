@@ -1,8 +1,8 @@
 # Slide — Android
 
 A phone-only video calling app. Kotlin + Jetpack Compose + Material3, MVVM with
-ViewModels + StateFlow, built against the contracts in
-[`docs/API.md`](../docs/API.md) and [`docs/DESIGN.md`](../docs/DESIGN.md).
+ViewModels + StateFlow, built against the API and design contracts in
+[`AGENTS.md`](../AGENTS.md).
 
 - `minSdk` 26, `targetSdk` / `compileSdk` 34
 - Application id `app.slide` (debug builds use `app.slide.debug`)
@@ -122,9 +122,9 @@ app.slide
 ├── AppContainer            Manual DI graph (lazy singletons)
 ├── MainActivity            Edge-to-edge Compose host + splash
 ├── data
-│   ├── model/Models.kt     kotlinx-serialization data classes (camelCase, per API.md)
+│   ├── model/Models.kt     kotlinx-serialization data classes (camelCase, per AGENTS.md)
 │   ├── api
-│   │   ├── SlideApi.kt     Retrofit interface — every endpoint in API.md
+│   │   ├── SlideApi.kt     Retrofit interface — every endpoint in AGENTS.md
 │   │   └── ApiClient.kt    OkHttp + Retrofit + kotlinx-serialization, base URL configurable
 │   ├── auth
 │   │   ├── TokenStore.kt          EncryptedSharedPreferences (Keystore-backed)
@@ -138,7 +138,7 @@ app.slide
 │   ├── WebRtcCallService.kt Real org.webrtc PeerConnection → sfuUrl + iceServers
 │   └── telecom/            Self-managed ConnectionService so calls ring natively
 ├── ui
-│   ├── theme/              Color, Type, Shape, Theme — all DESIGN.md tokens
+│   ├── theme/              Color, Type, Shape, Theme — all AGENTS.md design tokens
 │   ├── components/         PrimaryButton, SecondaryButton, Hairline, AvatarCircle,
 │   │                       CircleIconButton, EmptyState, quietClickable
 │   ├── onboarding/         AuthViewModel + Welcome/Phone/Code/Name screens
@@ -151,7 +151,7 @@ app.slide
 └── util/Formatters.kt      Duration + quiet relative-time formatting
 ```
 
-### Screens (all per DESIGN.md — pure white, thin near-black type, hairlines)
+### Screens (all per AGENTS.md design tokens — pure white, thin near-black type, hairlines)
 
 1. **Onboarding** — phone-only. Welcome → Phone (`POST /auth/request-otp`) →
    6-digit OTP with auto-advance/auto-submit + resend countdown
@@ -176,9 +176,8 @@ app.slide
 - `WebRtcCallService` builds a `PeerConnectionFactory`, captures camera+mic,
   configures the `iceServers` from `/calls`, connects to `sfuUrl` with the
   room-scoped `joinToken`, and runs SDP offer/answer + ICE trickle. The media
-  pipeline (capture, encode, tracks, ICE) is fully wired; the exact on-wire SFU
-  envelope field names follow `docs/SFU.md` and may need alignment once the SFU
-  is reachable.
+  pipeline (capture, encode, tracks, ICE) is fully wired; the SFU envelope is
+  documented in `../AGENTS.md`.
 - **The app defaults to `MockCallService`** (see `AppContainer.callService`) so
   every screen renders without a device camera or a live SFU. Swap to
   `WebRtcCallService(appContext)` for real media on a device. This is why media

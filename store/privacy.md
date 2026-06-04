@@ -2,7 +2,7 @@
 
 Both stores require an explicit declaration of what data you collect and why.
 Below are the answers that match what Slide's backend actually does (see
-`docs/API.md`). Keep these in sync with the code.
+`AGENTS.md`). Keep these in sync with the code.
 
 ## Data collected
 

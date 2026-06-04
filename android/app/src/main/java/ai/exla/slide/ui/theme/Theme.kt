@@ -11,7 +11,7 @@ import androidx.core.view.WindowCompat
 
 /**
  * Slide is intentionally light-only — pure white surfaces are core to the
- * "quiet & precise" identity. The DESIGN.md tokens are mapped onto a Material3
+ * "quiet & precise" identity. The AGENTS.md tokens are mapped onto a Material3
  * color scheme so stock M3 components inherit the right palette.
  */
 private val SlideColorScheme = lightColorScheme(

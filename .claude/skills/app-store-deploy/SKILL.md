@@ -25,6 +25,8 @@ End-to-end iOS release for Slide, CLI-driven and re-runnable. Wraps
    - `bootstrap` — create the App Store Connect app record (idempotent).
    - `beta` — archive + upload to TestFlight.
    - `release` — archive + upload + **submit for review**.
+   - `tf_beta_meta`, `tf_beta_submit`, `tf_public_link`, `tf_invite` — external
+     TestFlight tester setup after a build is uploaded.
 
 ## The one manual step Apple requires (≈60 s, once)
 Apple does **not** allow creating the *first* App Store Connect API key over the
@@ -45,7 +47,7 @@ automated forever after.
    ASC_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
    ASC_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_XXXXXXXXXX.p8
    APPLE_TEAM_ID=XXXXXXXXXX        # 10-char Team ID from developer.apple.com → Membership
-   APP_IDENTIFIER=app.slide
+   APP_IDENTIFIER=app.exla.slide
    EOF
    ```
 
@@ -58,14 +60,17 @@ automated forever after.
 .claude/skills/app-store-deploy/deploy.sh bootstrap     # create the app record
 .claude/skills/app-store-deploy/deploy.sh beta          # → TestFlight
 .claude/skills/app-store-deploy/deploy.sh release        # → App Store, submit for review
+.claude/skills/app-store-deploy/deploy.sh tf_beta_meta   # external beta metadata
+.claude/skills/app-store-deploy/deploy.sh tf_beta_submit # submit Beta App Review
+.claude/skills/app-store-deploy/deploy.sh tf_public_link # public external group link
 ```
 
-The script auto-loads `ios/fastlane/.asc.env`, verifies the key works
-(`spaceship` token check), and fails with the exact missing-piece instructions
-if anything's absent — never silently.
+The script auto-loads `ios/fastlane/.asc.env`, checks that the key material is
+present, and fails with exact missing-piece instructions if anything is absent.
+Fastlane performs the App Store Connect token check when the lane runs.
 
 ## Notes
-- Bundle id is `app.slide` (see `ios/project.yml`). Match the App ID you register.
+- Bundle id is `app.exla.slide` (see `ios/project.yml`). Match the App ID you register.
 - Signing uses Automatic with `APPLE_TEAM_ID`; for CI/multiple machines switch to
   `fastlane match` (documented in `ios/README.md`).
 - Screenshots in `ios/screenshots/` + listing copy in `store/listing.md` feed

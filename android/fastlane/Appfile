@@ -2,7 +2,7 @@
 # Fill these in once you have a Play Console account + service account JSON.
 
 # The app's application id as registered on Google Play.
-package_name("ai.exla.slide")
+package_name("app.slide")
 
 # Path to the Google Play service-account JSON key (gitignored).
 # Create at: Play Console → Setup → API access → Service accounts.

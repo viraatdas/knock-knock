@@ -21,7 +21,7 @@ android/        Jetpack Compose app                  (see android/README.md)
 web/            Next.js marketing site               (see web/README.md)
 deploy/fly/     Fly.io configs (api, sfu, coturn)
 scripts/        smoke.sh (API e2e), deploy-backend.sh
-docs/           API.md, DESIGN.md, DEPLOY.md, STATUS.md, SFU notes
+AGENTS.md       internal API, design, deploy, SFU, and release notes
 migrations/     in crates/slide-api/migrations (embedded at build time)
 ```
 
@@ -48,13 +48,12 @@ cargo test                        # slide-core unit tests (jwt, otp, phone, turn
 
 ## Deploy
 
-See [`docs/DEPLOY.md`](docs/DEPLOY.md). Backend → Fly.io (api, sfu, coturn) +
-Supabase Postgres; landing site → Vercel; apps → App Store / Play Store via
-fastlane (gated on paid developer accounts — see the per-platform READMEs).
+Backend -> Fly.io/AWS; landing site -> Vercel; apps -> App Store / Play Store
+via fastlane (gated on paid developer accounts). See the per-platform READMEs;
+maintainer details live in `AGENTS.md`.
 
 ## Design
 
-The product identity is documented in [`docs/DESIGN.md`](docs/DESIGN.md):
-pure white `#FFFFFF`, near-black `#0A0A0A` thin text, gray `#6B7280`, hairline
+Pure white `#FFFFFF`, near-black `#0A0A0A` thin text, gray `#6B7280`, hairline
 `#ECECEC`, red `#E5484D` for destructive actions only. Same system on every
 surface.

@@ -1,6 +1,6 @@
 # iOS — App Store submission
 
-**Bundle ID:** `app.slide` (must match the Xcode project & the App ID you
+**Bundle ID:** `app.exla.slide` (must match the Xcode project & the App ID you
 register).
 
 ## Prerequisites (gated — needs paid Apple Developer Program, $99/yr)

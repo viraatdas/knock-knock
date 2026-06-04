@@ -1,6 +1,6 @@
 # Store assets — specs & shot list
 
-The visual identity is `docs/DESIGN.md`: pure white, thin near-black type, one
+The visual identity is in `AGENTS.md`: pure white, thin near-black type, one
 restrained accent. Assets should feel calm and premium — lots of white space.
 
 ## App icon

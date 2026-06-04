@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Models (camelCase JSON, matching docs/API.md)
+// MARK: - Models (camelCase JSON, matching AGENTS.md)
 
 struct User: Codable, Identifiable, Hashable {
     let id: String

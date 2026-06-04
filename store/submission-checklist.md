@@ -5,7 +5,7 @@ paid account or human action that cannot be automated from this environment.
 
 ## Shared (do once)
 - [x] Landing site live (web/ → Vercel) with working `/privacy` + `/terms`.
-- [ ] Backend deployed (Fly + Supabase) and reachable over HTTPS/WSS. (Blocked on Fly billing — see docs/DEPLOY.md.)
+- [ ] Backend deployed and reachable over HTTPS/WSS. See `AGENTS.md`.
 - [ ] Point each client's `Config` base URL at the deployed API (`https://<api>.fly.dev/v1`).
 - [ ] SMS provider configured for production (`SMS_PROVIDER=twilio` + creds).
 - [ ] Wire **in-app account deletion** → `DELETE /me` (Apple + Play both require it).
@@ -30,7 +30,7 @@ paid account or human action that cannot be automated from this environment.
 - [ ] 🔒 Play service account JSON for `supply`.
 - [ ] `cd android && fastlane internal` → internal testing.
 - [ ] Internal smoke: install, sign up, complete a real call.
-- [ ] `cd android && fastlane deploy` → production.
+- [ ] `cd android && fastlane production` → production.
 - [ ] 🔒 Pass Play review.
 
 ## Definition of done

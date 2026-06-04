@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Slide design system — "quiet & precise".
 /// White space + thin black type. No gradients, no heavy color, no decorative
-/// shadows. All tokens come straight from docs/DESIGN.md.
+/// shadows. All tokens come straight from AGENTS.md.
 enum Theme {
 
     // MARK: Color tokens

@@ -7,7 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Typography from DESIGN.md. System default family (Roboto on Android).
+ * Typography from AGENTS.md. System default family (Roboto on Android).
  * Light (300) for large headings, Regular (400) for body,
  * Medium (500) only for buttons / active states. Never bold.
  */

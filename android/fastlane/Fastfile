@@ -30,6 +30,7 @@ platform :android do
 
   desc "Promote the latest internal build to production (staged rollout)"
   lane :production do
+    build
     upload_to_play_store(
       track: "production",
       aab: "app/build/outputs/bundle/release/app-release.aab",

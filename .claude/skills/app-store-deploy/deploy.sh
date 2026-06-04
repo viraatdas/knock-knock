@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # app-store-deploy — ship Slide iOS to TestFlight / the App Store from the CLI.
-# Usage: deploy.sh [build_sim|bootstrap|beta|release]   (default: build_sim)
+# Usage: deploy.sh [build_sim|bootstrap|beta|release|tf_*]   (default: build_sim)
 set -uo pipefail
 
 LANE="${1:-build_sim}"
@@ -30,7 +30,7 @@ if [ -f "$ENV_FILE" ]; then
   set -a; . "$ENV_FILE"; set +a
   ok "loaded $ENV_FILE"
 fi
-export APP_IDENTIFIER="${APP_IDENTIFIER:-app.slide}"
+export APP_IDENTIFIER="${APP_IDENTIFIER:-app.exla.slide}"
 
 need_key() {
   cat <<EOF
@@ -49,7 +49,7 @@ need_key() {
          ASC_ISSUER_ID=<ISSUER-UUID>
          ASC_KEY_PATH=\$HOME/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8
          APPLE_TEAM_ID=<10-char Team ID from developer.apple.com → Membership>
-         APP_IDENTIFIER=app.slide
+         APP_IDENTIFIER=app.exla.slide
 
   Then re-run:  .claude/skills/app-store-deploy/deploy.sh $LANE
   ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +75,10 @@ if fastlane "$LANE"; then
   case "$LANE" in
     beta)    echo "  → Build uploaded to TestFlight. Add testers in App Store Connect." ;;
     release) echo "  → Uploaded + submitted for review. Apple review ~1–2 days." ;;
+    tf_beta_meta) echo "  → Beta metadata filled. Run tf_beta_submit after a build is uploaded." ;;
+    tf_beta_submit) echo "  → Submitted latest build for TestFlight Beta App Review." ;;
+    tf_public_link) echo "  → Public TestFlight link enabled or requested for the external group." ;;
+    tf_invite) echo "  → External tester invites requested for TF_EMAILS." ;;
   esac
 else
   die "fastlane $LANE failed — see output above."

@@ -16,7 +16,7 @@ fun formatDuration(totalSec: Int): String {
 
 /**
  * Quiet relative time for the recents list: "Just now", "12m", "3h",
- * "Yesterday", "3d", or a short date. Sentence case (DESIGN.md voice).
+ * "Yesterday", "3d", or a short date. Sentence case (AGENTS.md voice).
  */
 fun relativeTime(isoUtc: String?): String {
     val parsed = isoUtc?.let { parseIso(it) } ?: return ""

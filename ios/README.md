@@ -1,7 +1,8 @@
 # Slide — iOS
 
 Native SwiftUI client. White background, thin near-black type
-(`../docs/DESIGN.md`); phone-number-only signup; built against `../docs/API.md`.
+(see `../AGENTS.md`); phone-number-only signup; built against the API contract
+in `../AGENTS.md`.
 
 ## Requirements
 - Xcode 26+ / Swift 5.9+ toolchain.
@@ -22,7 +23,7 @@ Verified: **BUILD SUCCEEDED**; the app launches in the Simulator (see
 
 ## Architecture
 - **App/** — `SlideApp` (@main), `RootView`, `MainTabView`, `AppState`, `ActiveCall`.
-- **DesignSystem/** — `Theme.swift` (every DESIGN.md token), `Components.swift`
+- **DesignSystem/** — `Theme.swift` (every AGENTS.md design token), `Components.swift`
   (PrimaryButton, HairlineDivider, AvatarCircle, UnderlineField, Wordmark, …).
 - **Models/** — Codable types matching the camelCase API JSON.
 - **Networking/** — `Config` (base URL), `Keychain`/`TokenStore`, `APIClient`
@@ -38,7 +39,7 @@ Config: point `Config.baseURL` at the deployed API
 flip to the real path on a device (`SLIDE_USE_REAL_WEBRTC=1`).
 
 ## Bundle id
-`app.slide` (in `project.yml`). Must match the App ID registered in App Store
+`app.exla.slide` (in `project.yml`). Must match the App ID registered in App Store
 Connect.
 
 ## Ship it (TestFlight / App Store) — CLI
@@ -49,8 +50,8 @@ fastlane, generates the project, archives, and uploads + submits.
 ```bash
 ../.claude/skills/app-store-deploy/deploy.sh build_sim   # sanity, no account
 ../.claude/skills/app-store-deploy/deploy.sh bootstrap   # create app record
-../.claude/skills/app-store-deploy/deploy.sh beta        # → TestFlight
-../.claude/skills/app-store-deploy/deploy.sh release      # → App Store + submit
+../.claude/skills/app-store-deploy/deploy.sh beta        # -> TestFlight
+../.claude/skills/app-store-deploy/deploy.sh release      # -> App Store + submit
 ```
 
 ### One-time setup (Apple requires the web UI once, ~60 s)
@@ -63,7 +64,7 @@ ASC_KEY_ID=XXXXXXXXXX
 ASC_ISSUER_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ASC_KEY_PATH=$HOME/.appstoreconnect/private_keys/AuthKey_XXXXXXXXXX.p8
 APPLE_TEAM_ID=XXXXXXXXXX
-APP_IDENTIFIER=app.slide
+APP_IDENTIFIER=app.exla.slide
 ```
 
 `APPLE_TEAM_ID` is at <https://developer.apple.com/account> → Membership.
@@ -74,6 +75,8 @@ APP_IDENTIFIER=app.slide
 - `archive` — signed `.ipa` via `gym`.
 - `beta` — archive + `upload_to_testflight`.
 - `release` — archive + `upload_to_app_store` + submit for review.
+- `tf_beta_meta`, `tf_beta_submit`, `tf_public_link`, `tf_invite` — external
+  TestFlight tester setup. See `../AGENTS.md` for the operator sequence.
 
 Listing copy is in `../store/listing.md`, privacy answers in
 `../store/privacy.md`, screenshots in `screenshots/`.

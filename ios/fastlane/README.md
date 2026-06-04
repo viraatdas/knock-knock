@@ -167,6 +167,54 @@ Probe pricing + privacy API surface.
 
 Authoritative: is the app actually submitted for review?
 
+### ios tf_status
+
+```sh
+[bundle exec] fastlane ios tf_status
+```
+
+Show TestFlight groups + testers.
+
+### ios tf_build_state
+
+```sh
+[bundle exec] fastlane ios tf_build_state
+```
+
+Show the latest build's TestFlight readiness (processing + beta review + groups).
+
+### ios tf_beta_meta
+
+```sh
+[bundle exec] fastlane ios tf_beta_meta
+```
+
+Fill the TestFlight beta metadata (description + feedback email + review contact) required for external beta review.
+
+### ios tf_beta_submit
+
+```sh
+[bundle exec] fastlane ios tf_beta_submit
+```
+
+Submit the latest build for TestFlight Beta App Review (needed for EXTERNAL testers).
+
+### ios tf_public_link
+
+```sh
+[bundle exec] fastlane ios tf_public_link
+```
+
+Enable a PUBLIC TestFlight link on an external group so anyone can join. Set TF_GROUP (default 'Friends').
+
+### ios tf_invite
+
+```sh
+[bundle exec] fastlane ios tf_invite
+```
+
+Invite external testers by email. Set TF_EMAILS='a@x.com,b@y.com' and optional TF_GROUP.
+
 ### ios asc_cancel_review
 
 ```sh

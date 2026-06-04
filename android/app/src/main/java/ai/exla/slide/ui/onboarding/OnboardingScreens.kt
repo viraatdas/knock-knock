@@ -243,7 +243,7 @@ fun NameScreen(vm: AuthViewModel, onDone: () -> Unit) {
 
 /* ---------------- Shared pieces ---------------- */
 
-/** Underline-only text field per DESIGN.md (no box, 1px hairline). */
+/** Underline-only text field per AGENTS.md (no box, 1px hairline). */
 @Composable
 private fun UnderlineField(
     value: String,

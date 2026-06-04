@@ -1,6 +1,6 @@
 import Foundation
 
-/// Async/await URLSession client implementing every endpoint in docs/API.md.
+/// Async/await URLSession client implementing every endpoint in AGENTS.md.
 /// Performs a silent refresh on 401 via POST /auth/refresh.
 actor APIClient {
     static let shared = APIClient()

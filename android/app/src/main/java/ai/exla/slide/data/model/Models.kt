@@ -2,7 +2,7 @@ package ai.exla.slide.data.model
 
 import kotlinx.serialization.Serializable
 
-/* ---------------- Core domain (camelCase per API.md) ---------------- */
+/* ---------------- Core domain (camelCase per AGENTS.md) ---------------- */
 
 @Serializable
 data class User(
@@ -34,7 +34,7 @@ data class Contact(
     val onSlide: Boolean = false,
 )
 
-/** IceServer.urls is an array of URLs per API.md. */
+/** IceServer.urls is an array of URLs per AGENTS.md. */
 @Serializable
 data class IceServer(
     val urls: List<String> = emptyList(),

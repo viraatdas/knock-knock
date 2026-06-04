@@ -49,7 +49,7 @@ import org.webrtc.VideoTrack
  * offer/answer + ICE trickle exchange.
  *
  * The media pipeline (capture, encode, tracks, ICE) is fully wired. The exact
- * on-wire signaling field names are defined by the SFU (docs/SFU.md) and may
+ * on-wire signaling field names are defined by the SFU (AGENTS.md) and may
  * need alignment once it is available — which cannot be verified in this
  * environment without a device + live SFU. The app therefore defaults to
  * [MockCallService] for rendering.

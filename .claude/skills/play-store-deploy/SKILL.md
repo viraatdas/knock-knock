@@ -44,6 +44,8 @@ the app key; you keep the upload key generated here).
 
 ## Notes
 - `applicationId` is `app.slide` (`android/app/build.gradle.kts`).
+- `android/fastlane/Appfile` must also use `app.slide`; the Kotlin namespace
+  `ai.exla.slide` is not the Play package.
 - Listing copy: `store/listing.md`; data-safety answers: `store/privacy.md`;
   feature graphic 1024×500 + screenshots: `store/assets.md`.
 - Provide a reviewer test phone/OTP path (signup is phone-only) in Play Console →

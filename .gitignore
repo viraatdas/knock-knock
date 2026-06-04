@@ -69,3 +69,7 @@ android/*.keystore
 android/*.jks
 android/fastlane/play-service-account.json
 **/play-service-account.json
+
+# Transient local agent state
+.claude/scheduled_tasks.lock
+.agents/

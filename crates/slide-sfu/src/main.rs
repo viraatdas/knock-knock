@@ -56,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = SfuConfig::from_env();
     let signer = TokenSigner::new(&cfg.sfu_jwt_secret);
     let bind = cfg.bind.clone();
+    let node_id = cfg.node_id.clone();
 
     let state = SfuState {
         cfg: Arc::new(cfg),
@@ -71,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
         .with_context(|| format!("binding {bind}"))?;
-    tracing::info!(node_id = %state.cfg.node_id, "slide-sfu listening on {bind}");
+    tracing::info!(node_id = %node_id, "slide-sfu listening on {bind}");
     axum::serve(listener, app).await.context("serving")?;
     Ok(())
 }

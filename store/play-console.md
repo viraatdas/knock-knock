@@ -27,7 +27,7 @@ Keep the keystore + `keystore.properties` OUT of git (already gitignored).
 ## Build & upload (fastlane)
 `android/fastlane/Fastfile` provides:
 - `fastlane internal` → `gradle bundleRelease` + `supply` to **internal testing**.
-- `fastlane deploy` → `bundleRelease` + `supply` to **production** (staged rollout).
+- `fastlane production` → `bundleRelease` + `supply` to **production** (staged rollout).
 
 `supply` needs a **Play service account JSON** (Play Console → Setup → API access).
 Point fastlane at it via `json_key` in `android/fastlane/Appfile`.
@@ -35,7 +35,7 @@ Point fastlane at it via `json_key` in `android/fastlane/Appfile`.
 ```bash
 cd android
 fastlane internal   # first AAB to internal testing
-fastlane deploy     # production, staged rollout
+fastlane production # production, staged rollout
 ```
 
 ## Common rejection risks (pre-empt them)

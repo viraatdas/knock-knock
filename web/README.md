@@ -6,7 +6,7 @@ friends who never call_.
 **Live:** https://web-viraatdas-projects.vercel.app
 
 Built with **Next.js (App Router, TypeScript)** + **Tailwind CSS**, following the
-"quiet & precise" design system in [`../docs/DESIGN.md`](../docs/DESIGN.md):
+"quiet & precise" design system in [`../AGENTS.md`](../AGENTS.md):
 pure-white backgrounds, thin near-black type, hairline dividers, generous
 whitespace, and fast/subtle motion that respects `prefers-reduced-motion`.
 

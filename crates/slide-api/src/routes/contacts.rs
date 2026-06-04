@@ -8,11 +8,7 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 
-use slide_core::{
-    error::AppResult,
-    models::User,
-    phone,
-};
+use slide_core::{error::AppResult, models::User, phone};
 
 use crate::{auth::AuthUser, state::AppState};
 

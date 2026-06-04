@@ -5,7 +5,7 @@ The all-in-one image bundles Postgres + Redis + slide-api in one container, so
 there is NO external database/cache requirement (unlike finalize.py, which wires
 Supabase + external Redis and refuses to run without those secrets).
 
-Prefer the plain `aws apprunner create-service` CLI (see docs/DEPLOY.md). Use
+Prefer the plain `aws apprunner create-service` CLI (see AGENTS.md). Use
 this script only if the local clock is skewed and the CLI fails SigV4 signing
 with SignatureDoesNotMatch: awsclock patches botocore to sign with corrected
 server time.

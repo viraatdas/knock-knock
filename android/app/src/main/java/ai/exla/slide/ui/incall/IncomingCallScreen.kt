@@ -34,7 +34,7 @@ import ai.exla.slide.ui.theme.SlideColors
 
 /**
  * Full-white incoming-call screen: large avatar + name, with a gentle pulse
- * (1.0 → 1.04). Black Accept, red Decline. (DESIGN.md)
+ * (1.0 → 1.04). Black Accept, red Decline. (AGENTS.md)
  */
 @Composable
 fun IncomingCallScreen(

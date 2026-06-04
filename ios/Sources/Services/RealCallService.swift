@@ -362,7 +362,7 @@ struct RTCVideoViewRepresentable: UIViewRepresentable {
 
 // MARK: - SFU signaling (plane B)
 // Minimal SDP/ICE trickle over WebSocket, authenticated by joinToken.
-// The exact framing lives in docs/SFU.md; this is the standard offer/answer +
+// The exact framing lives in AGENTS.md; this is the standard offer/answer +
 // trickle shape and is the integration point to adjust to that spec.
 
 final class SFUSignaling: NSObject {

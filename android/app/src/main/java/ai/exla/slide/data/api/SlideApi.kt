@@ -26,7 +26,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
- * One-to-one mapping of every endpoint in docs/API.md. Bodies/responses are
+ * One-to-one mapping of every endpoint in AGENTS.md. Bodies/responses are
  * JSON; auth is injected by an OkHttp interceptor. Endpoints that return 202 /
  * 204 use [Response]<Unit> so the empty body is fine.
  */

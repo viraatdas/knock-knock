@@ -3,7 +3,7 @@ package ai.exla.slide.ui.theme
 import androidx.compose.ui.graphics.Color
 
 /**
- * Design tokens from DESIGN.md ("Quiet & Precise").
+ * Design tokens from AGENTS.md ("Quiet & Precise").
  * No gradients, no decorative color — one restrained accent (pure black).
  */
 object SlideColors {
