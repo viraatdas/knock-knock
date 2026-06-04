@@ -114,9 +114,11 @@ actor APIClient {
 
     // MARK: - Contacts
 
-    func syncContacts(phones: [String]) async throws -> [ContactSyncResult] {
+    func syncContacts(phones: [String], names: [String] = []) async throws -> [ContactSyncResult] {
+        var body: [String: Any] = ["phones": phones]
+        if !names.isEmpty { body["names"] = names }
         let data = try await send(path: "/contacts/sync", method: "POST",
-                                  jsonObject: ["phones": phones],
+                                  jsonObject: body,
                                   authenticated: true, allowEmpty: false)
         return try decode([ContactSyncResult].self, from: data)
     }

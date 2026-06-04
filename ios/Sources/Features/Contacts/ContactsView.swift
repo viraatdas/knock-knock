@@ -43,39 +43,60 @@ final class ContactsViewModel: ObservableObject {
                 CNContactFamilyNameKey as CNKeyDescriptor,
             ]
             let request = CNContactFetchRequest(keysToFetch: keys)
+            // Keep names aligned 1:1 with phones so the server can store the
+            // address-book name for each number (otherwise contacts show as "?").
             var phones: [String] = []
+            var names: [String] = []
             try store.enumerateContacts(with: request) { contact, _ in
+                let full = [contact.givenName, contact.familyName]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                    .trimmingCharacters(in: .whitespaces)
                 for number in contact.phoneNumbers {
-                    phones.append(number.value.stringValue)
+                    let raw = number.value.stringValue.trimmingCharacters(in: .whitespaces)
+                    guard !raw.isEmpty else { continue }
+                    phones.append(raw)
+                    // Fall back to the number itself if the contact has no name.
+                    names.append(full.isEmpty ? raw : full)
                 }
             }
             if !phones.isEmpty {
-                _ = try? await api.syncContacts(phones: Array(phones.prefix(1000)))
+                _ = try? await api.syncContacts(
+                    phones: Array(phones.prefix(1000)),
+                    names: Array(names.prefix(1000)))
             }
         } catch {
             // Ignore; falls back to server/mock list.
         }
     }
 
+    /// Filter + dedupe. Contacts can have multiple rows for the same person
+    /// (several phone numbers); collapse by Slide user id when on Slide, else by
+    /// normalized name+phone, so the list isn't cluttered with duplicates.
     func filtered(_ query: String) -> [Contact] {
-        guard !query.isEmpty else { return contacts }
-        return contacts.filter {
+        let base = query.isEmpty ? contacts : contacts.filter {
             $0.displayName.localizedCaseInsensitiveContains(query) ||
             $0.phone.contains(query)
         }
+        var seen = Set<String>()
+        var out: [Contact] = []
+        for c in base {
+            let key = c.contactUserId ?? "\(c.displayName.lowercased())|\(c.phone)"
+            if seen.insert(key).inserted { out.append(c) }
+        }
+        return out
     }
 
-    /// Groups contacts into alphabetical sections.
-    func sections(_ query: String) -> [(letter: String, items: [Contact])] {
-        let list = filtered(query)
-        let grouped = Dictionary(grouping: list) { contact -> String in
-            let first = contact.displayName.trimmingCharacters(in: .whitespaces).first
-            if let first, first.isLetter { return String(first).uppercased() }
-            return "#"
-        }
-        return grouped.keys.sorted().map { key in
-            (key, grouped[key]!.sorted { $0.displayName < $1.displayName })
-        }
+    /// People already on Slide — these are directly callable. Deduped + name-sorted.
+    func onSlide(_ query: String) -> [Contact] {
+        filtered(query).filter { $0.onSlide }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    /// People not yet on Slide — shown with an Invite action.
+    func notOnSlide(_ query: String) -> [Contact] {
+        filtered(query).filter { !$0.onSlide }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 }
 
@@ -86,6 +107,7 @@ struct ContactsView: View {
     @State private var selected: Contact?
     @State private var inviteTarget: Contact?
     @State private var showGroupPicker = false
+    @State private var showDial = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -96,6 +118,14 @@ struct ContactsView: View {
                         .font(Theme.Font.title)
                         .foregroundStyle(Theme.Color.text)
                     Spacer()
+                    // Call anyone by number.
+                    Button(action: { showDial = true }) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 20, weight: .light))
+                            .foregroundStyle(Theme.Color.text)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityLabel("Call by number")
                     // Start a group call.
                     Button(action: { showGroupPicker = true }) {
                         Image(systemName: "person.2.badge.plus")
@@ -125,6 +155,11 @@ struct ContactsView: View {
             if vm.contacts.isEmpty && !vm.isLoading {
                 VStack(spacing: Theme.Space.lg) {
                     EmptyStateView(message: "No contacts yet", systemImage: "person.2")
+                    Text("Import your contacts to see who's already on Slide. You can call anyone on Slide, friends or not.")
+                        .font(Theme.Font.footnote)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Theme.Space.xxl)
                     PrimaryButton(title: "Import contacts", isLoading: vm.isImporting) {
                         Task { await vm.importContacts() }
                     }
@@ -132,22 +167,49 @@ struct ContactsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                let onSlide = vm.onSlide(query)
+                let invitable = vm.notOnSlide(query)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ForEach(vm.sections(query), id: \.letter) { section in
+                        // People you can call right now.
+                        if !onSlide.isEmpty {
                             Section {
-                                ForEach(section.items) { contact in
+                                ForEach(onSlide) { contact in
                                     ContactRow(contact: contact,
                                                onTap: { selected = contact },
                                                onInvite: { inviteTarget = contact })
-                                    HairlineDivider(leadingInset: Theme.Space.lg + 40 + Theme.Space.md)
+                                    HairlineDivider(leadingInset: Theme.Space.lg + 44 + Theme.Space.md)
                                 }
                             } header: {
-                                SectionLetter(section.letter)
+                                SectionHeaderLabel(title: "On Slide", count: onSlide.count)
                             }
                         }
+
+                        // Everyone else, with an invite.
+                        if !invitable.isEmpty {
+                            Section {
+                                ForEach(invitable) { contact in
+                                    ContactRow(contact: contact,
+                                               onTap: { inviteTarget = contact },
+                                               onInvite: { inviteTarget = contact })
+                                    HairlineDivider(leadingInset: Theme.Space.lg + 44 + Theme.Space.md)
+                                }
+                            } header: {
+                                SectionHeaderLabel(title: "Invite to Slide", count: invitable.count)
+                            }
+                        }
+
+                        if onSlide.isEmpty && invitable.isEmpty {
+                            Text("No matches")
+                                .font(Theme.Font.callout)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, Theme.Space.xxl)
+                        }
                     }
-                    .padding(.bottom, Theme.Space.lg)
+                    // Extra bottom padding so the last row clears the tab bar and
+                    // the import button isn't crammed against the edge.
+                    .padding(.bottom, Theme.Space.xxl * 2)
                 }
             }
         }
@@ -163,6 +225,11 @@ struct ContactsView: View {
                 .environmentObject(appState)
                 .presentationDetents([.large])
         }
+        .sheet(isPresented: $showDial) {
+            DialView()
+                .environmentObject(appState)
+                .presentationDetents([.medium, .large])
+        }
         .sheet(item: $inviteTarget) { contact in
             InviteComposer(phone: contact.phone)
                 .ignoresSafeArea()
@@ -170,17 +237,20 @@ struct ContactsView: View {
     }
 }
 
-private struct SectionLetter: View {
-    let letter: String
-    init(_ letter: String) { self.letter = letter }
+private struct SectionHeaderLabel: View {
+    let title: String
+    let count: Int
     var body: some View {
-        HStack {
-            Text(letter)
-                .uppercaseLabel()
+        HStack(spacing: Theme.Space.xs) {
+            Text(title).uppercaseLabel()
+            Text("\(count)")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textSecondary)
             Spacer()
         }
         .padding(.horizontal, Theme.Space.lg)
-        .padding(.vertical, Theme.Space.xs)
+        .padding(.top, Theme.Space.md)
+        .padding(.bottom, Theme.Space.xs)
         .background(Theme.Color.bg)
     }
 }
@@ -190,15 +260,34 @@ struct ContactRow: View {
     let onTap: () -> Void
     let onInvite: () -> Void
 
+    private var subtitle: String {
+        // Show the number unless the display name already is the number.
+        contact.displayName == contact.phone ? "On Slide" : contact.phone
+    }
+
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: Theme.Space.md) {
-                AvatarCircle(name: contact.displayName, size: 40)
-                Text(contact.displayName)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.text)
+                AvatarCircle(name: contact.displayName,
+                             imageURL: contact.avatarUrl.flatMap(URL.init(string:)),
+                             size: 44)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(contact.displayName.isEmpty ? contact.phone : contact.displayName)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.text)
+                        .lineLimit(1)
+                    Text(contact.onSlide ? "On Slide" : subtitle)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .lineLimit(1)
+                }
                 Spacer()
-                if !contact.onSlide {
+                if contact.onSlide {
+                    // Direct call affordance — calling is one tap.
+                    Image(systemName: "video")
+                        .font(.system(size: 19, weight: .light))
+                        .foregroundStyle(Theme.Color.text)
+                } else {
                     Button(action: onInvite) {
                         Text("Invite")
                             .font(Theme.Font.buttonSmall)

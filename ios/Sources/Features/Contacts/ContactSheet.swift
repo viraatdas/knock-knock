@@ -12,7 +12,9 @@ struct ContactSheet: View {
         VStack(spacing: Theme.Space.xl) {
             Spacer().frame(height: Theme.Space.lg)
 
-            AvatarCircle(name: contact.displayName, size: 96)
+            AvatarCircle(name: contact.displayName,
+                         imageURL: contact.avatarUrl.flatMap(URL.init(string:)),
+                         size: 96)
 
             VStack(spacing: Theme.Space.xs) {
                 Text(contact.displayName)

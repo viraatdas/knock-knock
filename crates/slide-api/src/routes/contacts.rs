@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use slide_core::{
     error::AppResult,
-    models::{Contact, User},
+    models::User,
     phone,
 };
 
@@ -87,7 +87,11 @@ pub async fn sync(
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (owner_user_id, phone)
              DO UPDATE SET contact_user_id = EXCLUDED.contact_user_id,
-                           display_name = EXCLUDED.display_name",
+                           -- Never overwrite a good name with a blank one (a
+                           -- client that omits names must not wipe stored names).
+                           display_name = COALESCE(
+                               NULLIF(EXCLUDED.display_name, ''),
+                               contacts.display_name)",
         )
         .bind(uid)
         .bind(contact_user_id)
@@ -107,13 +111,31 @@ pub async fn sync(
     Ok(Json(results))
 }
 
-/// GET /contacts — the owner's resolved contact list, name-sorted.
+#[derive(Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactView {
+    pub id: uuid::Uuid,
+    pub owner_user_id: uuid::Uuid,
+    pub contact_user_id: Option<uuid::Uuid>,
+    pub phone: String,
+    pub display_name: String,
+    /// The matched Slide user's avatar (if they're on Slide and have one).
+    pub avatar_url: Option<String>,
+}
+
+/// GET /contacts — the owner's resolved contact list, name-sorted, with the
+/// matched user's avatar joined in so on-Slide contacts show their photo.
 pub async fn list(
     State(state): State<AppState>,
     AuthUser(uid): AuthUser,
-) -> AppResult<Json<Vec<Contact>>> {
-    let contacts: Vec<Contact> = sqlx::query_as(
-        "SELECT * FROM contacts WHERE owner_user_id = $1 ORDER BY display_name, phone",
+) -> AppResult<Json<Vec<ContactView>>> {
+    let contacts: Vec<ContactView> = sqlx::query_as(
+        "SELECT c.id, c.owner_user_id, c.contact_user_id, c.phone, c.display_name,
+                u.avatar_url AS avatar_url
+         FROM contacts c
+         LEFT JOIN users u ON u.id = c.contact_user_id
+         WHERE c.owner_user_id = $1
+         ORDER BY c.display_name, c.phone",
     )
     .bind(uid)
     .fetch_all(&state.db)

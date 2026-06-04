@@ -12,7 +12,16 @@ struct GroupCallPicker: View {
     @State private var selectedIds: Set<String> = []
 
     private var filtered: [Contact] {
-        let base = contacts.sorted { $0.displayName < $1.displayName }
+        // Only people on Slide can be in a group call — calling a non-Slide
+        // number would fail server-side (no real user id). Dedupe by Slide user.
+        var seen = Set<String>()
+        let onSlide = contacts.filter { c in
+            guard c.onSlide, let uid = c.contactUserId else { return false }
+            return seen.insert(uid).inserted
+        }
+        let base = onSlide.sorted {
+            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
         guard !query.isEmpty else { return base }
         return base.filter {
             $0.displayName.localizedCaseInsensitiveContains(query) || $0.phone.contains(query)

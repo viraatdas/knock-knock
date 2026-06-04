@@ -26,6 +26,8 @@ struct Contact: Codable, Identifiable, Hashable {
     var contactUserId: String?
     let phone: String
     var displayName: String
+    /// The matched Slide user's avatar (on-Slide contacts only).
+    var avatarUrl: String? = nil
 
     var onSlide: Bool { contactUserId != nil }
 }
