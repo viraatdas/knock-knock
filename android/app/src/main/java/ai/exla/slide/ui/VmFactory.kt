@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import ai.exla.slide.AppContainer
 import ai.exla.slide.ui.calls.CallsViewModel
 import ai.exla.slide.ui.contacts.ContactsViewModel
+import ai.exla.slide.knock.KnockViewModel
 import ai.exla.slide.ui.incall.InCallViewModel
 import ai.exla.slide.ui.onboarding.AuthViewModel
 import ai.exla.slide.ui.profile.ProfileViewModel
@@ -27,6 +28,8 @@ class VmFactory(private val container: AppContainer) : ViewModelProvider.Factory
             ProfileViewModel(container.repository, container.tokenStore) as T
         modelClass.isAssignableFrom(InCallViewModel::class.java) ->
             InCallViewModel(container.repository, container.callService) as T
+        modelClass.isAssignableFrom(KnockViewModel::class.java) ->
+            KnockViewModel(container.signalingClient, container.tokenStore) as T
         else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }
 }

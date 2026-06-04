@@ -9,6 +9,7 @@ import android.provider.ContactsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -62,7 +64,11 @@ import ai.exla.slide.ui.components.quietClickable
 import ai.exla.slide.ui.theme.SlideColors
 
 @Composable
-fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
+fun ContactsScreen(
+    vm: ContactsViewModel,
+    onCall: (CallPeer) -> Unit,
+    onKnock: (CallPeer) -> Unit,
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var sheetContact by remember { mutableStateOf<Contact?>(null) }
@@ -124,6 +130,7 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
             onInvite = { invite(context, state.dialNumber) },
             onAudio = { state.dialLookup?.toPeer()?.let(onCall) },
             onVideo = { state.dialLookup?.toPeer()?.let(onCall) },
+            onKnock = { state.dialLookup?.toPeer()?.let(onKnock) },
         )
         Spacer(Modifier.height(8.dp))
 
@@ -180,6 +187,10 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
                 sheetContact = null
                 onCall(contact.toPeer())
             },
+            onKnock = {
+                sheetContact = null
+                onKnock(contact.toPeer())
+            },
         )
     }
 }
@@ -228,6 +239,7 @@ private fun DirectDialPanel(
     onInvite: () -> Unit,
     onAudio: () -> Unit,
     onVideo: () -> Unit,
+    onKnock: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -289,6 +301,8 @@ private fun DirectDialPanel(
                         Text(match.displayName ?: match.phone, color = SlideColors.Ink)
                         Text("On Slide", color = SlideColors.InkSecondary, fontSize = 13.sp)
                     }
+                    KnockCircleButton(onClick = onKnock, diameter = 42.dp)
+                    Spacer(Modifier.width(8.dp))
                     CircleIconButton(Icons.Outlined.Phone, "Audio call", onAudio, diameter = 42.dp)
                     Spacer(Modifier.width(8.dp))
                     CircleIconButton(Icons.Outlined.Videocam, "Video call", onVideo, diameter = 42.dp)
@@ -384,6 +398,7 @@ private fun ContactSheet(
     onDismiss: () -> Unit,
     onAudio: () -> Unit,
     onVideo: () -> Unit,
+    onKnock: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(
@@ -406,7 +421,12 @@ private fun ContactSheet(
             Spacer(Modifier.height(4.dp))
             Text(contact.phone, style = MaterialTheme.typography.bodyMedium, color = SlideColors.InkSecondary)
             Spacer(Modifier.height(32.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    KnockCircleButton(onClick = onKnock)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Knock", style = MaterialTheme.typography.bodySmall, color = SlideColors.InkSecondary)
+                }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircleIconButton(Icons.Outlined.Phone, "Voice call", onAudio)
                     Spacer(Modifier.height(8.dp))
@@ -420,6 +440,28 @@ private fun ContactSheet(
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+/** Circular ✊ knock button — outlined to match [CircleIconButton]'s ink styling. */
+@Composable
+private fun KnockCircleButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    diameter: androidx.compose.ui.unit.Dp = 64.dp,
+) {
+    Box(
+        modifier = modifier
+            .size(diameter)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .border(
+                androidx.compose.foundation.BorderStroke(1.5.dp, SlideColors.Ink),
+                androidx.compose.foundation.shape.CircleShape,
+            )
+            .quietClickable(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = "✊", fontSize = (diameter.value * 0.40f).sp)
     }
 }
 

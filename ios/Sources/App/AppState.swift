@@ -23,7 +23,22 @@ final class AppState: ObservableObject {
     /// Drives the incoming-call screen / in-call modal.
     @Published var activeCall: ActiveCall?
 
+    /// Drives the incoming-knock banner overlay (lightweight, not CallKit).
+    @Published var incomingKnock: IncomingKnock?
+
     private var didConfigure = false
+
+    // MARK: Knock send-side state
+    /// Monotonic sequence for the current outbound knock session.
+    private var outgoingKnockSeq = 0
+    /// Timestamp of the previous outbound tap, to compute `dt`.
+    private var lastOutgoingKnockAt: Date?
+    /// The user-id we're currently knocking, so a new target resets the session.
+    private var outgoingKnockTarget: String?
+
+    // MARK: Knock receive-side state
+    /// Auto-clears the incoming-knock banner ~2.5s after the last received tap.
+    private var incomingKnockClearTask: Task<Void, Never>?
 
     func bootstrap() async {
         if !didConfigure {
@@ -269,6 +284,123 @@ final class AppState: ObservableObject {
         }
         activeCall = nil
     }
+
+    // MARK: - Knocks
+
+    /// This user's outbound display name on a knock: prefer the display name,
+    /// fall back to phone, then a generic label.
+    private var myKnockName: String {
+        if let name = currentUser?.displayName, !name.isEmpty { return name }
+        if let phone = currentUser?.phone, !phone.isEmpty { return phone }
+        return "Someone"
+    }
+
+    /// Send a single knock tap to `userId`. Tracks `seq` + the last-tap time so
+    /// `dt` (ms since the previous tap) is filled in. Plays the caller's own
+    /// sound + haptic so they feel the rhythm they're tapping. Call once per tap.
+    func sendKnockTap(to userId: String) {
+        // Reset the session whenever the target changes.
+        if outgoingKnockTarget != userId {
+            outgoingKnockTarget = userId
+            outgoingKnockSeq = 0
+            lastOutgoingKnockAt = nil
+        }
+        let now = Date()
+        let dt: Int
+        if let last = lastOutgoingKnockAt {
+            dt = max(0, Int(now.timeIntervalSince(last) * 1000))
+        } else {
+            dt = 0
+        }
+        lastOutgoingKnockAt = now
+        let seq = outgoingKnockSeq
+        outgoingKnockSeq += 1
+
+        // Local feedback so the caller feels their own taps.
+        KnockHaptics.shared.knock()
+
+        signaling.sendKnock(to: userId, fromName: myKnockName, seq: seq, dt: dt)
+    }
+
+    /// Reset the outbound knock session (e.g. when the knock pad is dismissed).
+    func resetKnockSession() {
+        outgoingKnockTarget = nil
+        outgoingKnockSeq = 0
+        lastOutgoingKnockAt = nil
+    }
+
+    /// Knock back at whoever is currently knocking us, then clear the banner.
+    func knockBack() {
+        guard let knock = incomingKnock, let userId = knock.fromUserId else { return }
+        sendKnockTap(to: userId)
+    }
+
+    /// Escalate the incoming knock into a real call.
+    func callFromKnock(video: Bool = false) {
+        guard let knock = incomingKnock else { return }
+        let user = User(id: knock.fromUserId ?? "",
+                        phone: "",
+                        displayName: knock.displayName,
+                        avatarUrl: nil,
+                        createdAt: nil, lastSeenAt: nil)
+        clearIncomingKnock()
+        startCall(to: user, video: video)
+    }
+
+    /// Handle one received knock tap: play sound + haptic, surface/refresh the
+    /// banner, bump the pulse counter, and (re)arm the auto-clear timer.
+    func receiveKnock(fromUserId: String?, fromName: String?, seq: Int?, dt: Int?) {
+        KnockHaptics.shared.knock()
+
+        if let existing = incomingKnock, existing.fromUserId == fromUserId {
+            existing.pulse += 1
+            existing.lastName = fromName ?? existing.lastName
+        } else {
+            let knock = IncomingKnock(fromUserId: fromUserId, fromName: fromName)
+            incomingKnock = knock
+        }
+        armIncomingKnockClear()
+    }
+
+    private func armIncomingKnockClear() {
+        incomingKnockClearTask?.cancel()
+        incomingKnockClearTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.incomingKnock = nil
+        }
+    }
+
+    func clearIncomingKnock() {
+        incomingKnockClearTask?.cancel()
+        incomingKnockClearTask = nil
+        incomingKnock = nil
+    }
+}
+
+/// Transient state backing the incoming-knock banner. `pulse` increments on
+/// every received tap so the banner can re-animate per tap.
+@MainActor
+final class IncomingKnock: ObservableObject, Identifiable {
+    let id = UUID()
+    let fromUserId: String?
+    private let initialName: String?
+    /// Most recently seen name (knock messages may carry it each tap).
+    @Published var lastName: String?
+    /// Increments per received tap; the banner observes this to re-pulse.
+    @Published var pulse: Int = 0
+
+    init(fromUserId: String?, fromName: String?) {
+        self.fromUserId = fromUserId
+        self.initialName = fromName
+        self.lastName = fromName
+    }
+
+    var displayName: String {
+        if let name = lastName, !name.isEmpty { return name }
+        if let name = initialName, !name.isEmpty { return name }
+        return "Someone"
+    }
 }
 
 // MARK: - Signaling delegate
@@ -303,6 +435,8 @@ extension AppState: SignalingClientDelegate {
                 }
             case let .callAccepted(callId, _):
                 if self.activeCall?.callId == callId { self.activeCall?.status = .connecting }
+            case let .knock(fromUserId, fromName, seq, dt):
+                self.receiveKnock(fromUserId: fromUserId, fromName: fromName, seq: seq, dt: dt)
             default:
                 break
             }

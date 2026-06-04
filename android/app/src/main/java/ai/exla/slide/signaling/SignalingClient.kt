@@ -71,6 +71,23 @@ class SignalingClient(
         return webSocket?.send(payload) ?: false
     }
 
+    /**
+     * Relay a single knock tap to [to] (a callee user-id UUID). The wire shape is
+     * {"type":"knock","to":..,"fromName":..,"seq":..,"dt":..}; the server fans it
+     * out to the target's sockets as a `knock` event (surfaced via [events]).
+     * [dt] is ms since the previous tap (0 for the first tap of a pattern).
+     */
+    fun sendKnock(to: String, fromName: String, seq: Int, dt: Int): Boolean =
+        send(
+            SignalEnvelope(
+                type = "knock",
+                to = to,
+                fromName = fromName,
+                seq = seq,
+                dt = dt,
+            )
+        )
+
     private suspend fun connectLoop() {
         while (running) {
             val token = tokenStore.accessToken

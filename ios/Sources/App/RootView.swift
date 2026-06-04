@@ -22,6 +22,11 @@ struct RootView: View {
             }
         }
         .animation(Theme.Motion.standard, value: appState.phase)
+        // Incoming-knock banner floats above the tabs (lightweight, not CallKit).
+        .overlay(alignment: .top) {
+            IncomingKnockOverlay()
+                .environmentObject(appState)
+        }
         // Active call takes over full screen, modal above the tabs.
         .fullScreenCover(item: $appState.activeCall) { call in
             CallContainerView(call: call)

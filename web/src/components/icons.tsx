@@ -58,6 +58,51 @@ export function WebIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function MicIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" />
+    </svg>
+  );
+}
+
+export function MicOffIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M9 9V6a3 3 0 0 1 6 0v3m0 3a3 3 0 0 1-4.3 2.7" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 9.8 5.6M18.5 11a6.4 6.4 0 0 1-.5 2.5" />
+      <path d="M12 17.5V21M9 21h6M4 3l16 16" />
+    </svg>
+  );
+}
+
+export function VideoOffIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M15 10.2 21 7v10l-4-2.1" />
+      <path d="M3 6.5h9.5M15 17.5H5.5A2.5 2.5 0 0 1 3 15V8.2" />
+      <path d="M4 3l16 16" />
+    </svg>
+  );
+}
+
+export function ArrowIncomingIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M17 7 7 17M7 9.5V17h7.5" />
+    </svg>
+  );
+}
+
+export function ArrowOutgoingIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M7 17 17 7M9.5 7H17v7.5" />
+    </svg>
+  );
+}
+
 export function WaveformIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props} aria-hidden="true">

@@ -1,8 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PhoneIcon, VideoIcon, WaveformIcon } from "./icons";
+import {
+  ArrowIncomingIcon,
+  ArrowOutgoingIcon,
+  MicIcon,
+  MicOffIcon,
+  PhoneIcon,
+  VideoIcon,
+  VideoOffIcon,
+} from "./icons";
 import PhoneField from "./PhoneField";
+import { KnockBanner, KnockPad, playKnock, vibrateKnock } from "./Knock";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_SLIDE_API_BASE_URL ??
@@ -65,6 +74,28 @@ type ActiveCall = {
   callId: string;
   peerName: string;
   direction: "incoming" | "outgoing";
+  video: boolean;
+  phone?: string | null;
+  userId?: string | null;
+};
+
+type Contact = {
+  userId: string;
+  phone: string;
+  displayName?: string | null;
+};
+
+type RecentCall = {
+  id: string;
+  peerName: string;
+  phone?: string | null;
+  userId?: string | null;
+  direction: "incoming" | "outgoing";
+  video: boolean;
+  startedAt: number;
+  durationSec: number;
+  connected: boolean;
+  label?: string;
 };
 
 type LookupState =
@@ -92,6 +123,66 @@ function saveTokens(tokens: AuthTokens | null) {
   } else {
     window.localStorage.removeItem("slide.web.tokens");
   }
+}
+
+function loadList<T>(key: string): T[] {
+  if (typeof window === "undefined") return [];
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveList<T>(key: string, list: T[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, JSON.stringify(list));
+}
+
+function initials(name: string) {
+  const cleaned = name.trim();
+  if (!cleaned) return "?";
+  if (/^\+?\d/.test(cleaned)) {
+    const digits = cleaned.replace(/\D/g, "");
+    return digits.slice(-2) || "#";
+  }
+  const parts = cleaned.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatDuration(totalSec: number) {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  return `${h > 0 ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+}
+
+function relativeTime(ts: number) {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "Just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day === 1) return "Yesterday";
+  if (day < 7) return `${day}d ago`;
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function recentOutcome(call: RecentCall) {
+  if (call.label) return call.label;
+  if (call.connected) return formatDuration(call.durationSec);
+  return call.direction === "incoming" ? "Missed call" : "No answer";
 }
 
 function apiUrl(path: string) {
@@ -174,11 +265,24 @@ export default function SlideWebApp() {
   const [dialNumber, setDialNumber] = useState("");
   const [lookup, setLookup] = useState<LookupState>({ status: "idle" });
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
+  // Knock: lightweight, real-time "tap a rhythm" presence ping.
+  const [knockPad, setKnockPad] = useState<{ userId: string; name: string } | null>(null);
+  const [knocking, setKnocking] = useState<{
+    fromUserId: string;
+    fromName: string;
+    pulse: number;
+  } | null>(null);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [notificationState, setNotificationState] = useState("default");
   const [status, setStatus] = useState("Ready");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [recents, setRecents] = useState<RecentCall[]>([]);
+  const [peerConnected, setPeerConnected] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [cameraOff, setCameraOff] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
 
   const localVideo = useRef<HTMLVideoElement | null>(null);
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
@@ -187,12 +291,20 @@ export default function SlideWebApp() {
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const ringTimer = useRef<number | null>(null);
+  const callStartRef = useRef<number | null>(null);
+  const everConnectedRef = useRef(false);
+  const incomingRef = useRef<IncomingCall | null>(null);
+  const knockSeq = useRef(0);
+  const knockLastTap = useRef<number | null>(null);
+  const knockClearTimer = useRef<number | null>(null);
 
   const signedIn = Boolean(tokens && user);
 
   useEffect(() => {
     const initial = storedTokens();
     setTokens(initial);
+    setContacts(loadList<Contact>("slide.web.contacts"));
+    setRecents(loadList<RecentCall>("slide.web.recents"));
     setNotificationState(
       typeof Notification === "undefined" ? "unsupported" : Notification.permission,
     );
@@ -210,12 +322,32 @@ export default function SlideWebApp() {
   }, [tokens]);
 
   useEffect(() => {
+    incomingRef.current = incoming;
+  }, [incoming]);
+
+  useEffect(() => {
     if (localVideo.current) localVideo.current.srcObject = localStream;
-  }, [localStream]);
+  }, [localStream, activeCall]);
 
   useEffect(() => {
     if (remoteVideo.current) remoteVideo.current.srcObject = remoteStream;
-  }, [remoteStream]);
+  }, [remoteStream, activeCall]);
+
+  useEffect(() => {
+    if (!activeCall) {
+      setElapsed(0);
+      return;
+    }
+    const tick = () =>
+      setElapsed(
+        callStartRef.current
+          ? Math.floor((Date.now() - callStartRef.current) / 1000)
+          : 0,
+      );
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [activeCall]);
 
   const ensureAudio = useCallback(() => {
     if (typeof window === "undefined") return null;
@@ -272,6 +404,26 @@ export default function SlideWebApp() {
     });
   }, []);
 
+  const rememberContact = useCallback((contact: Contact) => {
+    setContacts((current) => {
+      const next = [
+        contact,
+        ...current.filter((entry) => entry.userId !== contact.userId),
+      ].slice(0, 12);
+      saveList("slide.web.contacts", next);
+      return next;
+    });
+  }, []);
+
+  const recordRecent = useCallback((call: RecentCall) => {
+    setRecents((current) => {
+      if (current.some((entry) => entry.id === call.id)) return current;
+      const next = [call, ...current].slice(0, 20);
+      saveList("slide.web.recents", next);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (!tokens) {
       signalingSocket.current?.close();
@@ -300,7 +452,36 @@ export default function SlideWebApp() {
         playRingtone();
         showNotification(next);
       }
+      if (event.type === "knock") {
+        const fromUserId = event.fromUserId ?? "";
+        const fromName = event.fromName ?? "Someone";
+        setKnocking((cur) => ({
+          fromUserId,
+          fromName,
+          pulse: (cur?.fromUserId === fromUserId ? cur.pulse : 0) + 1,
+        }));
+        playKnock(ensureAudio());
+        vibrateKnock();
+        if (knockClearTimer.current) window.clearTimeout(knockClearTimer.current);
+        knockClearTimer.current = window.setTimeout(() => setKnocking(null), 2500);
+      }
       if (event.type === "call_ended" || event.type === "call_declined") {
+        const ringing = incomingRef.current;
+        const matchesRinging =
+          ringing &&
+          (ringing.callId === event.callId || ringing.callId === event.call?.id);
+        if (matchesRinging && !activeCall) {
+          recordRecent({
+            id: `${ringing!.callId}-missed`,
+            peerName: ringing!.fromName,
+            userId: ringing!.fromUserId,
+            direction: "incoming",
+            video: false,
+            startedAt: Date.now(),
+            durationSec: 0,
+            connected: false,
+          });
+        }
         setIncoming((current) =>
           current?.callId === event.callId || current?.callId === event.call?.id
             ? null
@@ -315,7 +496,37 @@ export default function SlideWebApp() {
     return () => {
       socket.close();
     };
-  }, [activeCall?.callId, playRingtone, showNotification, tokens]);
+  }, [activeCall?.callId, ensureAudio, playRingtone, recordRecent, showNotification, tokens]);
+
+  const sendKnock = useCallback(
+    (toUserId: string) => {
+      const now = Date.now();
+      const dt = knockLastTap.current ? now - knockLastTap.current : 0;
+      knockLastTap.current = now;
+      knockSeq.current += 1;
+      const sock = signalingSocket.current;
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        sock.send(
+          JSON.stringify({
+            type: "knock",
+            to: toUserId,
+            fromName: user?.displayName || user?.phone || "Someone",
+            seq: knockSeq.current,
+            dt,
+          }),
+        );
+      }
+      playKnock(ensureAudio());
+      vibrateKnock();
+    },
+    [ensureAudio, user],
+  );
+
+  const openKnockPad = useCallback((userId: string, name: string) => {
+    knockSeq.current = 0;
+    knockLastTap.current = null;
+    setKnockPad({ userId, name });
+  }, []);
 
   const requestOtp = async () => {
     setAuthBusy(true);
@@ -367,6 +578,10 @@ export default function SlideWebApp() {
 
   const logout = () => {
     saveTokens(null);
+    saveList("slide.web.contacts", []);
+    saveList("slide.web.recents", []);
+    setContacts([]);
+    setRecents([]);
     setTokens(null);
     setUser(null);
     setIncoming(null);
@@ -398,6 +613,11 @@ export default function SlideWebApp() {
       const contact = results[0];
       if (contact?.onSlide && contact.userId) {
         setLookup({ status: "found", contact });
+        rememberContact({
+          userId: contact.userId,
+          phone: contact.phone,
+          displayName: contact.displayName,
+        });
       } else {
         setLookup({ status: "not-found" });
       }
@@ -406,14 +626,72 @@ export default function SlideWebApp() {
     }
   };
 
+  const callContact = useCallback(
+    (
+      entry: {
+        userId?: string | null;
+        phone?: string | null;
+        displayName?: string | null;
+        peerName?: string;
+      },
+      video: boolean,
+    ) => {
+      if (!entry.userId) {
+        if (entry.phone) {
+          setDialNumber(entry.phone);
+          setLookup({ status: "idle" });
+        }
+        return;
+      }
+      void startCall(
+        {
+          phone: entry.phone ?? entry.peerName ?? "",
+          displayName: entry.displayName ?? entry.peerName ?? null,
+          userId: entry.userId,
+          onSlide: true,
+        },
+        video,
+      );
+    },
+    // startCall is stable across renders for our purposes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tokens],
+  );
+
+  const toggleMute = useCallback(() => {
+    setMuted((current) => {
+      const next = !current;
+      localStream?.getAudioTracks().forEach((track) => {
+        track.enabled = !next;
+      });
+      return next;
+    });
+  }, [localStream]);
+
+  const toggleCamera = useCallback(() => {
+    setCameraOff((current) => {
+      const next = !current;
+      localStream?.getVideoTracks().forEach((track) => {
+        track.enabled = !next;
+      });
+      return next;
+    });
+  }, [localStream]);
+
   const startMedia = async (
     session: CallSession,
     peerName: string,
     direction: "incoming" | "outgoing",
     video: boolean,
+    meta: { phone?: string | null; userId?: string | null } = {},
   ) => {
     stopRingtone();
     setStatus("Connecting media");
+    setPeerConnected(false);
+    setMuted(false);
+    setCameraOff(false);
+    everConnectedRef.current = false;
+    callStartRef.current = Date.now();
     assertBrowserReachableSfu(session);
     const media = await navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -437,8 +715,16 @@ export default function SlideWebApp() {
       setRemoteStream(new MediaStream(remote.getTracks()));
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") setStatus("Connected");
-      if (pc.connectionState === "failed") setStatus("Call failed");
+      if (pc.connectionState === "connected") {
+        setStatus("Connected");
+        setPeerConnected(true);
+        everConnectedRef.current = true;
+        callStartRef.current = Date.now();
+      }
+      if (pc.connectionState === "failed") {
+        setStatus("Call failed");
+        setPeerConnected(false);
+      }
     };
 
     const socket = new WebSocket(sfuSocketUrl(session));
@@ -484,11 +770,23 @@ export default function SlideWebApp() {
         });
       }
     };
-    setActiveCall({ callId: session.call.id, peerName, direction });
+    setActiveCall({
+      callId: session.call.id,
+      peerName,
+      direction,
+      video,
+      phone: meta.phone ?? null,
+      userId: meta.userId ?? null,
+    });
   };
 
   const startCall = async (contact: ContactSyncResult, video: boolean) => {
     if (!tokens || !contact.userId) return;
+    rememberContact({
+      userId: contact.userId,
+      phone: contact.phone,
+      displayName: contact.displayName,
+    });
     try {
       setStatus("Starting call");
       const session = await jsonFetch<CallSession>("/calls", tokens.accessToken, {
@@ -503,6 +801,7 @@ export default function SlideWebApp() {
         contact.displayName || contact.phone,
         "outgoing",
         video,
+        { phone: contact.phone, userId: contact.userId },
       );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not start the call");
@@ -519,7 +818,9 @@ export default function SlideWebApp() {
         tokens.accessToken,
         { method: "POST" },
       );
-      await startMedia(session, call.fromName, "incoming", video);
+      await startMedia(session, call.fromName, "incoming", video, {
+        userId: call.fromUserId,
+      });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not answer the call");
       stopRingtone();
@@ -528,10 +829,21 @@ export default function SlideWebApp() {
 
   const declineIncoming = async () => {
     if (!tokens || !incoming) return;
-    const callId = incoming.callId;
+    const call = incoming;
     setIncoming(null);
     stopRingtone();
-    await jsonFetch(`/calls/${callId}/decline`, tokens.accessToken, {
+    recordRecent({
+      id: `${call.callId}-${Date.now()}`,
+      peerName: call.fromName,
+      userId: call.fromUserId,
+      direction: "incoming",
+      video: false,
+      startedAt: Date.now(),
+      durationSec: 0,
+      connected: false,
+      label: "Declined",
+    });
+    await jsonFetch(`/calls/${call.callId}/decline`, tokens.accessToken, {
       method: "POST",
     }).catch(() => undefined);
   };
@@ -544,11 +856,29 @@ export default function SlideWebApp() {
     peerConnection.current = null;
     localStream?.getTracks().forEach((track) => track.stop());
     remoteStream?.getTracks().forEach((track) => track.stop());
+    if (activeCall) {
+      const connected = everConnectedRef.current;
+      const startedAt = callStartRef.current ?? Date.now();
+      recordRecent({
+        id: `${activeCall.callId}-${startedAt}`,
+        peerName: activeCall.peerName,
+        phone: activeCall.phone,
+        userId: activeCall.userId,
+        direction: activeCall.direction,
+        video: activeCall.video,
+        startedAt,
+        durationSec: connected ? Math.round((Date.now() - startedAt) / 1000) : 0,
+        connected,
+      });
+    }
     if (notifyServer && tokens && activeCall) {
       void jsonFetch(`/calls/${activeCall.callId}/leave`, tokens.accessToken, {
         method: "POST",
       }).catch(() => undefined);
     }
+    callStartRef.current = null;
+    everConnectedRef.current = false;
+    setPeerConnected(false);
     setLocalStream(null);
     setRemoteStream(null);
     setActiveCall(null);
@@ -721,6 +1051,20 @@ export default function SlideWebApp() {
                         <VideoIcon className="h-4 w-4" />
                         Video
                       </button>
+                      <button
+                        className="inline-flex h-10 items-center gap-2 rounded-[8px] border border-hairline px-3 text-[13px] text-text"
+                        disabled={!lookup.contact.userId}
+                        onClick={() =>
+                          lookup.contact.userId &&
+                          openKnockPad(
+                            lookup.contact.userId,
+                            lookup.contact.displayName || lookup.contact.phone,
+                          )
+                        }
+                      >
+                        <span className="text-[15px] leading-none">✊</span>
+                        Knock
+                      </button>
                     </div>
                   </div>
                 ) : null}
@@ -735,71 +1079,301 @@ export default function SlideWebApp() {
                 ) : null}
               </div>
 
-              <div className="grid gap-3 rounded-[8px] border border-hairline p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[15px] text-text">Live call</p>
-                    <p className="text-[13px] text-text-secondary">
-                      {activeCall
-                        ? `${activeCall.peerName} is connected from ${activeCall.direction}`
-                        : "No active browser call"}
-                    </p>
+              {contacts.length > 0 ? (
+                <div className="grid gap-2">
+                  <span className="text-[12px] uppercase tracking-label text-text-secondary">
+                    On Slide
+                  </span>
+                  <div className="grid gap-1.5">
+                    {contacts.map((contact) => {
+                      const name = contact.displayName || contact.phone;
+                      return (
+                        <div
+                          key={contact.userId}
+                          className="group flex items-center gap-3 rounded-[8px] border border-transparent px-2 py-2 transition-colors hover:border-hairline hover:bg-bg-grouped"
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-bg-grouped text-[12px] font-medium text-text-secondary">
+                            {initials(name)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[15px] text-text">{name}</p>
+                            {contact.displayName ? (
+                              <p className="truncate text-[12px] text-text-secondary">
+                                {contact.phone}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex gap-1.5 opacity-70 transition-opacity group-hover:opacity-100">
+                            <button
+                              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline text-text transition-colors hover:border-text/30"
+                              onClick={() => callContact(contact, false)}
+                              aria-label={`Audio call ${name}`}
+                            >
+                              <PhoneIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="flex h-9 w-9 items-center justify-center rounded-full bg-text text-white transition-opacity hover:opacity-90"
+                              onClick={() => callContact(contact, true)}
+                              aria-label={`Video call ${name}`}
+                            >
+                              <VideoIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {activeCall ? (
+                </div>
+              ) : null}
+
+              {recents.length > 0 ? (
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] uppercase tracking-label text-text-secondary">
+                      Recent
+                    </span>
                     <button
-                      className="rounded-full bg-danger px-4 py-2 text-[13px] text-white"
-                      onClick={() => endCall()}
+                      className="text-[12px] text-text-secondary transition-colors hover:text-text"
+                      onClick={() => {
+                        setRecents([]);
+                        saveList("slide.web.recents", []);
+                      }}
                     >
-                      End
+                      Clear
                     </button>
-                  ) : (
-                    <WaveformIcon className="h-7 w-7 text-text-secondary" />
-                  )}
+                  </div>
+                  <div className="grid gap-0.5">
+                    {recents.slice(0, 6).map((call) => {
+                      const missed = !call.connected;
+                      return (
+                        <button
+                          key={call.id}
+                          className="group flex items-center gap-3 rounded-[8px] px-2 py-2 text-left transition-colors hover:bg-bg-grouped"
+                          onClick={() => callContact(call, call.video)}
+                        >
+                          <span
+                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                              missed
+                                ? "bg-danger/10 text-danger"
+                                : "bg-bg-grouped text-text-secondary"
+                            }`}
+                          >
+                            {call.direction === "incoming" ? (
+                              <ArrowIncomingIcon className="h-4 w-4" />
+                            ) : (
+                              <ArrowOutgoingIcon className="h-4 w-4" />
+                            )}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={`truncate text-[15px] ${
+                                missed ? "text-danger" : "text-text"
+                              }`}
+                            >
+                              {call.peerName}
+                            </p>
+                            <p className="truncate text-[12px] text-text-secondary">
+                              {call.video ? "Video" : "Audio"} · {recentOutcome(call)}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-[12px] text-text-secondary">
+                            {relativeTime(call.startedAt)}
+                          </span>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-secondary opacity-0 transition-opacity group-hover:opacity-100">
+                            {call.video ? (
+                              <VideoIcon className="h-4 w-4" />
+                            ) : (
+                              <PhoneIcon className="h-4 w-4" />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <video
-                    ref={localVideo}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="aspect-video w-full rounded-[8px] bg-bg-grouped object-cover"
-                  />
-                  <video
-                    ref={remoteVideo}
-                    autoPlay
-                    playsInline
-                    className="aspect-video w-full rounded-[8px] bg-bg-grouped object-cover"
-                  />
+              ) : null}
+
+              {contacts.length === 0 && recents.length === 0 ? (
+                <div className="rounded-[8px] border border-dashed border-hairline px-4 py-8 text-center">
+                  <p className="text-[14px] text-text">No calls yet</p>
+                  <p className="mt-1 text-[13px] text-text-secondary">
+                    Look up a phone number above to start your first call.
+                    People you reach show up here.
+                  </p>
                 </div>
-              </div>
+              ) : null}
             </div>
           )}
         </div>
       </div>
 
+      {activeCall ? (
+        <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0b0c] text-white">
+          <video
+            ref={remoteVideo}
+            autoPlay
+            playsInline
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
+              activeCall.video && peerConnected && status !== "Call failed"
+                ? "opacity-100"
+                : "opacity-0"
+            }`}
+          />
+
+          {!(activeCall.video && peerConnected && status !== "Call failed") ? (
+            <div className="absolute inset-0 grid place-items-center px-6">
+              <div className="flex flex-col items-center text-center">
+                <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-[34px] font-light backdrop-blur-sm">
+                  {initials(activeCall.peerName)}
+                </div>
+                <h2 className="mt-6 text-[30px] font-light">{activeCall.peerName}</h2>
+                <p className="mt-2 text-[15px] text-white/60">
+                  {status === "Call failed"
+                    ? "Call failed"
+                    : peerConnected
+                      ? formatDuration(elapsed)
+                      : activeCall.direction === "outgoing"
+                        ? "Calling…"
+                        : "Connecting…"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-black/55 to-transparent p-6">
+              <p className="text-[17px] font-light">{activeCall.peerName}</p>
+              <p className="text-[13px] text-white/60">{formatDuration(elapsed)}</p>
+            </div>
+          )}
+
+          {activeCall.video ? (
+            <div className="absolute right-5 top-5 h-40 w-28 overflow-hidden rounded-[14px] border border-white/15 bg-black/50 shadow-[0_8px_30px_rgba(0,0,0,0.4)] sm:h-44 sm:w-32">
+              <video
+                ref={localVideo}
+                autoPlay
+                muted
+                playsInline
+                className={`h-full w-full object-cover transition-opacity ${
+                  cameraOff ? "opacity-0" : "opacity-100"
+                }`}
+              />
+              {cameraOff ? (
+                <div className="absolute inset-0 grid place-items-center text-white/50">
+                  <VideoOffIcon className="h-6 w-6" />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <video ref={localVideo} autoPlay muted playsInline className="hidden" />
+          )}
+
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-5 bg-gradient-to-t from-black/70 to-transparent px-6 pb-10 pt-16">
+            <button
+              onClick={toggleMute}
+              aria-pressed={muted}
+              aria-label={muted ? "Unmute" : "Mute"}
+              className={`flex h-14 w-14 items-center justify-center rounded-full backdrop-blur-sm transition-colors ${
+                muted ? "bg-white text-text" : "bg-white/15 text-white hover:bg-white/25"
+              }`}
+            >
+              {muted ? <MicOffIcon className="h-6 w-6" /> : <MicIcon className="h-6 w-6" />}
+            </button>
+            {activeCall.video ? (
+              <button
+                onClick={toggleCamera}
+                aria-pressed={cameraOff}
+                aria-label={cameraOff ? "Turn camera on" : "Turn camera off"}
+                className={`flex h-14 w-14 items-center justify-center rounded-full backdrop-blur-sm transition-colors ${
+                  cameraOff
+                    ? "bg-white text-text"
+                    : "bg-white/15 text-white hover:bg-white/25"
+                }`}
+              >
+                {cameraOff ? (
+                  <VideoOffIcon className="h-6 w-6" />
+                ) : (
+                  <VideoIcon className="h-6 w-6" />
+                )}
+              </button>
+            ) : null}
+            <button
+              onClick={() => endCall()}
+              aria-label="End call"
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white shadow-[0_8px_30px_rgba(229,72,77,0.45)] transition-transform hover:scale-105"
+            >
+              <PhoneIcon className="h-7 w-7 rotate-[135deg]" />
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {knockPad ? (
+        <KnockPad
+          name={knockPad.name}
+          onTap={() => sendKnock(knockPad.userId)}
+          onClose={() => setKnockPad(null)}
+        />
+      ) : null}
+
+      {knocking ? (
+        <KnockBanner
+          name={knocking.fromName}
+          pulseKey={knocking.pulse}
+          onKnockBack={() => sendKnock(knocking.fromUserId)}
+          onCall={() => {
+            setKnocking(null);
+            startCall(
+              {
+                phone: knocking.fromName,
+                displayName: knocking.fromName,
+                userId: knocking.fromUserId,
+                onSlide: true,
+              },
+              true,
+            );
+          }}
+          onDismiss={() => setKnocking(null)}
+        />
+      ) : null}
+
       {incoming ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-white/92 px-6 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-[8px] border border-hairline bg-white p-6 text-center shadow-[0_20px_80px_rgba(10,10,10,0.10)]">
             <div className="mx-auto flex h-24 w-24 animate-gentle-pulse items-center justify-center rounded-full border border-hairline text-[28px] font-light text-text">
-              {incoming.fromName.slice(0, 2).toUpperCase()}
+              {initials(incoming.fromName)}
             </div>
             <h2 className="mt-5 text-[30px] font-light text-text">{incoming.fromName}</h2>
             <p className="mt-1 text-[14px] text-text-secondary">Incoming browser call</p>
-            <div className="mt-8 flex justify-center gap-8">
-              <button
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white"
-                onClick={declineIncoming}
-                aria-label="Decline"
-              >
-                <PhoneIcon className="h-7 w-7 rotate-[135deg]" />
-              </button>
-              <button
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-text text-white"
-                onClick={() => acceptIncoming(true)}
-                aria-label="Accept"
-              >
-                <VideoIcon className="h-7 w-7" />
-              </button>
+            <div className="mt-8 flex items-end justify-center gap-6">
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white transition-transform hover:scale-105"
+                  onClick={declineIncoming}
+                  aria-label="Decline"
+                >
+                  <PhoneIcon className="h-7 w-7 rotate-[135deg]" />
+                </button>
+                <span className="text-[12px] text-text-secondary">Decline</span>
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  className="flex h-16 w-16 items-center justify-center rounded-full border border-hairline text-text transition-colors hover:border-text/30"
+                  onClick={() => acceptIncoming(false)}
+                  aria-label="Accept audio"
+                >
+                  <PhoneIcon className="h-7 w-7" />
+                </button>
+                <span className="text-[12px] text-text-secondary">Audio</span>
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  className="flex h-16 w-16 items-center justify-center rounded-full bg-text text-white transition-transform hover:scale-105"
+                  onClick={() => acceptIncoming(true)}
+                  aria-label="Accept video"
+                >
+                  <VideoIcon className="h-7 w-7" />
+                </button>
+                <span className="text-[12px] text-text-secondary">Video</span>
+              </div>
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ struct ContactSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     let contact: Contact
+    @State private var showKnockPad = false
     /// Invoked when the user taps "Invite to Slide". The presenter handles the
     /// actual SMS / share-sheet composer.
     var onInvite: () -> Void = {}
@@ -31,8 +32,14 @@ struct ContactSheet: View {
             }
 
             if contact.onSlide {
-                // Two big thin-outlined circular actions.
-                HStack(spacing: Theme.Space.xxl) {
+                // Three big thin-outlined circular actions: Knock, Audio, Video.
+                HStack(spacing: Theme.Space.xl) {
+                    VStack(spacing: Theme.Space.xs) {
+                        KnockCircleButton(diameter: 72) {
+                            showKnockPad = true
+                        }
+                        Text("Knock").uppercaseLabel()
+                    }
                     VStack(spacing: Theme.Space.xs) {
                         CircleActionButton(systemImage: "phone", diameter: 72) {
                             start(video: false)
@@ -60,6 +67,10 @@ struct ContactSheet: View {
         }
         .frame(maxWidth: .infinity)
         .background(Theme.Color.bg)
+        .sheet(isPresented: $showKnockPad) {
+            KnockPad(user: MockData.userForContact(contact))
+                .environmentObject(appState)
+        }
     }
 
     private func start(video: Bool) {
@@ -69,5 +80,26 @@ struct ContactSheet: View {
 
     private func formatted(_ phone: String) -> String {
         phone.isEmpty ? "" : phone
+    }
+}
+
+/// A thin-outlined circular ✊ button matching CircleActionButton's footprint,
+/// but rendering the knock emoji instead of an SF Symbol.
+private struct KnockCircleButton: View {
+    var diameter: CGFloat = 72
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(Theme.Color.bg)
+                    .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
+                Text("✊")
+                    .font(.system(size: diameter * 0.42))
+            }
+            .frame(width: diameter, height: diameter)
+        }
+        .buttonStyle(PressableButtonStyle())
     }
 }

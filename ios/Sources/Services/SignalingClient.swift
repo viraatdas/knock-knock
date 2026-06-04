@@ -10,6 +10,8 @@ enum SignalingEvent {
     case participantJoined(callId: String, userId: String)
     case participantLeft(callId: String, userId: String)
     case presenceUpdate(userId: String, online: Bool)
+    /// A lightweight presence ping — one event per received tap.
+    case knock(fromUserId: String?, fromName: String?, seq: Int?, dt: Int?)
     case unknown(type: String)
 }
 
@@ -143,6 +145,11 @@ final class SignalingClient: NSObject, @unchecked Sendable {
         case "presence_update":
             return .presenceUpdate(userId: obj["userId"] as? String ?? "",
                                    online: obj["online"] as? Bool ?? false)
+        case "knock":
+            return .knock(fromUserId: obj["fromUserId"] as? String,
+                          fromName: obj["fromName"] as? String,
+                          seq: intValue(obj["seq"]),
+                          dt: intValue(obj["dt"]))
         default:
             return .unknown(type: type)
         }
@@ -150,6 +157,17 @@ final class SignalingClient: NSObject, @unchecked Sendable {
 
     private static func callIdOf(_ obj: [String: Any]) -> String {
         (obj["callId"] as? String) ?? (obj["id"] as? String) ?? ""
+    }
+
+    /// JSON numbers may decode as Int, Double, or NSNumber — coerce to Int and
+    /// pass through nulls/missing values as nil.
+    private static func intValue(_ value: Any?) -> Int? {
+        switch value {
+        case let i as Int: return i
+        case let d as Double: return Int(d)
+        case let n as NSNumber: return n.intValue
+        default: return nil
+        }
     }
 
     // MARK: Outbound
@@ -161,6 +179,13 @@ final class SignalingClient: NSObject, @unchecked Sendable {
     }
 
     func presencePing() { send(["type": "presence_ping"]) }
+
+    /// Relay a single knock tap to `to` (a callee user-id UUID string). Each tap
+    /// is its own message; `seq` increments per knock session and `dt` is the
+    /// gap in ms since the previous tap (0 for the first tap).
+    func sendKnock(to: String, fromName: String, seq: Int, dt: Int) {
+        send(["type": "knock", "to": to, "fromName": fromName, "seq": seq, "dt": dt])
+    }
     private func heartbeat() { send(["type": "heartbeat"]) }
 
     private func startHeartbeat() {

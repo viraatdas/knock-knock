@@ -88,6 +88,32 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                 .execute(&state_in.db)
                                 .await;
                             }
+                            // Live "knock": relay each tap to the target user's
+                            // sockets in real time. The pattern's rhythm is the
+                            // arrival timing of these messages (plus an optional
+                            // `dt` for jitter-smoothed playback). No DB, no call
+                            // row — a knock is a lightweight presence ping you
+                            // can feel. `fromName` is supplied by the sender so
+                            // the callee can label it without a lookup.
+                            Some("knock") => {
+                                if let Some(to) = v
+                                    .get("to")
+                                    .and_then(|x| x.as_str())
+                                    .and_then(|s| Uuid::parse_str(s).ok())
+                                {
+                                    let out = json!({
+                                        "type": "knock",
+                                        "fromUserId": uid,
+                                        "fromName": v.get("fromName").and_then(|x| x.as_str()),
+                                        "seq": v.get("seq"),
+                                        "dt": v.get("dt"),
+                                        "strength": v.get("strength"),
+                                        "final": v.get("final"),
+                                        "pattern": v.get("pattern"),
+                                    });
+                                    state_in.hub.publish(to, out).await;
+                                }
+                            }
                             _ => {}
                         }
                     }

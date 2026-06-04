@@ -150,8 +150,12 @@ data class ApiErrorBody(
 
 /**
  * Server → client: incoming_call, call_accepted, call_declined, call_ended,
- * participant_joined, participant_left, presence_update.
- * Client → server: presence_ping, heartbeat.
+ * participant_joined, participant_left, presence_update, knock.
+ * Client → server: presence_ping, heartbeat, knock.
+ *
+ * Knock fields (a lightweight real-time presence ping):
+ *  - send:    type=knock, to=<calleeUserId>, fromName, seq, dt
+ *  - receive: type=knock, fromUserId, fromName, seq, dt
  */
 @Serializable
 data class SignalEnvelope(
@@ -163,4 +167,8 @@ data class SignalEnvelope(
     val fromName: String? = null,
     val call: Call? = null,
     val from: JsonElement? = null,
+    // Knock relay fields.
+    val to: String? = null,
+    val seq: Int? = null,
+    val dt: Int? = null,
 )

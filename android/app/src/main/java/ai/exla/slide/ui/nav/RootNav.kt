@@ -8,6 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -17,6 +20,9 @@ import ai.exla.slide.call.telecom.TelecomBridge
 import ai.exla.slide.call.telecom.TelecomManagerHelper
 import ai.exla.slide.call.telecom.SlideConnectionService
 import ai.exla.slide.data.model.SignalEnvelope
+import ai.exla.slide.knock.IncomingKnockBanner
+import ai.exla.slide.knock.KnockPad
+import ai.exla.slide.knock.KnockViewModel
 import ai.exla.slide.ui.VmFactory
 import ai.exla.slide.ui.incall.InCallScreen
 import ai.exla.slide.ui.incall.InCallViewModel
@@ -39,6 +45,7 @@ private sealed interface RootScreen {
     data object Main : RootScreen
     data class Incoming(val callId: String, val peer: CallPeer) : RootScreen
     data class InCall(val peer: CallPeer, val incomingCallId: String? = null) : RootScreen
+    data class Knock(val peer: CallPeer) : RootScreen
 }
 
 @Composable
@@ -51,6 +58,12 @@ fun SlideAppRoot(container: AppContainer) {
             if (container.tokenStore.isLoggedIn) RootScreen.Main else RootScreen.Auth
         )
     }
+
+    // Shared, app-scoped knock VM: drives the incoming-knock banner overlay and
+    // outgoing taps from the knock pad. Lives above the screen `when` so the
+    // banner can float over any surface.
+    val knockVm: KnockViewModel = viewModel(factory = factory)
+    val incomingKnock by knockVm.incoming.collectAsStateWithLifecycle()
 
     LaunchedEffect(screen is RootScreen.Auth) {
         if (screen is RootScreen.Auth) {
@@ -84,6 +97,7 @@ fun SlideAppRoot(container: AppContainer) {
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     when (val current = screen) {
         RootScreen.Auth -> AuthFlow(
             container = container,
@@ -94,6 +108,7 @@ fun SlideAppRoot(container: AppContainer) {
             MainShell(
                 container = container,
                 onStartCall = { peer -> screen = RootScreen.InCall(peer) },
+                onStartKnock = { peer -> screen = RootScreen.Knock(peer) },
                 onLoggedOut = {
                     container.signalingClient.disconnect()
                     screen = RootScreen.Auth
@@ -155,6 +170,31 @@ fun SlideAppRoot(container: AppContainer) {
                 }
             }
             InCallScreen(vm = vm, onEnded = { screen = RootScreen.Main })
+        }
+
+        is RootScreen.Knock -> {
+            KnockPad(
+                peer = current.peer,
+                vm = knockVm,
+                onDone = { screen = RootScreen.Main },
+            )
+        }
+    }
+
+        // Incoming-knock banner floats above every surface except the in-call
+        // screen (which has its own ringer experience) and onboarding.
+        val showBanner = screen !is RootScreen.Auth && screen !is RootScreen.InCall
+        if (showBanner) {
+            IncomingKnockBanner(
+                knock = incomingKnock,
+                onKnockBack = { knockVm.knockBack() },
+                onCall = {
+                    val peer = incomingKnock?.toPeer()
+                    knockVm.dismissIncoming()
+                    if (peer != null) screen = RootScreen.InCall(peer)
+                },
+                onDismiss = { knockVm.dismissIncoming() },
+            )
         }
     }
 }

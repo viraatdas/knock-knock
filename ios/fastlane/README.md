@@ -199,6 +199,14 @@ Fill the TestFlight beta metadata (description + feedback email + review contact
 
 Submit the latest build for TestFlight Beta App Review (needed for EXTERNAL testers).
 
+### ios tf_serve_latest
+
+```sh
+[bundle exec] fastlane ios tf_serve_latest
+```
+
+Report each recent build's beta-review state + assign the newest VALID build to the Friends group.
+
 ### ios tf_beta_cancel
 
 ```sh
