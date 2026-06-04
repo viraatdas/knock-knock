@@ -16,9 +16,12 @@ pub struct SfuConfig {
     /// Fly/cloud). When set, clients connect to the SFU directly instead of
     /// relaying through TURN.
     pub public_ip: Option<String>,
-    /// Single UDP port all WebRTC media is muxed onto. Must be exposed publicly
-    /// on `public_ip`; keeps the firewall surface to one port.
-    pub udp_mux_port: u16,
+    /// WebRTC media UDP port range (each peer connection binds an ephemeral
+    /// port in [min,max]). Must be open publicly on `public_ip`. We use an
+    /// ephemeral range rather than a single muxed socket because webrtc-rs's
+    /// UDPMuxDefault drops response packets ("buffer: closed"), breaking ICE.
+    pub udp_port_min: u16,
+    pub udp_port_max: u16,
 }
 
 fn var(key: &str, default: &str) -> String {
@@ -39,7 +42,8 @@ impl SfuConfig {
             turn_shared_secret: var("TURN_SHARED_SECRET", "dev-only-turn-secret-change-me"),
             turn_cred_ttl_secs: var("TURN_CRED_TTL_SECS", "600").parse().unwrap_or(600),
             public_ip: env::var("SFU_PUBLIC_IP").ok().filter(|s| !s.is_empty()),
-            udp_mux_port: var("SFU_UDP_PORT", "40000").parse().unwrap_or(40000),
+            udp_port_min: var("SFU_UDP_MIN", "40000").parse().unwrap_or(40000),
+            udp_port_max: var("SFU_UDP_MAX", "40100").parse().unwrap_or(40100),
         }
     }
 }

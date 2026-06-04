@@ -19,8 +19,7 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
-use webrtc::ice::udp_mux::UDPMux;
-use webrtc::ice::udp_network::UDPNetwork;
+use webrtc::ice::udp_network::{EphemeralUDP, UDPNetwork};
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -87,7 +86,7 @@ impl RoomManager {
 pub async fn new_peer_connection(
     ice_servers: Vec<RTCIceServer>,
     public_ip: Option<String>,
-    udp_mux: Arc<dyn UDPMux + Send + Sync>,
+    udp_ports: (u16, u16),
 ) -> Result<Arc<RTCPeerConnection>> {
     let mut m = MediaEngine::default();
     m.register_default_codecs()?;
@@ -95,7 +94,22 @@ pub async fn new_peer_connection(
     registry = register_default_interceptors(registry, &mut m)?;
 
     let mut se = SettingEngine::default();
-    se.set_udp_network(UDPNetwork::Muxed(udp_mux));
+    se.set_udp_network(UDPNetwork::Ephemeral(EphemeralUDP::new(
+        udp_ports.0,
+        udp_ports.1,
+    )?));
+    // Gather ICE on the primary interface only. On a host with docker bridges
+    // (docker0 172.17/16) + IPv6 link-local, gathering on those causes
+    // asymmetric routing: STUN checks pass but DTLS replies leave the wrong
+    // interface and the handshake never completes. Keep IPv4, drop docker +
+    // loopback so every packet uses the real NIC (1:1-NAT'd to public_ip).
+    se.set_ip_filter(Box::new(|ip: std::net::IpAddr| match ip {
+        std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !v4.is_loopback() && !(o[0] == 172 && o[1] == 17)
+        }
+        std::net::IpAddr::V6(_) => false,
+    }));
     if let Some(ip) = public_ip {
         se.set_nat_1to1_ips(vec![ip], RTCIceCandidateType::Host);
     }
