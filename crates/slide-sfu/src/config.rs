@@ -12,9 +12,13 @@ pub struct SfuConfig {
     pub turn_uris: Vec<String>,
     pub turn_shared_secret: String,
     pub turn_cred_ttl_secs: i64,
-    /// Public UDP IP to advertise in ICE candidates (1:1 NAT on Fly/cloud).
-    #[allow(dead_code)]
+    /// Public UDP IP to advertise as an ICE host candidate (1:1 NAT on
+    /// Fly/cloud). When set, clients connect to the SFU directly instead of
+    /// relaying through TURN.
     pub public_ip: Option<String>,
+    /// Single UDP port all WebRTC media is muxed onto. Must be exposed publicly
+    /// on `public_ip`; keeps the firewall surface to one port.
+    pub udp_mux_port: u16,
 }
 
 fn var(key: &str, default: &str) -> String {
@@ -35,6 +39,7 @@ impl SfuConfig {
             turn_shared_secret: var("TURN_SHARED_SECRET", "dev-only-turn-secret-change-me"),
             turn_cred_ttl_secs: var("TURN_CRED_TTL_SECS", "600").parse().unwrap_or(600),
             public_ip: env::var("SFU_PUBLIC_IP").ok().filter(|s| !s.is_empty()),
+            udp_mux_port: var("SFU_UDP_PORT", "40000").parse().unwrap_or(40000),
         }
     }
 }

@@ -25,6 +25,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use uuid::Uuid;
+use webrtc::ice::udp_mux::{UDPMux, UDPMuxDefault, UDPMuxParams};
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
@@ -43,6 +44,8 @@ struct SfuState {
     cfg: Arc<SfuConfig>,
     rooms: Arc<RoomManager>,
     signer: Arc<TokenSigner>,
+    /// One UDP socket shared by every peer connection's ICE (port muxing).
+    udp_mux: Arc<dyn UDPMux + Send + Sync>,
 }
 
 #[tokio::main]
@@ -58,10 +61,23 @@ async fn main() -> anyhow::Result<()> {
     let bind = cfg.bind.clone();
     let node_id = cfg.node_id.clone();
 
+    // Bind the single UDP socket all ICE/media is muxed onto.
+    let udp_socket = tokio::net::UdpSocket::bind(("0.0.0.0", cfg.udp_mux_port))
+        .await
+        .with_context(|| format!("binding ICE UDP mux on :{}", cfg.udp_mux_port))?;
+    let udp_mux: Arc<dyn UDPMux + Send + Sync> =
+        UDPMuxDefault::new(UDPMuxParams::new(udp_socket));
+    tracing::info!(
+        udp_port = cfg.udp_mux_port,
+        public_ip = ?cfg.public_ip,
+        "ICE media muxed onto one UDP port"
+    );
+
     let state = SfuState {
         cfg: Arc::new(cfg),
         rooms: Arc::new(RoomManager::new()),
         signer: Arc::new(signer),
+        udp_mux,
     };
 
     let app = Router::new()
@@ -122,8 +138,21 @@ async fn handle_peer(socket: WebSocket, state: SfuState, room_id: String, user_i
 
     let room = state.rooms.get_or_create(&room_id).await;
 
-    // Build this peer's connection.
-    let pc = match room::new_peer_connection(ice_servers(&state.cfg, user_id)).await {
+    // With a public host candidate the SFU is reachable directly, so skip TURN
+    // (webrtc-rs's TURN client is flaky against coturn and only adds latency).
+    // Without one (local dev), fall back to the configured TURN servers.
+    let ice = if state.cfg.public_ip.is_some() {
+        Vec::new()
+    } else {
+        ice_servers(&state.cfg, user_id)
+    };
+    let pc = match room::new_peer_connection(
+        ice,
+        state.cfg.public_ip.clone(),
+        state.udp_mux.clone(),
+    )
+    .await
+    {
         Ok(pc) => pc,
         Err(e) => {
             tracing::error!(error = %e, "failed to create peer connection");

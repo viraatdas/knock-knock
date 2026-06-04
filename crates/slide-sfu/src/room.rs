@@ -17,8 +17,12 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use uuid::Uuid;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
+use webrtc::ice::udp_mux::UDPMux;
+use webrtc::ice::udp_network::UDPNetwork;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
@@ -76,15 +80,30 @@ impl RoomManager {
     }
 }
 
-/// Build a peer connection configured with our ICE servers.
-pub async fn new_peer_connection(ice_servers: Vec<RTCIceServer>) -> Result<Arc<RTCPeerConnection>> {
+/// Build a peer connection. All media is muxed onto one shared UDP socket; when
+/// `public_ip` is set we advertise it as a 1:1-NAT host candidate so clients
+/// connect to the SFU directly (the SFU has no public UDP otherwise, and pure
+/// relay-to-relay through one TURN doesn't reliably connect).
+pub async fn new_peer_connection(
+    ice_servers: Vec<RTCIceServer>,
+    public_ip: Option<String>,
+    udp_mux: Arc<dyn UDPMux + Send + Sync>,
+) -> Result<Arc<RTCPeerConnection>> {
     let mut m = MediaEngine::default();
     m.register_default_codecs()?;
     let mut registry = Registry::new();
     registry = register_default_interceptors(registry, &mut m)?;
+
+    let mut se = SettingEngine::default();
+    se.set_udp_network(UDPNetwork::Muxed(udp_mux));
+    if let Some(ip) = public_ip {
+        se.set_nat_1to1_ips(vec![ip], RTCIceCandidateType::Host);
+    }
+
     let api = APIBuilder::new()
         .with_media_engine(m)
         .with_interceptor_registry(registry)
+        .with_setting_engine(se)
         .build();
 
     let config = RTCConfiguration {
