@@ -49,6 +49,15 @@ export function ShareIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function WebIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <rect x="3" y="5" width="18" height="12" rx="2" />
+      <path d="M8 20h8M12 17v3" />
+    </svg>
+  );
+}
+
 export function WaveformIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props} aria-hidden="true">

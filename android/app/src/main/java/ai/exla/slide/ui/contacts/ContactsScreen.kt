@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -112,6 +113,18 @@ fun ContactsScreen(vm: ContactsViewModel, onCall: (CallPeer) -> Unit) {
 
         // Pinned search field.
         SearchField(value = state.query, onValueChange = vm::setQuery)
+        Spacer(Modifier.height(12.dp))
+        DirectDialPanel(
+            number = state.dialNumber,
+            onNumberChange = vm::setDialNumber,
+            checking = state.dialChecking,
+            match = state.dialLookup,
+            message = state.dialMessage,
+            onCheck = vm::checkDialNumber,
+            onInvite = { invite(context, state.dialNumber) },
+            onAudio = { state.dialLookup?.toPeer()?.let(onCall) },
+            onVideo = { state.dialLookup?.toPeer()?.let(onCall) },
+        )
         Spacer(Modifier.height(8.dp))
 
         val groups = state.grouped
@@ -201,6 +214,99 @@ private fun invite(context: Context, phone: String) {
             putExtra(Intent.EXTRA_TEXT, InviteMessage.BODY)
         }
         runCatching { context.startActivity(Intent.createChooser(send, "Invite to Slide")) }
+    }
+}
+
+@Composable
+private fun DirectDialPanel(
+    number: String,
+    onNumberChange: (String) -> Unit,
+    checking: Boolean,
+    match: Contact?,
+    message: String?,
+    onCheck: () -> Unit,
+    onInvite: () -> Unit,
+    onAudio: () -> Unit,
+    onVideo: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SlideColors.SurfaceMuted, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+    ) {
+        Text("Call by phone number", style = MaterialTheme.typography.labelLarge, color = SlideColors.Ink)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextField(
+                value = number,
+                onValueChange = onNumberChange,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                placeholder = { Text("+1 415 555 0123", color = SlideColors.InkSecondary) },
+                textStyle = MaterialTheme.typography.bodyLarge,
+                shape = RoundedCornerShape(12.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = SlideColors.Bg,
+                    unfocusedContainerColor = SlideColors.Bg,
+                    cursorColor = SlideColors.Ink,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedTextColor = SlideColors.Ink,
+                    unfocusedTextColor = SlideColors.Ink,
+                ),
+            )
+            Spacer(Modifier.width(10.dp))
+            val canCheck = number.filter { it.isDigit() }.length >= 4 && !checking
+            Box(
+                modifier = Modifier
+                    .width(104.dp)
+                    .height(52.dp)
+                    .background(
+                        if (canCheck) SlideColors.Ink else SlideColors.Hairline,
+                        RoundedCornerShape(14.dp),
+                    )
+                    .quietClickable { if (canCheck) onCheck() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (checking) "Checking" else "Check",
+                    color = if (canCheck) SlideColors.Bg else SlideColors.InkSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+
+        when {
+            match != null -> {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AvatarCircle(name = match.displayName ?: match.phone, size = 36.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(match.displayName ?: match.phone, color = SlideColors.Ink)
+                        Text("On Slide", color = SlideColors.InkSecondary, fontSize = 13.sp)
+                    }
+                    CircleIconButton(Icons.Outlined.Phone, "Audio call", onAudio, diameter = 42.dp)
+                    Spacer(Modifier.width(8.dp))
+                    CircleIconButton(Icons.Outlined.Videocam, "Video call", onVideo, diameter = 42.dp)
+                }
+            }
+            message != null -> {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(message, color = SlideColors.InkSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                    Text(
+                        "Invite",
+                        color = SlideColors.Ink,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.quietClickable(onInvite),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -318,4 +424,4 @@ private fun ContactSheet(
 }
 
 private fun Contact.toPeer() =
-    CallPeer(userId = contactUserId ?: id ?: phone, displayName = displayName, phone = phone)
+    CallPeer(userId = callUserId ?: id ?: phone, displayName = displayName ?: phone, phone = phone)

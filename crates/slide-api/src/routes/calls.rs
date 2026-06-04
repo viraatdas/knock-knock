@@ -198,8 +198,28 @@ pub async fn create_call(
         sfu_client::mint_join_token(&state, uid, call_id, &alloc.room_id, &alloc.sfu_node_id)?;
     let ice = sfu_client::ice_servers(&state, uid);
 
+    let caller: Option<(Option<String>, String)> =
+        sqlx::query_as("SELECT display_name, phone FROM users WHERE id = $1")
+            .bind(uid)
+            .fetch_optional(&state.db)
+            .await?;
+    let from_name = caller
+        .as_ref()
+        .and_then(|(name, _)| name.as_ref())
+        .filter(|name| !name.trim().is_empty())
+        .cloned()
+        .or_else(|| caller.as_ref().map(|(_, phone)| phone.clone()))
+        .unwrap_or_else(|| "Slide".to_string());
+
     // Ring the callees over the signaling socket (push fallback when offline).
-    let event = json!({ "type": "incoming_call", "call": &view, "from": uid });
+    let event = json!({
+        "type": "incoming_call",
+        "callId": call_id,
+        "callType": view.call_type,
+        "fromUserId": uid,
+        "fromName": from_name,
+        "call": &view,
+    });
     for c in &callees {
         let delivered = state.hub.publish(*c, event.clone()).await;
         if delivered == 0 {

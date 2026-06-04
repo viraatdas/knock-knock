@@ -383,7 +383,7 @@ final class SFUSignaling: NSObject {
     func connect() {
         var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var items = comps?.queryItems ?? []
-        items.append(URLQueryItem(name: "joinToken", value: joinToken))
+        items.append(URLQueryItem(name: "token", value: joinToken))
         comps?.queryItems = items
         guard let full = comps?.url else { return }
         let task = session.webSocketTask(with: full)
@@ -421,10 +421,10 @@ final class SFUSignaling: NSObject {
                 let rtcType: RTCSdpType = (type == "offer") ? .offer : .answer
                 onRemoteDescription?(RTCSessionDescription(type: rtcType, sdp: sdp))
             }
-        case "candidate":
+        case "ice":
             if let cand = obj["candidate"] as? String {
-                let mid = obj["sdpMid"] as? String
-                let idx = (obj["sdpMLineIndex"] as? Int) ?? 0
+                let mid = obj["sdp_mid"] as? String
+                let idx = (obj["sdp_mline_index"] as? Int) ?? 0
                 onRemoteCandidate?(RTCIceCandidate(sdp: cand, sdpMLineIndex: Int32(idx), sdpMid: mid))
             }
         default: break
@@ -444,10 +444,10 @@ final class SFUSignaling: NSObject {
         sendJSON(["type": "answer", "sdp": sdp.sdp])
     }
     func sendCandidate(_ c: RTCIceCandidate) {
-        sendJSON(["type": "candidate",
+        sendJSON(["type": "ice",
                   "candidate": c.sdp,
-                  "sdpMLineIndex": Int(c.sdpMLineIndex),
-                  "sdpMid": c.sdpMid as Any])
+                  "sdp_mline_index": Int(c.sdpMLineIndex),
+                  "sdp_mid": c.sdpMid as Any])
     }
 }
 

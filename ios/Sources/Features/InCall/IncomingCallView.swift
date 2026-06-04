@@ -67,10 +67,6 @@ struct IncomingCallView: View {
     }
 
     private func decline() {
-        if let id = call.callId {
-            CallKitManager.shared.endCall(uuid: call.uuid)
-            _ = id
-        }
         appState.declineIncoming()
     }
 }

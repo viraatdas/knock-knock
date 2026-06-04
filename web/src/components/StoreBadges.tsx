@@ -1,4 +1,4 @@
-import { AppleIcon, PlayIcon } from "./icons";
+import { AppleIcon, PlayIcon, WebIcon } from "./icons";
 
 function Badge({
   href,
@@ -30,6 +30,12 @@ function Badge({
 export default function StoreBadges() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row">
+      <Badge
+        href="/web"
+        icon={<WebIcon />}
+        line1="Use now on"
+        line2="Web"
+      />
       <Badge
         href="#"
         icon={<AppleIcon />}

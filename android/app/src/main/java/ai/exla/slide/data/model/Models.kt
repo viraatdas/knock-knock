@@ -1,6 +1,7 @@
 package ai.exla.slide.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /* ---------------- Core domain (camelCase per AGENTS.md) ---------------- */
 
@@ -29,6 +30,7 @@ data class Contact(
     val id: String? = null,
     val ownerUserId: String? = null,
     val contactUserId: String? = null,
+    val userId: String? = null,
     val phone: String,
     val displayName: String? = null,
     val onSlide: Boolean = false,
@@ -107,7 +109,7 @@ data class RegisterDeviceBody(
 /* ---------------- Contacts ---------------- */
 
 @Serializable
-data class SyncContactsBody(val phones: List<String>)
+data class SyncContactsBody(val phones: List<String>, val names: List<String> = emptyList())
 
 /* ---------------- Calls ---------------- */
 
@@ -155,7 +157,10 @@ data class ApiErrorBody(
 data class SignalEnvelope(
     val type: String,
     val callId: String? = null,
+    val callType: String? = null,
     val userId: String? = null,
+    val fromUserId: String? = null,
+    val fromName: String? = null,
     val call: Call? = null,
-    val from: User? = null,
+    val from: JsonElement? = null,
 )

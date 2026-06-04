@@ -121,11 +121,14 @@ final class SignalingClient: NSObject, @unchecked Sendable {
         switch type {
         case "incoming_call":
             let typeStr = obj["callType"] as? String ?? obj["type2"] as? String
+            let call = obj["call"] as? [String: Any]
+            let from = obj["from"] as? [String: Any]
             let callType = CallType(rawValue: typeStr ?? "one_to_one") ?? .oneToOne
             return .incomingCall(
-                callId: (obj["callId"] as? String) ?? (obj["id"] as? String) ?? "",
-                fromUserId: obj["fromUserId"] as? String,
-                fromName: obj["fromName"] as? String ?? obj["fromDisplayName"] as? String,
+                callId: (obj["callId"] as? String) ?? (obj["id"] as? String) ?? (call?["id"] as? String) ?? "",
+                fromUserId: obj["fromUserId"] as? String ?? (obj["from"] as? String) ?? (from?["id"] as? String),
+                fromName: obj["fromName"] as? String ?? obj["fromDisplayName"] as? String
+                    ?? (from?["displayName"] as? String) ?? (from?["phone"] as? String),
                 type: callType)
         case "call_accepted":
             return .callAccepted(callId: callIdOf(obj), byUserId: obj["byUserId"] as? String)

@@ -75,8 +75,8 @@ class SlideRepository(
 
     /* ---- Contacts ---- */
 
-    suspend fun syncContacts(phones: List<String>): Result<List<Contact>> = io {
-        api.syncContacts(SyncContactsBody(phones))
+    suspend fun syncContacts(phones: List<String>, names: List<String> = emptyList()): Result<List<Contact>> = io {
+        api.syncContacts(SyncContactsBody(phones, names))
     }
 
     suspend fun getContacts(): Result<List<Contact>> = io { api.getContacts() }

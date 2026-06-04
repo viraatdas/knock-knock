@@ -9,7 +9,7 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
-const siteUrl = "https://web-viraatdas-projects.vercel.app";
+const siteUrl = "https://slide.viraat.dev";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: "%s · Slide",
   },
   description:
-    "Slide is the video calling app built for bad internet. One bar, hotel wifi, a train tunnel: the call keeps going while other apps freeze. The clearest video calls with the people you know, on any device.",
+    "Slide is the phone-number video calling app for iOS, Android, and the web. Sign in with your number, verify by code, and call people by phone number.",
   keywords: [
     "video calling",
     "bad internet video call",
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Slide: video calls built for bad internet",
     description:
-      "The clearest video calls with the people you know. On any device.",
+      "Phone-number video calls for iOS, Android, and the web.",
     url: siteUrl,
     siteName: "Slide",
     type: "website",
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Slide: video calls built for bad internet",
     description:
-      "The clearest video calls with the people you know. On any device.",
+      "Phone-number video calls for iOS, Android, and the web.",
   },
   icons: {
     icon: [

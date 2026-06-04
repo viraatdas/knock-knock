@@ -1,6 +1,7 @@
 package ai.exla.slide.call
 
 import android.content.Context
+import android.net.Uri
 import ai.exla.slide.data.model.IceServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +45,7 @@ import org.webrtc.VideoTrack
 
 /**
  * Real WebRTC implementation. Builds a [PeerConnectionFactory], captures
- * camera + mic, connects to the SFU at `sfuUrl` (plane B) authenticated with
+ * camera + mic, connects to the SFU at `sfuUrl` (plane B) with the room-scoped
  * `joinToken`, configures the provided `iceServers`, and runs the SDP
  * offer/answer + ICE trickle exchange.
  *
@@ -196,9 +197,12 @@ class WebRtcCallService(
     /* ---------------- SFU signaling (plane B) ---------------- */
 
     private fun connectSfu(sfuUrl: String, joinToken: String) {
+        val url = Uri.parse(sfuUrl).buildUpon()
+            .appendQueryParameter("token", joinToken)
+            .build()
+            .toString()
         val request = Request.Builder()
-            .url(sfuUrl)
-            .addHeader("Authorization", "Bearer $joinToken")
+            .url(url)
             .build()
         ws = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) = createOffer()
@@ -240,13 +244,12 @@ class WebRtcCallService(
                     override fun onSetSuccess() = createAnswer()
                 }, SessionDescription(SessionDescription.Type.OFFER, sdp))
             }
-            "candidate" -> {
-                val c = obj["candidate"]?.jsonObject ?: return
+            "ice" -> {
                 peerConnection?.addIceCandidate(
                     IceCandidate(
-                        c["sdpMid"]?.jsonPrimitive?.content,
-                        c["sdpMLineIndex"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                        c["candidate"]?.jsonPrimitive?.content,
+                        obj["sdp_mid"]?.jsonPrimitive?.content,
+                        obj["sdp_mline_index"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                        obj["candidate"]?.jsonPrimitive?.content,
                     )
                 )
             }
@@ -268,12 +271,10 @@ class WebRtcCallService(
 
     private fun sendCandidate(candidate: IceCandidate) {
         ws?.send(buildJsonObject {
-            put("type", "candidate")
-            put("candidate", buildJsonObject {
-                put("candidate", candidate.sdp)
-                put("sdpMid", candidate.sdpMid)
-                put("sdpMLineIndex", candidate.sdpMLineIndex)
-            })
+            put("type", "ice")
+            put("candidate", candidate.sdp)
+            put("sdp_mid", candidate.sdpMid)
+            put("sdp_mline_index", candidate.sdpMLineIndex)
         }.toString())
     }
 

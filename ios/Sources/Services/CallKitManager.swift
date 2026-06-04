@@ -89,6 +89,11 @@ final class CallKitManager: NSObject, @unchecked Sendable {
         provider.reportCall(with: uuid, updated: update)
     }
 
+    func answerCall(uuid: UUID) {
+        let action = CXAnswerCallAction(call: uuid)
+        callController.request(CXTransaction(action: action)) { _ in }
+    }
+
     func reportOutgoingConnected(uuid: UUID) {
         provider.reportOutgoingCall(with: uuid, connectedAt: Date())
         playChime("pickup")

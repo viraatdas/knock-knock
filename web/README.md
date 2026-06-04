@@ -1,9 +1,9 @@
-# Slide — marketing website
+# Slide web
 
-The landing site for **Slide**, a phone-only video calling app — _for the
-friends who never call_.
+The customer website and browser call client for **Slide**, a phone-only video
+calling app for iOS, Android, and the web.
 
-**Live:** https://web-viraatdas-projects.vercel.app
+**Live:** https://slide.viraat.dev
 
 Built with **Next.js (App Router, TypeScript)** + **Tailwind CSS**, following the
 "quiet & precise" design system in [`../AGENTS.md`](../AGENTS.md):
@@ -14,7 +14,8 @@ whitespace, and fast/subtle motion that respects `prefers-reduced-motion`.
 
 | Route      | Description                                                        |
 | ---------- | ----------------------------------------------------------------- |
-| `/`        | Hero, feature sections, CSS phone mockup, closing CTA, footer.    |
+| `/`        | Customer-facing product site with platform badges and feature copy.|
+| `/web`     | Browser client with phone OTP login, notifications, and calls.     |
 | `/privacy` | Privacy Policy (phone-as-identity, hashed contacts, no data sale).|
 | `/terms`   | Terms of Service.                                                  |
 
@@ -56,18 +57,20 @@ web/
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx        # metadata, Open Graph, fonts, favicon
-│   │   ├── page.tsx          # landing page
+│   │   ├── page.tsx          # customer-facing homepage
 │   │   ├── globals.css       # tokens + scroll-reveal + reduced-motion
 │   │   ├── not-found.tsx     # 404
 │   │   ├── robots.ts
 │   │   ├── sitemap.ts
+│   │   ├── web/page.tsx
 │   │   ├── privacy/page.tsx
 │   │   └── terms/page.tsx
 │   └── components/
 │       ├── Nav.tsx
 │       ├── Footer.tsx
 │       ├── Reveal.tsx        # IntersectionObserver scroll-reveal
-│       ├── StoreBadges.tsx   # thin "Coming to the App Store/Google Play" pills
+│       ├── SlideWebApp.tsx   # phone auth, notifications, WS, WebRTC calling
+│       ├── StoreBadges.tsx   # thin Web/App Store/Google Play pills
 │       ├── PhoneMockup.tsx   # CSS device frame + Slide UI
 │       ├── Legal.tsx         # shared shell for /privacy and /terms
 │       └── icons.tsx         # 1.5px thin-line icons

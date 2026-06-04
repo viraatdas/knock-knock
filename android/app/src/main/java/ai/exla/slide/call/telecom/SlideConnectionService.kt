@@ -34,6 +34,7 @@ class SlideConnectionService : ConnectionService() {
             TelecomManager.PRESENTATION_ALLOWED,
         )
         connection.connectionCapabilities = Connection.CAPABILITY_MUTE
+        activeConnection = connection
         return connection
     }
 
@@ -48,6 +49,21 @@ class SlideConnectionService : ConnectionService() {
         const val EXTRA_CALLER_NAME = "ai.exla.slide.CALLER_NAME"
         const val EXTRA_CALL_ID = "ai.exla.slide.CALL_ID"
         const val EXTRA_RINGTONE_URI = "ai.exla.slide.RINGTONE_URI"
+        private var activeConnection: SlideConnection? = null
+
+        fun answerActiveConnection() {
+            activeConnection?.answerFromApp()
+        }
+
+        fun rejectActiveConnection() {
+            activeConnection?.rejectFromApp()
+            activeConnection = null
+        }
+
+        fun disconnectActiveConnection() {
+            activeConnection?.disconnectFromApp()
+            activeConnection = null
+        }
 
         /**
          * Resolves the incoming-call ringtone: the bundled `res/raw/ringtone` if
@@ -76,19 +92,17 @@ class SlideConnection : Connection() {
     }
 
     override fun onAnswer() {
-        setActive()
+        answerFromApp()
         TelecomBridge.onAnswer?.invoke()
     }
 
     override fun onReject() {
-        setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
-        destroy()
+        rejectFromApp()
         TelecomBridge.onReject?.invoke()
     }
 
     override fun onDisconnect() {
-        setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
-        destroy()
+        disconnectFromApp()
         TelecomBridge.onDisconnect?.invoke()
     }
 
@@ -96,6 +110,20 @@ class SlideConnection : Connection() {
         setDisconnected(DisconnectCause(DisconnectCause.CANCELED))
         destroy()
         TelecomBridge.onDisconnect?.invoke()
+    }
+
+    fun answerFromApp() {
+        setActive()
+    }
+
+    fun rejectFromApp() {
+        setDisconnected(DisconnectCause(DisconnectCause.REJECTED))
+        destroy()
+    }
+
+    fun disconnectFromApp() {
+        setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
+        destroy()
     }
 }
 

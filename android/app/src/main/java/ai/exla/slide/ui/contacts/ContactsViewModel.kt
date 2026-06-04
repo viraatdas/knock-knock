@@ -22,6 +22,10 @@ object InviteMessage {
 
 data class ContactsState(
     val query: String = "",
+    val dialNumber: String = "",
+    val dialLookup: Contact? = null,
+    val dialChecking: Boolean = false,
+    val dialMessage: String? = null,
     val all: List<Contact> = emptyList(),
     val loading: Boolean = true,
     val importing: Boolean = false,
@@ -56,6 +60,15 @@ class ContactsViewModel(private val repo: SlideRepository) : ViewModel() {
 
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
 
+    fun setDialNumber(value: String) =
+        _state.update {
+            it.copy(
+                dialNumber = value,
+                dialLookup = null,
+                dialMessage = null,
+            )
+        }
+
     fun load() {
         _state.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
@@ -75,5 +88,44 @@ class ContactsViewModel(private val repo: SlideRepository) : ViewModel() {
         }
     }
 
+    fun checkDialNumber() {
+        val phone = state.value.dialNumber.trim()
+        if (phone.filter(Char::isDigit).length < 4) return
+        viewModelScope.launch {
+            _state.update { it.copy(dialChecking = true, dialLookup = null, dialMessage = null) }
+            repo.syncContacts(listOf(phone), listOf(phone))
+                .onSuccess { contacts ->
+                    val match = contacts.firstOrNull()
+                    _state.update {
+                        if (match?.onSlide == true && match.callUserId != null) {
+                            it.copy(
+                                dialChecking = false,
+                                dialLookup = match,
+                                dialMessage = null,
+                            )
+                        } else {
+                            it.copy(
+                                dialChecking = false,
+                                dialLookup = null,
+                                dialMessage = "That number is not on Slide yet.",
+                            )
+                        }
+                    }
+                }
+                .onFailure {
+                    _state.update {
+                        it.copy(
+                            dialChecking = false,
+                            dialLookup = null,
+                            dialMessage = "Couldn't check that number.",
+                        )
+                    }
+                }
+        }
+    }
+
     fun setImporting(value: Boolean) = _state.update { it.copy(importing = value) }
 }
+
+val Contact.callUserId: String?
+    get() = contactUserId ?: userId

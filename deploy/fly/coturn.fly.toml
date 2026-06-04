@@ -12,14 +12,10 @@ primary_region = "iad"
   image = "coturn/coturn:4.6"
 
 [experimental]
-  cmd = [
-    "turnserver",
-    "--realm=slide.app",
-    "--use-auth-secret",
-    "--static-auth-secret=$TURN_SECRET",
-    "--no-cli", "--no-tls", "--no-dtls",
-    "--min-port=49160", "--max-port=49200",
-    "--listening-port=3478", "--fingerprint", "--lt-cred-mech",
+cmd = [
+    "sh",
+    "-lc",
+    "exec turnserver --realm=slide.app --use-auth-secret --static-auth-secret=\"$TURN_SECRET\" --no-cli --no-tls --no-dtls --min-port=49160 --max-port=49200 --listening-port=3478 --fingerprint --lt-cred-mech",
   ]
 
 # TURN listener (UDP + TCP) on 3478, relay range 49160-49200/udp.

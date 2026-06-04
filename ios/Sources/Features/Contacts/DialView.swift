@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// "Call anyone" entry: type a phone number, and if they're on Slide you can
-/// call them directly — no need to be in each other's contacts. Slide only
+/// call them directly. No need to be in each other's contacts. Slide only
 /// requires that the person has Slide.
 struct DialView: View {
     @EnvironmentObject private var appState: AppState
