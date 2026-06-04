@@ -13,6 +13,12 @@ import {
 import PhoneField from "./PhoneField";
 import { KnockBanner, KnockPad, playKnock, vibrateKnock } from "./Knock";
 import { enableWebPush } from "../lib/push";
+import { firebaseAuth } from "../lib/firebase";
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  type ConfirmationResult,
+} from "firebase/auth";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_SLIDE_API_BASE_URL ??
