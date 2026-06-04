@@ -10,7 +10,13 @@ enum Config {
            let url = URL(string: raw) {
             return url
         }
+        #if DEBUG
+        // Simulator/dev default.
         return URL(string: "http://localhost:8080/v1")!
+        #else
+        // Release/TestFlight: the live AWS backend (App Runner).
+        return URL(string: "https://nck3w7ufbz.us-east-1.awsapprunner.com/v1")!
+        #endif
     }
 
     /// Whether to use the mocked CallService (real WebRTC requires a device to
@@ -19,7 +25,14 @@ enum Config {
         if let raw = ProcessInfo.processInfo.environment["SLIDE_USE_REAL_WEBRTC"] {
             return !(raw == "1" || raw.lowercased() == "true")
         }
+        #if DEBUG
+        // Simulator can't do real capture; default to the mock for screens.
         return true
+        #else
+        // Release/TestFlight on a real device: use real WebRTC so calls (and
+        // audio routing) actually work.
+        return false
+        #endif
     }
 
     /// Whether to seed mock data so the UI is populated in the simulator even

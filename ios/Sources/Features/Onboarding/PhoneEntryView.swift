@@ -36,7 +36,7 @@ struct PhoneEntryView: View {
                     }
                     .buttonStyle(PressableButtonStyle())
 
-                    TextField("000 000 0000", text: $vm.nationalNumber)
+                    TextField("123 456 7890", text: $vm.nationalNumber)
                         .font(Theme.Font.bigDigits)
                         .foregroundStyle(Theme.Color.text)
                         .tint(Theme.Color.accent)
