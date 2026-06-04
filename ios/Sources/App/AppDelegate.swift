@@ -21,14 +21,32 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // launches the app into the background to deliver a VoIP push, so this
         // must be set up at launch.
         PushService.shared.start()
+
+        // Register for STANDARD remote notifications too. Firebase Phone Auth
+        // verifies the device with a silent APNs push; without this token it
+        // falls back to a reCAPTCHA web page (which was erroring). VoIP/PushKit
+        // tokens are separate and do NOT satisfy Firebase, so this is required.
+        application.registerForRemoteNotifications()
         return true
     }
 
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         #if canImport(FirebaseAuth)
-        // Hand the APNs token to Firebase for phone-auth verification.
+        // Hand the APNs token to Firebase for phone-auth verification. On a
+        // TestFlight/App Store build the token is production; .unknown lets
+        // Firebase auto-detect the environment.
         Auth.auth().setAPNSToken(deviceToken, type: .unknown)
+        #endif
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // No APNs token (e.g. simulator, or push not provisioned). Firebase will
+        // fall back to the reCAPTCHA flow, which needs the URL scheme we set in
+        // project.yml. Log so this is diagnosable but don't crash.
+        #if DEBUG
+        print("APNs registration failed: \(error.localizedDescription)")
         #endif
     }
 
