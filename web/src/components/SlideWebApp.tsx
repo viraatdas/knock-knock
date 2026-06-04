@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PhoneIcon, VideoIcon, WaveformIcon } from "./icons";
+import PhoneField from "./PhoneField";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_SLIDE_API_BASE_URL ??
@@ -615,18 +616,12 @@ export default function SlideWebApp() {
                 </p>
               </div>
               {authStep === "phone" ? (
-                <label className="grid gap-2">
+                <div className="grid gap-2">
                   <span className="text-[12px] uppercase tracking-label text-text-secondary">
                     Phone number
                   </span>
-                  <input
-                    value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                    inputMode="tel"
-                    placeholder="+1 415 555 0123"
-                    className="h-12 rounded-[8px] border border-hairline bg-bg px-4 text-[18px] font-light outline-none transition-colors focus:border-text/40"
-                  />
-                </label>
+                  <PhoneField onChange={setPhone} onEnter={requestOtp} />
+                </div>
               ) : (
                 <label className="grid gap-2">
                   <span className="text-[12px] uppercase tracking-label text-text-secondary">
