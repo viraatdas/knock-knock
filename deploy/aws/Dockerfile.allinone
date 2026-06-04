@@ -9,7 +9,10 @@
 #   docker build -f deploy/aws/Dockerfile.allinone --platform linux/amd64 -t slide-allinone .
 
 # ── Stage 1: build slide-api ──────────────────────────────────────────────────
-FROM rust:1.94-slim AS builder
+# Pin to bookworm so the binary links against the SAME glibc/openssl as the
+# bookworm runtime stage below. (Plain rust:1.94-slim tracks trixie, whose
+# newer OPENSSL_3.2.0 / GLIBC_2.38 symbols are absent at runtime → boot crash.)
+FROM rust:1.94-slim-bookworm AS builder
 WORKDIR /app
 # libssl-dev: web-push -> isahc/curl-sys + ece -> openssl-sys need OpenSSL headers.
 RUN apt-get update \
