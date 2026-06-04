@@ -116,6 +116,22 @@ export function flagEmoji(iso2: string): string {
     .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)));
 }
 
+// Max national digits we keep for a country (NANP is exactly 10).
+export function maxNationalDigits(country: Country): number {
+  return country.dial === "1" ? 10 : 15;
+}
+
+// Pretty as-you-type grouping of the NATIONAL number (no country code).
+// NANP (dial 1) → "415 555 0123" (3-3-4); everything else → groups of 3.
+export function formatNational(digits: string, country: Country): string {
+  const d = digits.replace(/\D/g, "").slice(0, maxNationalDigits(country));
+  if (!d) return "";
+  if (country.dial === "1") {
+    return [d.slice(0, 3), d.slice(3, 6), d.slice(6, 10)].filter(Boolean).join(" ");
+  }
+  return (d.match(/.{1,3}/g) ?? []).join(" ");
+}
+
 // Best-effort default from the browser locale's region (e.g. "en-GB" -> GB).
 export function detectCountry(): Country {
   try {

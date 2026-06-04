@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { COUNTRIES, Country, DEFAULT_COUNTRY, detectCountry, flagEmoji } from "./countries";
+import {
+  COUNTRIES,
+  Country,
+  DEFAULT_COUNTRY,
+  detectCountry,
+  flagEmoji,
+  formatNational,
+  maxNationalDigits,
+} from "./countries";
 
 type Props = {
   // Called with the full E.164 number ("+14155550123") or "" when empty.
@@ -27,16 +35,20 @@ export default function PhoneField({ onChange, onEnter }: Props) {
     onChange(digits ? `+${c.dial}${digits}` : "");
   };
 
+  // `national` holds raw DIGITS; the input displays them grouped via formatNational.
   const onNationalChange = (raw: string) => {
-    setNational(raw);
-    emit(country, raw);
+    const digits = raw.replace(/\D/g, "").slice(0, maxNationalDigits(country));
+    setNational(digits);
+    emit(country, digits);
   };
 
   const selectCountry = (c: Country) => {
+    const capped = national.slice(0, maxNationalDigits(c));
     setCountry(c);
+    setNational(capped);
     setOpen(false);
     setQuery("");
-    emit(c, national);
+    emit(c, capped);
   };
 
   // Close on outside click / Escape.
@@ -100,7 +112,7 @@ export default function PhoneField({ onChange, onEnter }: Props) {
         </button>
         <span className="my-2.5 w-px bg-hairline" aria-hidden />
         <input
-          value={national}
+          value={formatNational(national, country)}
           onChange={(e) => onNationalChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && onEnter) onEnter();
