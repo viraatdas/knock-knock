@@ -627,6 +627,128 @@ platform :ios do
     end
   end
 
+  # Return [{id,name,internal,publicLink}] for the app's beta groups (raw REST).
+  def tf_groups(app)
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=200")
+    UI.user_error!("betaGroups GET #{code}: #{body.inspect[0,160]}") unless code == 200
+    (body["data"] || []).map do |g|
+      { "id" => g["id"], "name" => g.dig("attributes","name"),
+        "internal" => g.dig("attributes","isInternalGroup"),
+        "publicLink" => g.dig("attributes","publicLink") }
+    end
+  end
+
+  desc "Show TestFlight groups + testers."
+  lane :tf_status do
+    app = asc_connect
+    groups = tf_groups(app)
+    UI.header "Beta groups: #{groups.size}"
+    groups.each do |g|
+      UI.message "  - '#{g['name']}' internal=#{g['internal']} public_link=#{g['publicLink'] || 'none'} id=#{g['id']}"
+    end
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaTesters?limit=100")
+    testers = body["data"] || []
+    UI.message "Testers: #{testers.size}"
+    testers.each { |t| UI.message "  - #{t.dig('attributes','email')} (#{t.dig('attributes','state')})" }
+  end
+
+  desc "Show the latest build's TestFlight readiness (processing + beta review + groups)."
+  lane :tf_build_state do
+    app = asc_connect
+    code, body = asc_raw(:get, "v1/builds?filter%5Bapp%5D=#{app.id}&sort=-version&limit=3&include=betaGroups")
+    (body["data"] || []).each do |b|
+      a = b["attributes"]
+      grp_ids = (b.dig("relationships","betaGroups","data") || []).map { |g| g["id"] }
+      UI.message "build #{a['version']} processing=#{a['processingState']} expired=#{a['expired']} groups=#{grp_ids.size}"
+      # Beta app review state
+      rc, rb = asc_raw(:get, "v1/builds/#{b['id']}/betaAppReviewSubmission")
+      st = rb.dig("data","attributes","betaReviewState") rescue nil
+      UI.message "   betaReviewState=#{st || 'NONE (not submitted for beta review)'}"
+    end
+  end
+
+  desc "Submit the latest build for TestFlight Beta App Review (needed for EXTERNAL testers)."
+  lane :tf_beta_submit do
+    app = asc_connect
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+    UI.user_error!("no build") unless build
+    code, body = asc_raw(:post, "v1/betaAppReviewSubmissions", {
+      data: { type: "betaAppReviewSubmissions",
+              relationships: { build: { data: { type: "builds", id: build.id } } } } })
+    if (200..299).include?(code)
+      UI.success "Submitted build #{build.version} for Beta App Review."
+    else
+      UI.important "beta submit #{code}: #{body.inspect[0,200]}"
+    end
+  end
+
+  desc "Enable a PUBLIC TestFlight link on an external group so anyone can join. Set TF_GROUP (default 'Friends')."
+  lane :tf_public_link do
+    app = asc_connect
+    name = ENV["TF_GROUP"] || "Friends"
+    groups = Spaceship::ConnectAPI::BetaGroup.all(app_id: app.id)
+    grp = groups.find { |g| g.name == name && !g.is_internal_group }
+    if grp.nil?
+      # Create an external group (external groups support public links).
+      code, body = asc_raw(:post, "v1/betaGroups", {
+        data: { type: "betaGroups",
+                attributes: { name: name, publicLinkEnabled: true, publicLinkLimitEnabled: false },
+                relationships: { app: { data: { type: "apps", id: app.id } } } } })
+      UI.user_error!("create group #{code}: #{body.inspect[0,200]}") unless (200..299).include?(code)
+      gid = body.dig("data","id")
+      UI.success "Created external group '#{name}' (#{gid})"
+    else
+      gid = grp.id
+      asc_raw(:patch, "v1/betaGroups/#{gid}", {
+        data: { type: "betaGroups", id: gid, attributes: { publicLinkEnabled: true } } })
+      UI.success "Enabled public link on existing group '#{name}' (#{gid})"
+    end
+    # Attach the latest build to the group so the link actually serves something.
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+    if build
+      asc_raw(:post, "v1/betaGroups/#{gid}/relationships/builds",
+              { data: [{ type: "builds", id: build.id }] })
+      UI.message "Attached build #{build.version} to '#{name}'"
+    end
+    code, body = asc_raw(:get, "v1/betaGroups/#{gid}")
+    link = body.dig("data","attributes","publicLink")
+    UI.header "PUBLIC TESTFLIGHT LINK: #{link || '(provisioning — re-run tf_status in a minute)'}"
+  end
+
+  desc "Invite external testers by email. Set TF_EMAILS='a@x.com,b@y.com' and optional TF_GROUP."
+  lane :tf_invite do
+    app = asc_connect
+    emails = (ENV["TF_EMAILS"] || "").split(",").map(&:strip).reject(&:empty?)
+    UI.user_error!("Set TF_EMAILS='a@x.com,b@y.com'") if emails.empty?
+    name = ENV["TF_GROUP"] || "Friends"
+    grp = tf_groups(app).find { |g| g["name"] == name }
+    if grp.nil?
+      code, body = asc_raw(:post, "v1/betaGroups", {
+        data: { type: "betaGroups", attributes: { name: name },
+                relationships: { app: { data: { type: "apps", id: app.id } } } } })
+      UI.user_error!("create group #{code}: #{body.inspect[0,200]}") unless (200..299).include?(code)
+      gid = body.dig("data","id")
+    else
+      gid = grp["id"]
+    end
+    # Attach latest build so invited testers have something to install.
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+    asc_raw(:post, "v1/betaGroups/#{gid}/relationships/builds",
+            { data: [{ type: "builds", id: build.id }] }) if build
+    emails.each do |em|
+      code, body = asc_raw(:post, "v1/betaTesters", {
+        data: { type: "betaTesters",
+                attributes: { email: em, firstName: em.split("@").first, lastName: "Tester" },
+                relationships: { betaGroups: { data: [{ type: "betaGroups", id: gid }] } } } })
+      if (200..299).include?(code)
+        UI.success "Invited #{em}"
+      else
+        UI.important "#{em} -> #{code}: #{body.inspect[0,140]}"
+      end
+    end
+    UI.header "Invited #{emails.size} tester(s) to '#{name}'. They get an email + can install via TestFlight."
+  end
+
   desc "Cancel the in-progress review submission so the version becomes editable again."
   lane :asc_cancel_review do
     app = asc_connect
