@@ -144,3 +144,71 @@ pub async fn register_device(
     .await?;
     Ok(Json(device))
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRegisterBody {
+    /// Device token (APNs/FCM) or the Web Push endpoint URL.
+    pub push_token: String,
+    /// 'apns_voip' | 'fcm' | 'webpush'.
+    pub kind: String,
+    /// Web Push only: the client public key (base64url).
+    #[serde(default)]
+    pub p256dh: Option<String>,
+    /// Web Push only: the client auth secret (base64url).
+    #[serde(default)]
+    pub auth: Option<String>,
+    /// Optional, informational.
+    #[serde(default)]
+    pub platform: Option<String>,
+    #[serde(default)]
+    pub app_version: String,
+}
+
+/// POST /push/register — upsert a push subscription by (user_id, token).
+///
+/// Separate from POST /devices: subscriptions live in `push_subscriptions`,
+/// which does not use the `platform` enum, so Web Push works without an enum
+/// migration. The legacy /devices endpoint keeps functioning unchanged.
+pub async fn register_push(
+    State(state): State<AppState>,
+    AuthUser(uid): AuthUser,
+    Json(body): Json<PushRegisterBody>,
+) -> AppResult<Json<Value>> {
+    if body.push_token.trim().is_empty() {
+        return Err(AppError::validation("pushToken required"));
+    }
+    let kind = body.kind.trim();
+    if !matches!(kind, "apns_voip" | "fcm" | "webpush") {
+        return Err(AppError::validation(
+            "kind must be one of apns_voip|fcm|webpush",
+        ));
+    }
+    if kind == "webpush" && (body.p256dh.is_none() || body.auth.is_none()) {
+        return Err(AppError::validation(
+            "webpush requires p256dh and auth keys",
+        ));
+    }
+    let _ = &body.platform; // accepted for client convenience; not persisted.
+
+    sqlx::query(
+        "INSERT INTO push_subscriptions (user_id, kind, token, p256dh, auth, app_version)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (user_id, token)
+         DO UPDATE SET kind = EXCLUDED.kind,
+                       p256dh = EXCLUDED.p256dh,
+                       auth = EXCLUDED.auth,
+                       app_version = EXCLUDED.app_version,
+                       updated_at = now()",
+    )
+    .bind(uid)
+    .bind(kind)
+    .bind(&body.push_token)
+    .bind(body.p256dh.as_deref())
+    .bind(body.auth.as_deref())
+    .bind(&body.app_version)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(json!({ "ok": true })))
+}

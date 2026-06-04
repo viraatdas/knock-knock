@@ -30,6 +30,9 @@ sha2.workspace = true
 hex.workspace = true
 rand.workspace = true
 
+# Web Push (browser notifications): VAPID + RFC 8291 ECE encryption.
+web-push = "0.10"
+
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

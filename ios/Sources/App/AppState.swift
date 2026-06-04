@@ -48,6 +48,15 @@ final class AppState: ObservableObject {
             }
             signaling.delegate = self
             CallKitManager.shared.delegate = self
+            // VoIP push → surface + (on answer) join the call. CallKit was
+            // already told about the call inside PushService; here we mirror it
+            // into app state using the same UUID so the answer path matches.
+            PushService.shared.onIncomingCall = { [weak self] callId, fromUserId, fromName, callType in
+                Task { @MainActor in
+                    self?.receivePushedCall(callId: callId, fromUserId: fromUserId,
+                                            fromName: fromName, type: callType)
+                }
+            }
         }
 
         // Debug/screenshot hooks: jump straight to a screen in the simulator.
@@ -111,6 +120,7 @@ final class AppState: ObservableObject {
             currentUser = user
             phase = (user.displayName?.isEmpty ?? true) ? .needsName : .home
             signaling.connect()
+            Task { await registerDeviceIfPossible() }
         } catch APIError.unauthorized, APIError.notAuthenticated {
             logoutLocally()
         } catch {
@@ -153,8 +163,15 @@ final class AppState: ObservableObject {
     }
 
     private func registerDeviceIfPossible() async {
-        // Without APNs entitlements (no paid account) we register a placeholder
-        // token so the device row exists; real push wiring is gated on signing.
+        // Prefer the real PushKit VoIP token if it has already arrived. If the
+        // token shows up later, PushService registers it on `didUpdate`.
+        if let voip = PushService.shared.voipToken {
+            _ = try? await api.registerPushToken(voip)
+            return
+        }
+        // No VoIP token yet (e.g. simulator, or token not delivered) — register
+        // a placeholder so the device row exists; the real token replaces it
+        // once PushKit delivers it.
         let placeholder = "simulator-no-apns-token"
         _ = try? await api.registerDevice(pushToken: placeholder)
     }
@@ -233,6 +250,33 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Surface a call that arrived via a VoIP push. CallKit has already been
+    /// told about this call (in PushService) using `PushService.uuid(for:)`, so
+    /// we build the ActiveCall with the SAME uuid. That makes the CallKit answer
+    /// callback (`callKitDidAnswer`) match this call and run `acceptIncoming`,
+    /// which joins via the normal accept path — identical to an in-app
+    /// `incoming_call`. If the WebSocket later delivers the same `incoming_call`,
+    /// it's deduped by callId so we don't double-ring.
+    func receivePushedCall(callId: String, fromUserId: String?,
+                           fromName: String?, type: CallType) {
+        // Already showing this call (e.g. WS arrived first) — nothing to do.
+        if let existing = activeCall, existing.callId == callId { return }
+
+        let uuid = PushService.uuid(for: callId)
+        let call = ActiveCall(direction: .incoming,
+                              remoteName: fromName ?? "Unknown",
+                              remotePhone: "",
+                              remoteUserId: fromUserId,
+                              isVideo: type == .oneToOne ? true : true,
+                              status: .ringing,
+                              isGroup: type == .group,
+                              uuid: uuid)
+        call.callId = callId
+        activeCall = call
+        // CallKit ring was already started by PushService; no reportIncomingCall
+        // here (that would double-report the same UUID).
     }
 
     func endActiveCall(fromCallKit: Bool = false) {
@@ -410,12 +454,19 @@ extension AppState: SignalingClientDelegate {
         Task { @MainActor in
             switch event {
             case let .incomingCall(callId, fromUserId, fromName, type):
+                // If a VoIP push already surfaced this call (cold/background
+                // launch), it's already ringing via CallKit — don't double-ring.
+                if let existing = self.activeCall, existing.callId == callId { break }
+                // Use a deterministic UUID derived from the callId so this call
+                // matches any VoIP push for the same call (same CallKit UUID).
+                let uuid = PushService.uuid(for: callId)
                 let call = ActiveCall(direction: .incoming,
                                       remoteName: fromName ?? "Unknown",
                                       remotePhone: "",
                                       remoteUserId: fromUserId,
                                       isVideo: type == .oneToOne ? true : true,
-                                      status: .ringing)
+                                      status: .ringing,
+                                      uuid: uuid)
                 call.callId = callId
                 self.activeCall = call
                 Haptics.warning()   // attention: incoming call

@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             FirebaseAuthService.configureIfNeeded()
         }
         #endif
+        // Register for PushKit VoIP pushes so incoming calls/knocks ring via
+        // CallKit even when the app is backgrounded, locked, or killed. iOS
+        // launches the app into the background to deliver a VoIP push, so this
+        // must be set up at launch.
+        PushService.shared.start()
         return true
     }
 

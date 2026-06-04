@@ -6,6 +6,7 @@ mod config;
 mod firebase;
 mod hub;
 mod otp_store;
+mod push;
 mod routes;
 mod sfu_client;
 mod sms;
@@ -67,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
 
     let bind = cfg.api_bind.clone();
     let state = AppState::new(cfg, db, redis, sms, hub);
+    tracing::info!(providers = %state.push.enabled_summary(), "push notifications");
 
     let app = routes::router(state)
         .layer(TraceLayer::new_for_http())

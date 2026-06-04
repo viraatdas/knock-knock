@@ -91,7 +91,8 @@ class AuthViewModel(private val repo: SlideRepository) : ViewModel() {
         viewModelScope.launch {
             repo.verifyOtp(s.e164, s.code)
                 .onSuccess { isNew ->
-                    repo.registerDevice("pending-fcm-token")  // best-effort
+                    // FCM token registration happens once we reach the main
+                    // surface (see SlideAppRoot), where the real token is known.
                     if (isNew) {
                         _state.update { it.copy(loading = false, step = AuthStep.Name, isNewUser = true) }
                     } else {

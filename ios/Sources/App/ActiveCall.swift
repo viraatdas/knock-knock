@@ -8,8 +8,9 @@ final class ActiveCall: ObservableObject, Identifiable {
     enum Status { case ringing, dialing, connecting, active, failed, ended }
 
     let id = UUID()
-    /// Stable UUID for CallKit.
-    let uuid = UUID()
+    /// Stable UUID for CallKit. May be supplied so a call surfaced from a VoIP
+    /// push matches the UUID already reported to CallKit.
+    let uuid: UUID
 
     let direction: Direction
     let remoteName: String
@@ -29,7 +30,9 @@ final class ActiveCall: ObservableObject, Identifiable {
 
     init(direction: Direction, remoteName: String, remotePhone: String,
          remoteUserId: String?, isVideo: Bool, status: Status,
-         isGroup: Bool = false, memberNames: [String] = []) {
+         isGroup: Bool = false, memberNames: [String] = [],
+         uuid: UUID = UUID()) {
+        self.uuid = uuid
         self.direction = direction
         self.remoteName = remoteName
         self.remotePhone = remotePhone

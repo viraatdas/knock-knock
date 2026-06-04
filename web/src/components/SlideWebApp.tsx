@@ -12,6 +12,7 @@ import {
 } from "./icons";
 import PhoneField from "./PhoneField";
 import { KnockBanner, KnockPad, playKnock, vibrateKnock } from "./Knock";
+import { enableWebPush } from "../lib/push";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_SLIDE_API_BASE_URL ??
@@ -596,6 +597,19 @@ export default function SlideWebApp() {
     }
     const permission = await Notification.requestPermission();
     setNotificationState(permission);
+    if (permission === "granted" && tokens) {
+      void enableWebPush((pushToken) =>
+        jsonFetch("/devices", tokens.accessToken, {
+          method: "POST",
+          body: JSON.stringify({
+            pushToken,
+            platform: "web",
+            kind: "webpush",
+            appVersion: "web",
+          }),
+        }),
+      );
+    }
   };
 
   const checkNumber = async () => {
@@ -894,29 +908,37 @@ export default function SlideWebApp() {
 
   return (
     <section id="web" className="border-b border-hairline bg-bg">
-      <div className="mx-auto grid min-h-[calc(100vh-72px)] max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[0.86fr_1.14fr] lg:items-center lg:py-12">
-        <div className="max-w-xl">
-          <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
-            iOS, Android, and web
-          </p>
-          <h1 className="mt-5 text-[56px] font-light leading-[0.95] tracking-wordmark text-text sm:text-[84px]">
-            Slide
-          </h1>
-          <p className="mt-6 max-w-md text-[21px] font-light leading-snug text-text sm:text-[25px]">
-            Phone-number video calls for the people you already know.
-          </p>
-          <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-            Sign in with your number, verify by code, and call someone by typing
-            their phone number. Browser notifications ring when a call comes in.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3 text-[13px] text-text-secondary">
-            <span className="rounded-full border border-hairline px-3 py-1">Web app</span>
-            <span className="rounded-full border border-hairline px-3 py-1">iPhone</span>
-            <span className="rounded-full border border-hairline px-3 py-1">Android</span>
+      <div
+        className={`mx-auto grid min-h-[calc(100vh-72px)] gap-8 px-6 py-10 lg:py-12 ${
+          signedIn
+            ? "max-w-xl place-items-center"
+            : "max-w-6xl lg:grid-cols-[0.86fr_1.14fr] lg:items-center"
+        }`}
+      >
+        {!signedIn ? (
+          <div className="max-w-xl">
+            <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
+              iOS, Android, and web
+            </p>
+            <h1 className="mt-5 text-[56px] font-light leading-[0.95] tracking-wordmark text-text sm:text-[84px]">
+              Slide
+            </h1>
+            <p className="mt-6 max-w-md text-[21px] font-light leading-snug text-text sm:text-[25px]">
+              Phone-number video calls for the people you already know.
+            </p>
+            <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
+              Sign in with your number, verify by code, and call someone by typing
+              their phone number. Browser notifications ring when a call comes in.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3 text-[13px] text-text-secondary">
+              <span className="rounded-full border border-hairline px-3 py-1">Web app</span>
+              <span className="rounded-full border border-hairline px-3 py-1">iPhone</span>
+              <span className="rounded-full border border-hairline px-3 py-1">Android</span>
+            </div>
           </div>
-        </div>
+        ) : null}
 
-        <div className="rounded-[8px] border border-hairline bg-white p-4 shadow-[0_1px_0_rgba(10,10,10,0.04)] sm:p-5">
+        <div className="w-full rounded-[8px] border border-hairline bg-white p-4 shadow-[0_1px_0_rgba(10,10,10,0.04)] sm:p-5">
           <div className="flex items-center justify-between border-b border-hairline pb-4">
             <div>
               <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">

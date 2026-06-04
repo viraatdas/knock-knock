@@ -43,9 +43,21 @@ class SlideRepository(
         resp.isNewUser
     }
 
+    /**
+     * Register (or refresh) this device's FCM push token with the backend so
+     * incoming calls/knocks can ring when the app is backgrounded/killed.
+     * Contract: POST /v1/devices (Bearer) {pushToken, platform:"android",
+     * kind:"fcm", appVersion}. No-ops on a blank token.
+     */
     suspend fun registerDevice(pushToken: String): Result<Unit> = io {
+        if (pushToken.isBlank()) return@io Unit
         api.registerDevice(
-            RegisterDeviceBody(pushToken = pushToken, platform = "android", appVersion = appVersion)
+            RegisterDeviceBody(
+                pushToken = pushToken,
+                platform = "android",
+                kind = "fcm",
+                appVersion = appVersion,
+            )
         )
         Unit
     }

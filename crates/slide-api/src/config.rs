@@ -47,6 +47,32 @@ pub struct Config {
     pub s3_public_base_url: String,
 
     pub api_bind: String,
+
+    // ── Push notifications (all optional; empty ⇒ that provider is disabled) ──
+    /// APNs (iOS VoIP push).
+    pub apns_key_id: String,
+    pub apns_team_id: String,
+    /// The full contents of the .p8 auth key (PEM). May also be a file path.
+    pub apns_key_p8: String,
+    /// APNs topic = bundle id + ".voip" (e.g. "app.exla.slide.voip").
+    pub apns_topic: String,
+    /// "sandbox" | "prod". Defaults to "prod".
+    pub apns_env: String,
+
+    /// FCM (Android). Service-account JSON, inline or a file path.
+    pub fcm_service_account_json: String,
+    /// Optional override; otherwise taken from the service-account JSON.
+    pub fcm_project_id: String,
+
+    /// Web Push (browser) VAPID keys (base64url). The public key is the
+    /// applicationServerKey clients subscribe with; the server signs with the
+    /// private key. Kept in config for completeness / a future "get VAPID
+    /// public key" endpoint.
+    #[allow(dead_code)]
+    pub vapid_public_key: String,
+    pub vapid_private_key: String,
+    /// VAPID subject, e.g. "mailto:ops@exla.ai".
+    pub vapid_subject: String,
 }
 
 fn var(key: &str, default: &str) -> String {
@@ -105,6 +131,19 @@ impl Config {
             s3_public_base_url: var("S3_PUBLIC_BASE_URL", ""),
 
             api_bind: var("API_BIND", "0.0.0.0:8080"),
+
+            apns_key_id: var("APNS_KEY_ID", ""),
+            apns_team_id: var("APNS_TEAM_ID", ""),
+            apns_key_p8: var("APNS_KEY_P8", ""),
+            apns_topic: var("APNS_TOPIC", ""),
+            apns_env: var("APNS_ENV", "prod"),
+
+            fcm_service_account_json: var("FCM_SERVICE_ACCOUNT_JSON", ""),
+            fcm_project_id: var("FCM_PROJECT_ID", ""),
+
+            vapid_public_key: var("VAPID_PUBLIC_KEY", ""),
+            vapid_private_key: var("VAPID_PRIVATE_KEY", ""),
+            vapid_subject: var("VAPID_SUBJECT", ""),
         }
     }
 

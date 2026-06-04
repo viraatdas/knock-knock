@@ -27,6 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/me", get(users::get_me).patch(users::patch_me))
         .route("/me/avatar", post(users::post_avatar))
         .route("/devices", post(users::register_device))
+        .route("/push/register", post(users::register_push))
         // contacts
         .route("/contacts/sync", post(contacts::sync))
         .route("/contacts", get(contacts::list))

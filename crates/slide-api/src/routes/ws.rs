@@ -101,17 +101,42 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                     .and_then(|x| x.as_str())
                                     .and_then(|s| Uuid::parse_str(s).ok())
                                 {
+                                    let from_name = v
+                                        .get("fromName")
+                                        .and_then(|x| x.as_str())
+                                        .map(str::to_string);
                                     let out = json!({
                                         "type": "knock",
                                         "fromUserId": uid,
-                                        "fromName": v.get("fromName").and_then(|x| x.as_str()),
+                                        "fromName": from_name,
                                         "seq": v.get("seq"),
                                         "dt": v.get("dt"),
                                         "strength": v.get("strength"),
                                         "final": v.get("final"),
                                         "pattern": v.get("pattern"),
                                     });
-                                    state_in.hub.publish(to, out).await;
+                                    let delivered = state_in.hub.publish(to, out).await;
+                                    if delivered == 0 {
+                                        // Target is offline: escalate the knock to
+                                        // a ringable incoming call via push.
+                                        tracing::info!(
+                                            target = %to,
+                                            "knock target offline — sending push notification"
+                                        );
+                                        let payload = crate::push::IncomingPush {
+                                            kind: "incoming_call".to_string(),
+                                            call_id: None,
+                                            call_type: None,
+                                            from_user_id: uid,
+                                            from_name: from_name
+                                                .unwrap_or_else(|| "Slide".to_string()),
+                                            knock: true,
+                                        };
+                                        state_in
+                                            .push
+                                            .notify_incoming(&state_in.db, to, &payload)
+                                            .await;
+                                    }
                                 }
                             }
                             _ => {}

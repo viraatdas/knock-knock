@@ -8,10 +8,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import ai.exla.slide.messaging.PushTokens
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import ai.exla.slide.AppContainer
@@ -57,6 +61,22 @@ fun SlideAppRoot(container: AppContainer) {
         mutableStateOf<RootScreen>(
             if (container.tokenStore.isLoggedIn) RootScreen.Main else RootScreen.Auth
         )
+    }
+
+    // Request POST_NOTIFICATIONS (API 33+) so the full-screen incoming-call
+    // notification can ring. Fire-and-forget; the result is informational.
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted or not — no-op, push simply won't ring without it */ }
+
+    // Once signed in: ask for notifications (33+) and register the FCM token.
+    // Both are no-ops if not applicable (pre-33 / Firebase not configured yet).
+    LaunchedEffect(screen !is RootScreen.Auth) {
+        if (screen is RootScreen.Auth) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        PushTokens.registerCurrentToken(context, container.repository)
     }
 
     // Shared, app-scoped knock VM: drives the incoming-knock banner overlay and

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Production APNs environment for Release / TestFlight / App Store builds.
+	     Requires the App ID (app.exla.slide) to have Push enabled in the Apple
+	     Developer portal + an APNs key. -->
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>

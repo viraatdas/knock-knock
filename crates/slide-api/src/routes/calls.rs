@@ -223,8 +223,20 @@ pub async fn create_call(
     for c in &callees {
         let delivered = state.hub.publish(*c, event.clone()).await;
         if delivered == 0 {
-            tracing::info!(callee = %c, "callee offline — would send push notification");
-            // TODO(push): APNs/FCM via the callee's registered devices.
+            // Callee has no live socket → fall back to a real push so a closed
+            // or backgrounded app still rings.
+            tracing::info!(callee = %c, "callee offline — sending push notification");
+            let push_payload = crate::push::IncomingPush {
+                kind: "incoming_call".to_string(),
+                call_id: Some(call_id),
+                call_type: serde_json::to_value(view.call_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string)),
+                from_user_id: uid,
+                from_name: from_name.clone(),
+                knock: false,
+            };
+            state.push.notify_incoming(&state.db, *c, &push_payload).await;
         }
     }
 

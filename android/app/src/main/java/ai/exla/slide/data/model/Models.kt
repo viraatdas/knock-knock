@@ -103,6 +103,7 @@ data class PatchMeBody(val displayName: String? = null, val avatarUrl: String? =
 data class RegisterDeviceBody(
     val pushToken: String,
     val platform: String,
+    val kind: String,
     val appVersion: String,
 )
 

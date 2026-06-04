@@ -7,7 +7,7 @@ use sqlx::PgPool;
 
 use slide_core::jwt::TokenSigner;
 
-use crate::{config::Config, firebase::FirebaseVerifier, hub::Hub, sms::SmsSender};
+use crate::{config::Config, firebase::FirebaseVerifier, hub::Hub, push::Push, sms::SmsSender};
 
 #[derive(Clone)]
 pub struct AppState(pub Arc<Inner>);
@@ -25,6 +25,8 @@ pub struct Inner {
     pub firebase: FirebaseVerifier,
     /// In-memory fan-out for the app-signaling WebSocket.
     pub hub: Hub,
+    /// Server-side push (APNs/FCM/Web Push) for offline callees.
+    pub push: Push,
 }
 
 impl std::ops::Deref for AppState {
@@ -45,6 +47,7 @@ impl AppState {
         let access_signer = TokenSigner::new(&cfg.jwt_secret);
         let sfu_signer = TokenSigner::new(&cfg.sfu_jwt_secret);
         let firebase = FirebaseVerifier::new(cfg.firebase_project_id.clone());
+        let push = Push::from_config(&cfg);
         AppState(Arc::new(Inner {
             cfg,
             db,
@@ -54,6 +57,7 @@ impl AppState {
             sms,
             firebase,
             hub,
+            push,
         }))
     }
 }

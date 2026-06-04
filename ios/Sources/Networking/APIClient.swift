@@ -123,6 +123,20 @@ actor APIClient {
         return try decode(Device.self, from: data)
     }
 
+    /// Register the PushKit VoIP token so the backend can wake the app with a
+    /// VoIP push for incoming calls/knocks. Requires a valid Bearer access
+    /// token (call after sign-in once the token is available).
+    @discardableResult
+    func registerPushToken(_ token: String) async throws -> Device {
+        let data = try await send(path: "/devices", method: "POST", body: [
+            "pushToken": token,
+            "platform": "ios",
+            "kind": "apns_voip",
+            "appVersion": Config.appVersion
+        ])
+        return try decode(Device.self, from: data)
+    }
+
     // MARK: - Contacts
 
     func syncContacts(phones: [String], names: [String] = []) async throws -> [ContactSyncResult] {

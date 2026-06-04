@@ -8,6 +8,16 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// The com.google.gms.google-services plugin HARD-FAILS the build if
+// app/google-services.json is missing. The json is not in the repo yet (the
+// user adds it later), so apply the plugin only when the file exists. Until
+// then the app compiles + runs with Firebase Messaging present but inert
+// (FirebaseApp never initializes, so SlidePushService is a no-op).
+val googleServicesJson = project.file("google-services.json")
+if (googleServicesJson.exists()) {
+    apply(plugin = libs.plugins.google.services.get().pluginId)
+}
+
 // Optional release signing config from keystore.properties (gitignored).
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
@@ -123,4 +133,10 @@ dependencies {
 
     // WebRTC (org.webrtc)
     implementation(libs.webrtc)
+
+    // Firebase Cloud Messaging (push). The dependency is always present so the
+    // app compiles; FirebaseApp only initializes once google-services.json + the
+    // google-services plugin are in place (see conditional apply above).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 }
