@@ -4,6 +4,10 @@
 # the backend's TURN_SHARED_SECRET so REST credentials validate.
 #
 # Set the secret:  fly secrets set TURN_SECRET=<same as TURN_SHARED_SECRET>
+#
+# UDP needs a DEDICATED IPv4:  fly ips allocate-v4 -a slide-turn
+# coturn advertises that public IP in relay candidates via --external-ip, and
+# the relay port range below is forwarded so relayed media reaches it.
 
 app = "slide-turn"
 primary_region = "iad"
@@ -15,10 +19,10 @@ primary_region = "iad"
 cmd = [
     "sh",
     "-lc",
-    "exec turnserver --realm=slide.app --use-auth-secret --static-auth-secret=\"$TURN_SECRET\" --no-cli --no-tls --no-dtls --min-port=49160 --max-port=49200 --listening-port=3478 --fingerprint --lt-cred-mech",
+    "exec turnserver --realm=slide.app --use-auth-secret --static-auth-secret=\"$TURN_SECRET\" --external-ip=137.66.59.134 --no-cli --no-tls --no-dtls --min-port=49160 --max-port=49200 --listening-port=3478 --fingerprint --lt-cred-mech",
   ]
 
-# TURN listener (UDP + TCP) on 3478, relay range 49160-49200/udp.
+# TURN control/STUN listener on 3478 (UDP + TCP).
 [[services]]
   protocol = "udp"
   internal_port = 3478
@@ -30,6 +34,15 @@ cmd = [
   internal_port = 3478
   [[services.ports]]
     port = 3478
+
+# Relay media ports — coturn allocates a port per call leg in this range; they
+# must be reachable on the dedicated IPv4 to bridge the client and SFU legs.
+[[services]]
+  protocol = "udp"
+  internal_port = 49160
+  [[services.ports]]
+    start_port = 49160
+    end_port = 49200
 
 [[vm]]
   size = "shared-cpu-1x"
