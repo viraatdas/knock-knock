@@ -20,9 +20,12 @@ import {
   type ConfirmationResult,
 } from "firebase/auth";
 
+// slide-api on Fly. AWS App Runner's Envoy ingress rejects WebSocket upgrades
+// (403), so the /v1/ws signaling socket can't connect there — calls never ring.
+// Fly serves WebSockets, so the API (REST + WS) lives there.
 const API_BASE =
   process.env.NEXT_PUBLIC_SLIDE_API_BASE_URL ??
-  "https://nck3w7ufbz.us-east-1.awsapprunner.com/v1";
+  "https://slide-api.fly.dev/v1";
 
 type AuthTokens = {
   accessToken: string;

@@ -14,8 +14,10 @@ enum Config {
         // Simulator/dev default.
         return URL(string: "http://localhost:8080/v1")!
         #else
-        // Release/TestFlight: the live AWS backend (App Runner).
-        return URL(string: "https://nck3w7ufbz.us-east-1.awsapprunner.com/v1")!
+        // Release/TestFlight: slide-api on Fly. NOT App Runner — its Envoy
+        // ingress 403s WebSocket upgrades, so /v1/ws (call ring + presence)
+        // can't connect there. Fly serves WebSockets.
+        return URL(string: "https://slide-api.fly.dev/v1")!
         #endif
     }
 

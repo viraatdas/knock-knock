@@ -1,27 +1,34 @@
-# Fly.io config for the Slide control-plane API.
+# Fly.io config for slide-api (REST + the app-signaling WebSocket).
 #   fly deploy -c deploy/fly/slide-api.fly.toml
-# Secrets (set once, not in this file):
-#   fly secrets set DATABASE_URL=... REDIS_URL=... JWT_SECRET=... \
-#       SFU_JWT_SECRET=... OTP_PEPPER=... SFU_PUBLIC_URL=wss://slide-sfu.fly.dev \
-#       TURN_URIS=... TURN_SHARED_SECRET=... SMS_PROVIDER=twilio \
-#       TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_FROM_NUMBER=...
+#
+# WHY FLY: AWS App Runner's Envoy ingress returns 403 on WebSocket upgrades, so
+# the /v1/ws signaling socket (call ring + presence) can never connect there —
+# every call dies because the callee never receives `incoming_call`. Fly serves
+# WebSockets, so the API lives here for calling to work. The hub
+# (crates/slide-api/src/hub.rs) is in-memory, so keep a SINGLE instance
+# (min=max=1). Same RDS as the old App Runner image; Redis is bundled in the
+# image (REDIS_URL defaults to localhost). Secrets set via `fly secrets set`.
 
 app = "slide-api"
 primary_region = "iad"
 
 [build]
-  dockerfile = "../../Dockerfile"
-  [build.args]
-    BIN = "slide-api"
+  image = "public.ecr.aws/exla/slide:fb2-003256"
 
 [env]
   API_BIND = "0.0.0.0:8080"
-  RUST_LOG = "info,slide_api=debug,tower_http=info"
+  EXPOSE_DEV_OTP = "true"
+  FIREBASE_PROJECT_ID = "slide-b4c50"
+  SFU_PUBLIC_URL = "wss://slide-sfu.fly.dev"
+  SMS_PROVIDER = "console"
+  TURN_URIS = "turn:slide-turn.fly.dev:3478?transport=udp,turn:slide-turn.fly.dev:3478?transport=tcp"
+  VAPID_SUBJECT = "mailto:viraat@exla.ai"
+  RUST_LOG = "info,slide_api=info"
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "off"
   auto_start_machines = true
   min_machines_running = 1
 
@@ -29,8 +36,9 @@ primary_region = "iad"
     method = "GET"
     path = "/v1/health"
     interval = "15s"
-    timeout = "2s"
+    timeout = "3s"
+    grace_period = "25s"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1024mb"

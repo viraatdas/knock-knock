@@ -62,6 +62,11 @@ android {
             isDebuggable = true
         }
         release {
+            // Production backend: slide-api on Fly (REST + signaling WS). NOT
+            // App Runner — its Envoy ingress 403s WebSocket upgrades, so /v1/ws
+            // (call ring + presence) can't connect there. Fly serves WebSockets.
+            buildConfigField("String", "API_BASE_URL", "\"https://slide-api.fly.dev/v1\"")
+            buildConfigField("String", "WS_BASE_URL", "\"wss://slide-api.fly.dev/v1/ws\"")
             // Minification is off for the first store submission: R8 strict mode
             // trips on optional Play Core / WebRTC classes that need keep-rules.
             // The app ships unminified (Play accepts this); revisit with proper
