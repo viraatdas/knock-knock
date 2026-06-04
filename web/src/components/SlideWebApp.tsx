@@ -104,6 +104,7 @@ type LookupState =
   | { status: "checking" }
   | { status: "found"; contact: ContactSyncResult }
   | { status: "not-found" }
+  | { status: "self" }
   | { status: "error"; message: string };
 
 function storedTokens(): AuthTokens | null {
@@ -190,6 +191,43 @@ function apiUrl(path: string) {
   return `${API_BASE.replace(/\/$/, "")}${path}`;
 }
 
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+// Decode a JWT's `exp` (seconds since epoch) without verifying the signature —
+// used only to decide whether to proactively refresh before opening the socket.
+function tokenExpiry(jwt: string): number | null {
+  try {
+    const payload = jwt.split(".")[1];
+    if (!payload) return null;
+    const json = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    );
+    return typeof json.exp === "number" ? json.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+function humanizeCallError(message: string): string {
+  if (/participant required/i.test(message)) {
+    return "You can't call your own number — try a different one.";
+  }
+  if (/exactly one participant/i.test(message)) {
+    return "Group calls aren't supported on the web yet.";
+  }
+  if (/unknown participant/i.test(message)) {
+    return "That person isn't reachable on Slide right now.";
+  }
+  return message;
+}
+
 function wsUrl(token: string) {
   const url = new URL(apiUrl("/ws"));
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -209,7 +247,14 @@ async function jsonFetch<T>(
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(apiUrl(path), { ...init, headers });
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+    let message = `${response.status} ${response.statusText}`;
+    try {
+      const data = await response.json();
+      message = data?.error?.message ?? data?.message ?? message;
+    } catch {
+      // non-JSON body — keep the status line.
+    }
+    throw new ApiError(response.status, message);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -259,7 +304,6 @@ export default function SlideWebApp() {
   const [user, setUser] = useState<User | null>(null);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState<string | null>(null);
   const [authStep, setAuthStep] = useState<"phone" | "code">("phone");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -284,7 +328,10 @@ export default function SlideWebApp() {
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [callError, setCallError] = useState<string | null>(null);
 
+  const tokensRef = useRef<AuthTokens | null>(null);
+  const refreshInFlight = useRef<Promise<string> | null>(null);
   const localVideo = useRef<HTMLVideoElement | null>(null);
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
   const signalingSocket = useRef<WebSocket | null>(null);
@@ -303,6 +350,7 @@ export default function SlideWebApp() {
 
   useEffect(() => {
     const initial = storedTokens();
+    tokensRef.current = initial;
     setTokens(initial);
     setContacts(loadList<Contact>("slide.web.contacts"));
     setRecents(loadList<RecentCall>("slide.web.recents"));
@@ -312,15 +360,92 @@ export default function SlideWebApp() {
   }, []);
 
   useEffect(() => {
-    if (!tokens) return;
-    jsonFetch<User>("/me", tokens.accessToken)
-      .then(setUser)
-      .catch(() => {
-        saveTokens(null);
-        setTokens(null);
-        setUser(null);
-      });
+    tokensRef.current = tokens;
   }, [tokens]);
+
+  const applyTokens = useCallback((next: AuthTokens | null) => {
+    tokensRef.current = next;
+    saveTokens(next);
+    setTokens(next);
+    if (!next) setUser(null);
+  }, []);
+
+  // Coalesced silent refresh: rotate the refresh token, mint a fresh access
+  // token, persist both. Mirrors the iOS/Android 401-refresh behavior so web
+  // sessions don't die after the 15-minute access-token TTL.
+  const refreshAccessToken = useCallback(async (): Promise<string> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+    const current = tokensRef.current;
+    if (!current?.refreshToken) throw new ApiError(401, "Not signed in");
+    const attempt = (async () => {
+      try {
+        const res = await jsonFetch<AuthTokens>("/auth/refresh", null, {
+          method: "POST",
+          body: JSON.stringify({ refreshToken: current.refreshToken }),
+        });
+        const next = {
+          accessToken: res.accessToken,
+          refreshToken: res.refreshToken,
+        };
+        applyTokens(next);
+        return next.accessToken;
+      } finally {
+        refreshInFlight.current = null;
+      }
+    })();
+    refreshInFlight.current = attempt;
+    return attempt;
+  }, [applyTokens]);
+
+  // Authenticated fetch with one transparent refresh-and-retry on 401.
+  const authedFetch = useCallback(
+    async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
+      const access = tokensRef.current?.accessToken ?? null;
+      try {
+        return await jsonFetch<T>(path, access, init);
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.status === 401 &&
+          tokensRef.current?.refreshToken
+        ) {
+          try {
+            const fresh = await refreshAccessToken();
+            return await jsonFetch<T>(path, fresh, init);
+          } catch {
+            applyTokens(null);
+          }
+        }
+        throw error;
+      }
+    },
+    [refreshAccessToken, applyTokens],
+  );
+
+  // Return a token guaranteed fresh for ~the next minute, refreshing if the
+  // current one is expired or about to expire. Used before opening the socket.
+  const ensureFreshToken = useCallback(async (): Promise<string | null> => {
+    const current = tokensRef.current;
+    if (!current) return null;
+    const exp = tokenExpiry(current.accessToken);
+    const now = Math.floor(Date.now() / 1000);
+    if (exp !== null && exp - now < 60) {
+      try {
+        return await refreshAccessToken();
+      } catch {
+        applyTokens(null);
+        return null;
+      }
+    }
+    return current.accessToken;
+  }, [refreshAccessToken, applyTokens]);
+
+  useEffect(() => {
+    if (!tokens) return;
+    authedFetch<User>("/me")
+      .then(setUser)
+      .catch(() => applyTokens(null));
+  }, [tokens, authedFetch, applyTokens]);
 
   useEffect(() => {
     incomingRef.current = incoming;
@@ -432,12 +557,36 @@ export default function SlideWebApp() {
       return;
     }
 
-    const socket = new WebSocket(wsUrl(tokens.accessToken));
-    signalingSocket.current = socket;
-    socket.onopen = () => setStatus("Browser calls are online");
-    socket.onclose = () => setStatus("Browser calls are offline");
-    socket.onerror = () => setStatus("Signaling error");
-    socket.onmessage = (message) => {
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let attempts = 0;
+
+    const scheduleReconnect = () => {
+      if (cancelled || !tokensRef.current) return;
+      const delay = Math.min(1000 * 2 ** attempts, 15000);
+      attempts += 1;
+      reconnectTimer = window.setTimeout(connect, delay);
+    };
+
+    const connect = async () => {
+      if (cancelled) return;
+      const token = await ensureFreshToken();
+      if (cancelled || !token) return;
+      const ws = new WebSocket(wsUrl(token));
+      socket = ws;
+      signalingSocket.current = ws;
+      ws.onopen = () => {
+        attempts = 0;
+        setStatus("Browser calls are online");
+      };
+      ws.onclose = () => {
+        if (cancelled) return;
+        setStatus("Browser calls are offline");
+        scheduleReconnect();
+      };
+      ws.onerror = () => setStatus("Signaling error");
+      ws.onmessage = (message) => {
       let event: SignalEvent | null = null;
       try {
         event = JSON.parse(String(message.data)) as SignalEvent;
@@ -492,12 +641,26 @@ export default function SlideWebApp() {
           endCall(false);
         }
       }
+      };
     };
 
+    void connect();
+
     return () => {
-      socket.close();
+      cancelled = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socket?.close();
+      signalingSocket.current = null;
     };
-  }, [activeCall?.callId, ensureAudio, playRingtone, recordRecent, showNotification, tokens]);
+  }, [
+    activeCall?.callId,
+    ensureAudio,
+    ensureFreshToken,
+    playRingtone,
+    recordRecent,
+    showNotification,
+    tokens,
+  ]);
 
   const sendKnock = useCallback(
     (toUserId: string) => {
@@ -529,22 +692,35 @@ export default function SlideWebApp() {
     setKnockPad({ userId, name });
   }, []);
 
+  // Firebase phone auth: send the SMS via Google (no carrier registration), then
+  // exchange the verified ID token for Slide tokens at /auth/firebase.
+  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const confirmationRef = useRef<ConfirmationResult | null>(null);
+
   const requestOtp = async () => {
     setAuthBusy(true);
     setAuthError(null);
     try {
-      const response = await jsonFetch<{ devCode?: string | null }>(
-        "/auth/request-otp",
-        null,
-        {
-          method: "POST",
-          body: JSON.stringify({ phone }),
-        },
+      const e164 = phone.startsWith("+") ? phone : `+1${phone.replace(/\D/g, "")}`;
+      const auth = firebaseAuth();
+      if (!recaptchaRef.current) {
+        recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
+          size: "invisible",
+        });
+      }
+      confirmationRef.current = await signInWithPhoneNumber(
+        auth,
+        e164,
+        recaptchaRef.current,
       );
-      setDevCode(response.devCode ?? null);
       setAuthStep("code");
-    } catch {
-      setAuthError("Could not send a verification code.");
+    } catch (error) {
+      // Reset the verifier so a retry gets a fresh challenge.
+      recaptchaRef.current?.clear();
+      recaptchaRef.current = null;
+      setAuthError(
+        error instanceof Error ? error.message : "Could not send a verification code.",
+      );
     } finally {
       setAuthBusy(false);
     }
@@ -554,37 +730,46 @@ export default function SlideWebApp() {
     setAuthBusy(true);
     setAuthError(null);
     try {
+      if (!confirmationRef.current) throw new Error("Request a code first.");
+      const cred = await confirmationRef.current.confirm(code);
+      const idToken = await cred.user.getIdToken();
       const response = await jsonFetch<
         AuthTokens & { user: User; isNewUser: boolean }
-      >("/auth/verify-otp", null, {
+      >("/auth/firebase", null, {
         method: "POST",
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ idToken }),
       });
-      const nextTokens = {
+      applyTokens({
         accessToken: response.accessToken,
         refreshToken: response.refreshToken,
-      };
-      saveTokens(nextTokens);
-      setTokens(nextTokens);
+      });
       setUser(response.user);
       setAuthStep("phone");
       setCode("");
+      confirmationRef.current = null;
       ensureAudio();
-    } catch {
-      setAuthError("That code did not verify.");
+    } catch (error) {
+      setAuthError(
+        error instanceof Error ? error.message : "That code did not verify.",
+      );
     } finally {
       setAuthBusy(false);
     }
   };
 
   const logout = () => {
-    saveTokens(null);
+    const refreshToken = tokensRef.current?.refreshToken;
+    if (refreshToken) {
+      void jsonFetch("/auth/logout", null, {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      }).catch(() => undefined);
+    }
     saveList("slide.web.contacts", []);
     saveList("slide.web.recents", []);
     setContacts([]);
     setRecents([]);
-    setTokens(null);
-    setUser(null);
+    applyTokens(null);
     setIncoming(null);
     endCall(false);
   };
@@ -597,9 +782,9 @@ export default function SlideWebApp() {
     }
     const permission = await Notification.requestPermission();
     setNotificationState(permission);
-    if (permission === "granted" && tokens) {
+    if (permission === "granted" && tokensRef.current) {
       void enableWebPush((pushToken) =>
-        jsonFetch("/devices", tokens.accessToken, {
+        authedFetch("/devices", {
           method: "POST",
           body: JSON.stringify({
             pushToken,
@@ -613,19 +798,18 @@ export default function SlideWebApp() {
   };
 
   const checkNumber = async () => {
-    if (!tokens) return;
+    if (!tokensRef.current) return;
+    setCallError(null);
     setLookup({ status: "checking" });
     try {
-      const results = await jsonFetch<ContactSyncResult[]>(
-        "/contacts/sync",
-        tokens.accessToken,
-        {
-          method: "POST",
-          body: JSON.stringify({ phones: [dialNumber], names: [dialNumber] }),
-        },
-      );
+      const results = await authedFetch<ContactSyncResult[]>("/contacts/sync", {
+        method: "POST",
+        body: JSON.stringify({ phones: [dialNumber], names: [dialNumber] }),
+      });
       const contact = results[0];
-      if (contact?.onSlide && contact.userId) {
+      if (contact?.userId && contact.userId === user?.id) {
+        setLookup({ status: "self" });
+      } else if (contact?.onSlide && contact.userId) {
         setLookup({ status: "found", contact });
         rememberContact({
           userId: contact.userId,
@@ -795,7 +979,12 @@ export default function SlideWebApp() {
   };
 
   const startCall = async (contact: ContactSyncResult, video: boolean) => {
-    if (!tokens || !contact.userId) return;
+    if (!tokensRef.current || !contact.userId) return;
+    if (contact.userId === user?.id) {
+      setCallError("You can't call your own number.");
+      return;
+    }
+    setCallError(null);
     rememberContact({
       userId: contact.userId,
       phone: contact.phone,
@@ -803,7 +992,7 @@ export default function SlideWebApp() {
     });
     try {
       setStatus("Starting call");
-      const session = await jsonFetch<CallSession>("/calls", tokens.accessToken, {
+      const session = await authedFetch<CallSession>("/calls", {
         method: "POST",
         body: JSON.stringify({
           type: "one_to_one",
@@ -818,25 +1007,34 @@ export default function SlideWebApp() {
         { phone: contact.phone, userId: contact.userId },
       );
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not start the call");
+      const message =
+        error instanceof ApiError
+          ? humanizeCallError(error.message)
+          : "Could not start the call.";
+      setCallError(message);
+      setStatus("Ready");
     }
   };
 
   const acceptIncoming = async (video: boolean) => {
-    if (!tokens || !incoming) return;
+    if (!tokensRef.current || !incoming) return;
     try {
       const call = incoming;
       setIncoming(null);
-      const session = await jsonFetch<CallSession>(
+      const session = await authedFetch<CallSession>(
         `/calls/${call.callId}/accept`,
-        tokens.accessToken,
         { method: "POST" },
       );
       await startMedia(session, call.fromName, "incoming", video, {
         userId: call.fromUserId,
       });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not answer the call");
+      setCallError(
+        error instanceof ApiError
+          ? humanizeCallError(error.message)
+          : "Could not answer the call.",
+      );
+      setStatus("Ready");
       stopRingtone();
     }
   };
@@ -857,7 +1055,7 @@ export default function SlideWebApp() {
       connected: false,
       label: "Declined",
     });
-    await jsonFetch(`/calls/${call.callId}/decline`, tokens.accessToken, {
+    await authedFetch(`/calls/${call.callId}/decline`, {
       method: "POST",
     }).catch(() => undefined);
   };
@@ -885,8 +1083,8 @@ export default function SlideWebApp() {
         connected,
       });
     }
-    if (notifyServer && tokens && activeCall) {
-      void jsonFetch(`/calls/${activeCall.callId}/leave`, tokens.accessToken, {
+    if (notifyServer && tokensRef.current && activeCall) {
+      void authedFetch(`/calls/${activeCall.callId}/leave`, {
         method: "POST",
       }).catch(() => undefined);
     }
@@ -986,14 +1184,11 @@ export default function SlideWebApp() {
                     placeholder="123456"
                     className="h-12 rounded-[8px] border border-hairline bg-bg px-4 text-[24px] font-light tracking-[0.18em] outline-none transition-colors focus:border-text/40"
                   />
-                  {devCode ? (
-                    <span className="text-[12px] text-text-secondary">
-                      Dev code: {devCode}
-                    </span>
-                  ) : null}
                 </label>
               )}
               {authError ? <p className="text-[13px] text-danger">{authError}</p> : null}
+              {/* Invisible reCAPTCHA target for Firebase phone auth. */}
+              <div id="recaptcha-container" />
               <button
                 className="h-12 rounded-[8px] bg-text px-4 text-[14px] font-medium text-white transition-opacity disabled:opacity-40"
                 disabled={authBusy || (authStep === "phone" ? phone.length < 4 : code.length < 4)}
@@ -1032,6 +1227,7 @@ export default function SlideWebApp() {
                       onChange={(event) => {
                         setDialNumber(event.target.value);
                         setLookup({ status: "idle" });
+                        setCallError(null);
                       }}
                       inputMode="tel"
                       placeholder="+1 415 555 0123"
@@ -1091,6 +1287,12 @@ export default function SlideWebApp() {
                   </div>
                 ) : null}
 
+                {lookup.status === "self" ? (
+                  <p className="text-[13px] text-text-secondary">
+                    That&apos;s your own number. Enter someone else&apos;s to call
+                    them.
+                  </p>
+                ) : null}
                 {lookup.status === "not-found" ? (
                   <p className="text-[13px] text-text-secondary">
                     That number is not on Slide yet. Send them the site link.
@@ -1098,6 +1300,9 @@ export default function SlideWebApp() {
                 ) : null}
                 {lookup.status === "error" ? (
                   <p className="text-[13px] text-danger">{lookup.message}</p>
+                ) : null}
+                {callError ? (
+                  <p className="text-[13px] text-danger">{callError}</p>
                 ) : null}
               </div>
 
