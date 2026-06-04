@@ -68,7 +68,7 @@ export default function Home() {
 
               <Reveal delay={40}>
                 <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
-                  Built for bad internet
+                  Video calling should be fun
                 </p>
               </Reveal>
 
@@ -80,16 +80,16 @@ export default function Home() {
 
               <Reveal delay={120}>
                 <p className="mt-6 max-w-md text-[22px] font-light leading-snug text-text sm:text-[26px]">
-                  The clearest video calls with the people you know. On any
-                  device.
+                  Video calls that feel light, spontaneous, and actually fun.
+                  On any device.
                 </p>
               </Reveal>
 
               <Reveal delay={180}>
                 <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-                  One bar, hotel wifi, a train tunnel: Slide keeps the call
-                  alive while other apps freeze. Just your number. No feeds, no
-                  clutter.
+                  Call someone by phone number, answer from the browser or your
+                  phone, and stay in the moment. No feeds, no clutter, no
+                  awkward setup.
                 </p>
               </Reveal>
 

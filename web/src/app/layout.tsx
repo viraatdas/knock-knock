@@ -14,14 +14,14 @@ const siteUrl = "https://slide.viraat.dev";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Slide: video calls built for bad internet",
+    default: "Slide: video calling that feels fun again",
     template: "%s · Slide",
   },
   description:
-    "Slide is the phone-number video calling app for iOS, Android, and the web. Sign in with your number, verify by code, and call people by phone number.",
+    "Slide is the phone-number video calling app for iOS, Android, and the web. Sign in with your number, verify by code, and make video calling actually fun.",
   keywords: [
     "video calling",
-    "bad internet video call",
+    "fun video calling",
     "low bandwidth video call",
     "phone number signup",
     "group video",
@@ -30,26 +30,35 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Slide" }],
   openGraph: {
-    title: "Slide: video calls built for bad internet",
+    title: "Slide: video calling that feels fun again",
     description:
       "Phone-number video calls for iOS, Android, and the web.",
     url: siteUrl,
     siteName: "Slide",
     type: "website",
     locale: "en_US",
+    images: [
+      {
+        url: "/og.png",
+        width: 1200,
+        height: 630,
+        alt: "Slide — video calling that feels fun again",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Slide: video calls built for bad internet",
+    title: "Slide: video calling that feels fun again",
     description:
       "Phone-number video calls for iOS, Android, and the web.",
+    images: ["/og.png"],
   },
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
       { url: "/icon.svg", type: "image/svg+xml" },
     ],
-    apple: "/icon.svg",
+    apple: "/apple-touch-icon.png",
   },
 };
 
