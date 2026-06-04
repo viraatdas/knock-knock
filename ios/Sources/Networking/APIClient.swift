@@ -61,6 +61,17 @@ actor APIClient {
         return resp
     }
 
+    /// Exchange a verified Firebase ID token for Slide session tokens.
+    func firebaseAuth(idToken: String) async throws -> VerifyOtpResponse {
+        let data = try await send(
+            path: "/auth/firebase", method: "POST",
+            body: ["idToken": idToken], authenticated: false
+        )
+        let resp = try decode(VerifyOtpResponse.self, from: data)
+        tokens.save(access: resp.accessToken, refresh: resp.refreshToken)
+        return resp
+    }
+
     func logout() async {
         guard let refresh = tokens.refreshToken else { tokens.clear(); return }
         _ = try? await send(

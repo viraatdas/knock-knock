@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct SlideApp: App {
     @StateObject private var appState = AppState()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // Quiet, precise system chrome: white, near-black tint.

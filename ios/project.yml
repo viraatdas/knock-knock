@@ -24,6 +24,10 @@ packages:
     url: https://github.com/stasel/WebRTC
     minVersion: "120.0.0"
     maxVersion: "200.0.0"
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    minVersion: "11.0.0"
+    maxVersion: "12.0.0"
 
 targets:
   Slide:
@@ -58,6 +62,8 @@ targets:
     dependencies:
       - package: WebRTC
         product: WebRTC
+      - package: Firebase
+        product: FirebaseAuth
 
 schemes:
   Slide:

@@ -50,4 +50,11 @@ enum Config {
 
     static let appVersion: String =
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+
+    /// Use Firebase Phone Auth for sign-in (real SMS via Google) when a
+    /// GoogleService-Info.plist is bundled. Falls back to the dev OTP flow
+    /// otherwise (simulator / before Firebase is configured).
+    static var useFirebaseAuth: Bool {
+        Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil
+    }
 }

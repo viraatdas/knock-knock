@@ -51,6 +51,9 @@ final class OnboardingViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var devCode: String?
 
+    /// Firebase verification id, set by requestOtp when Firebase auth is active.
+    private var firebaseVerificationID: String?
+
     private let api = APIClient.shared
 
     var e164: String {
@@ -66,6 +69,19 @@ final class OnboardingViewModel: ObservableObject {
         errorMessage = nil
         isSending = true
         defer { isSending = false }
+
+        #if canImport(FirebaseAuth)
+        if Config.useFirebaseAuth {
+            do {
+                firebaseVerificationID = try await FirebaseAuthService.sendCode(toE164: e164)
+                return true
+            } catch {
+                errorMessage = error.localizedDescription
+                return false
+            }
+        }
+        #endif
+
         do {
             let resp = try await api.requestOtp(phone: e164)
             devCode = resp.devCode
@@ -85,6 +101,22 @@ final class OnboardingViewModel: ObservableObject {
         errorMessage = nil
         isSending = true
         defer { isSending = false }
+
+        #if canImport(FirebaseAuth)
+        if Config.useFirebaseAuth, let vid = firebaseVerificationID {
+            do {
+                let idToken = try await FirebaseAuthService.verify(verificationID: vid, code: code)
+                let resp = try await api.firebaseAuth(idToken: idToken)
+                Haptics.success()
+                return (resp.user, resp.isNewUser)
+            } catch {
+                Haptics.error()
+                errorMessage = (error as? APIError)?.errorDescription ?? "Incorrect code. Try again."
+                return nil
+            }
+        }
+        #endif
+
         do {
             let resp = try await api.verifyOtp(phone: e164, code: code)
             Haptics.success()   // signed in
