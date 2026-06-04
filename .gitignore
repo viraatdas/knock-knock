@@ -73,3 +73,6 @@ android/fastlane/play-service-account.json
 # Transient local agent state
 .claude/scheduled_tasks.lock
 .agents/
+
+# Firebase iOS config (client key; provide locally / via CI, not committed)
+ios/Resources/GoogleService-Info.plist
