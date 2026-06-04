@@ -71,6 +71,14 @@ Submit the already-uploaded build for App Store review (waits for processing).
 
 Provision TestFlight internal testing for the latest build (installable today).
 
+### ios enable_push_capability
+
+```sh
+[bundle exec] fastlane ios enable_push_capability
+```
+
+Enable Push Notifications capability on the App ID (needed for Firebase phone auth + VoIP).
+
 ### ios asc_fill
 
 ```sh
