@@ -728,6 +728,26 @@ platform :ios do
     end
   end
 
+  desc "Cancel any in-flight Beta App Review submissions so a newer build can be submitted."
+  lane :tf_beta_cancel do
+    app = asc_connect
+    # Walk recent builds; for each, fetch its betaAppReviewSubmission and delete
+    # any that are WAITING_FOR_REVIEW / IN_REVIEW.
+    code, body = asc_raw(:get, "v1/builds?filter%5Bapp%5D=#{app.id}&sort=-version&limit=10")
+    found = 0
+    (body["data"] || []).each do |b|
+      rc, rb = asc_raw(:get, "v1/builds/#{b['id']}/betaAppReviewSubmission")
+      sub = rb["data"]
+      next unless sub
+      st = sub.dig("attributes", "betaReviewState")
+      next unless %w[WAITING_FOR_REVIEW IN_REVIEW].include?(st)
+      dc, _dr = asc_raw(:delete, "v1/betaAppReviewSubmissions/#{sub['id']}")
+      UI.message "cancel build #{b.dig('attributes','version')} review #{sub['id']} (#{st}) -> #{dc}"
+      found += 1
+    end
+    UI.message "No in-flight beta reviews found." if found.zero?
+  end
+
   desc "Enable a PUBLIC TestFlight link on an external group so anyone can join. Set TF_GROUP (default 'Friends')."
   lane :tf_public_link do
     app = asc_connect
