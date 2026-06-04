@@ -16,17 +16,17 @@ const features = [
   {
     icon: VideoIcon,
     title: "Made for weak signal.",
-    body: "Slide adapts in real time to whatever bandwidth you've got — gracefully scaling quality instead of freezing or dropping. One bar, packet loss, a crowded conference wifi: the call keeps going.",
+    body: "Slide adapts in real time to whatever bandwidth you've got, gracefully scaling quality instead of freezing or dropping. One bar, packet loss, a crowded conference wifi: the call keeps going.",
   },
   {
     icon: WaveformIcon,
     title: "Audio survives anything.",
-    body: "When the network really tanks, Slide protects the voice first — so even at your worst signal you can still hear each other clearly, no robot-stutter, no awkward 'you're cutting out.'",
+    body: "When the network really tanks, Slide protects the voice first, so even at your worst signal you can still hear each other clearly. No robot-stutter, no awkward 'you're cutting out.'",
   },
   {
     icon: PhoneIcon,
-    title: "Your number is your account.",
-    body: "No passwords, no emails, no usernames to forget. Sign in with the phone number you already have.",
+    title: "Works on any device.",
+    body: "iPhone, iPad, Android, or the web. Slide routes your call to whatever you're on, and keeps it there when you switch.",
   },
   {
     icon: PeopleIcon,
@@ -36,12 +36,12 @@ const features = [
   {
     icon: ShareIcon,
     title: "Share your screen in a tap.",
-    body: "Walk through a recipe, a slide, a bug. What you see, they see — instantly.",
+    body: "Walk through a recipe, a slide, a bug. What you see, they see, instantly.",
   },
   {
     icon: CodeIcon,
     title: "Open source.",
-    body: "Slide is fully open source — anyone can read the code, audit how calls and contacts are handled, and verify there's nothing hidden. Private by default, provable by design.",
+    body: "Slide is fully open source. Anyone can read the code, audit how calls and contacts are handled, and verify there's nothing hidden. Private by default, provable by design.",
   },
 ];
 
@@ -87,9 +87,9 @@ export default function Home() {
 
               <Reveal delay={180}>
                 <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-                  One bar, hotel wifi, a train tunnel — Slide keeps the call
-                  alive while other apps freeze. Just your number. No passwords,
-                  no feeds, no clutter.
+                  One bar, hotel wifi, a train tunnel: Slide keeps the call
+                  alive while other apps freeze. Just your number. No feeds, no
+                  clutter.
                 </p>
               </Reveal>
 
@@ -111,7 +111,7 @@ export default function Home() {
           </Reveal>
         </section>
 
-        {/* Feature sections — hairline divided, generous whitespace */}
+        {/* Feature sections: hairline divided, generous whitespace */}
         <section className="border-t border-hairline">
           <div className="mx-auto max-w-5xl px-6">
             {features.map((f, i) => {

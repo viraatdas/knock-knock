@@ -670,7 +670,7 @@ platform :ios do
   desc "Fill the TestFlight beta metadata (description + feedback email + review contact) required for external beta review."
   lane :tf_beta_meta do
     app = asc_connect
-    desc_text = "Slide is a simple phone-first video calling app. Tap a contact to start a 1:1 or group video/audio call. Test calls, group calls, and audio routing to Bluetooth/wired earbuds."
+    desc_text = "The clearest video calls with the people you know. On any device."
     feedback_email = ENV["TF_FEEDBACK_EMAIL"] || ENV["FASTLANE_APPLE_ID"] || "viraat@exla.ai"
 
     # 1) Beta app localization (description + feedback email + marketing/privacy URLs)

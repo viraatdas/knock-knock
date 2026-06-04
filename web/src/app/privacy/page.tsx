@@ -58,8 +58,8 @@ export default function PrivacyPage() {
           your calls, and we do not store your audio or video after a call ends.
         </p>
         <p>
-          We keep limited call metadata — such as participants, start time, and
-          duration — to show your recent calls list and to operate and
+          We keep limited call metadata, such as participants, start time, and
+          duration, to show your recent calls list and to operate and
           troubleshoot the service. You can delete entries from your call history
           on your device.
         </p>
@@ -121,7 +121,7 @@ export default function PrivacyPage() {
           You can edit or remove your display name and photo, revoke contact
           access in your device settings, and delete your account from within the
           app at any time. Depending on where you live, you may have additional
-          rights to access, correct, or delete your personal information — to
+          rights to access, correct, or delete your personal information. To
           exercise them, contact us at the address below.
         </p>
       </Section>

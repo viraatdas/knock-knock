@@ -14,11 +14,11 @@ const siteUrl = "https://web-viraatdas-projects.vercel.app";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Slide — video calls built for bad internet",
-    template: "%s — Slide",
+    default: "Slide: video calls built for bad internet",
+    template: "%s · Slide",
   },
   description:
-    "Slide is the video calling app built for shitty internet. One bar, hotel wifi, a train tunnel — the call keeps going while other apps freeze. Just your phone number; no passwords, no feeds, no clutter.",
+    "Slide is the video calling app built for bad internet. One bar, hotel wifi, a train tunnel: the call keeps going while other apps freeze. The clearest video calls with the people you know, on any device.",
   keywords: [
     "video calling",
     "bad internet video call",
@@ -30,9 +30,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Slide" }],
   openGraph: {
-    title: "Slide — video calls built for bad internet",
+    title: "Slide: video calls built for bad internet",
     description:
-      "The video call that holds up on bad internet. Just your number — no passwords, no clutter.",
+      "The clearest video calls with the people you know. On any device.",
     url: siteUrl,
     siteName: "Slide",
     type: "website",
@@ -40,9 +40,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Slide — video calls built for bad internet",
+    title: "Slide: video calls built for bad internet",
     description:
-      "The video call that holds up on bad internet. Just your number — no passwords, no clutter.",
+      "The clearest video calls with the people you know. On any device.",
   },
   icons: {
     icon: [

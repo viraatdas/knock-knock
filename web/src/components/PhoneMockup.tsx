@@ -37,7 +37,7 @@ function CallRow({
 export default function PhoneMockup() {
   return (
     <div className="relative mx-auto w-[268px] select-none sm:w-[300px]">
-      {/* Soft halo, very subtle — not a heavy shadow */}
+      {/* Soft halo, very subtle, not a heavy shadow */}
       <div className="absolute inset-0 -z-10 translate-y-6 scale-95 rounded-[48px] bg-text/[0.03] blur-2xl" />
 
       {/* Device frame */}
