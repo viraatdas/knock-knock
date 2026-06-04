@@ -82,12 +82,91 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         let session = RTCAudioSession.sharedInstance()
         session.lockForConfiguration()
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+            // .voiceChat engages Apple's Voice-Processing I/O (hardware echo
+            // cancellation / noise suppression / AGC) — we keep it because WebRTC
+            // relies on it for clean calls. The critical part is the OPTIONS:
+            // without these, call audio can't route to Bluetooth/wireless earbuds
+            // or wired/USB output (the "earbud plays media but goes silent on a
+            // call" bug). allowBluetooth = HFP headsets; allowBluetoothA2DP =
+            // AirPods/wireless earbuds; allowAirPlay covers wireless displays.
+            let options: AVAudioSession.CategoryOptions =
+                [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
             try session.setActive(true)
+            applyPreferredRoute()
         } catch {
             connectionState = .failed("Audio session error")
         }
         session.unlockForConfiguration()
+        observeAudioRouteChanges()
+    }
+
+    /// Pick the best available route for a call. Prefer a connected external
+    /// device (Bluetooth/AirPods, wired headset/headphones, USB) over the
+    /// built-in speaker/earpiece; fall back to speaker for hands-free video,
+    /// earpiece for audio-only.
+    private func applyPreferredRoute() {
+        let av = AVAudioSession.sharedInstance()
+
+        // 1) If an external OUTPUT is already in the current route (e.g. plain
+        //    wired headphones, USB-C/Lightning output with no mic, AirPods),
+        //    leave it alone — don't force speaker over it.
+        let externalOutputs: Set<AVAudioSession.Port> = [
+            .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .headphones,
+            .usbAudio, .carAudio, .lineOut, .airPlay, .HDMI
+        ]
+        let outNow = av.currentRoute.outputs.map { $0.portType }
+        if outNow.contains(where: { externalOutputs.contains($0) }) {
+            return
+        }
+
+        // 2) If an external INPUT device is available (wired headset mic,
+        //    Bluetooth HFP, USB), prefer it — output follows the device.
+        if let inputs = av.availableInputs {
+            let externalInputs: [AVAudioSession.Port] =
+                [.bluetoothHFP, .headsetMic, .usbAudio, .carAudio, .lineIn]
+            if let external = inputs.first(where: { externalInputs.contains($0.portType) }) {
+                try? av.setPreferredInput(external)
+                return
+            }
+        }
+
+        // 3) No external device: speaker for video (hands-free), earpiece for audio.
+        try? av.setPreferredInput(nil)
+        try? av.overrideOutputAudioPort(isVideoEnabled ? .speaker : .none)
+    }
+
+    private var routeObserver: NSObjectProtocol?
+    private var resetObserver: NSObjectProtocol?
+
+    private func observeAudioRouteChanges() {
+        let nc = NotificationCenter.default
+        if routeObserver == nil {
+            routeObserver = nc.addObserver(
+                forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                guard let self else { return }
+                // When a device connects/disconnects, re-apply our preferred
+                // route so call audio follows the newly connected earbud.
+                let reasonRaw = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
+                let reason = AVAudioSession.RouteChangeReason(rawValue: reasonRaw)
+                if reason == .newDeviceAvailable || reason == .oldDeviceUnavailable
+                    || reason == .routeConfigurationChange {
+                    let s = RTCAudioSession.sharedInstance()
+                    s.lockForConfiguration()
+                    self.applyPreferredRoute()
+                    s.unlockForConfiguration()
+                }
+            }
+        }
+        if resetObserver == nil {
+            // The audio stack can reset out from under us; rebuild the session.
+            resetObserver = nc.addObserver(
+                forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.configureAudioSession()
+            }
+        }
     }
 
     private func addLocalMedia(videoEnabled: Bool) {
@@ -204,6 +283,8 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         remoteRenderers.removeAll()
         remoteTracks.removeAll()
         remoteParticipants.removeAll()
+        if let r = routeObserver { NotificationCenter.default.removeObserver(r); routeObserver = nil }
+        if let r = resetObserver { NotificationCenter.default.removeObserver(r); resetObserver = nil }
         let audio = RTCAudioSession.sharedInstance()
         audio.lockForConfiguration()
         try? audio.setActive(false)
