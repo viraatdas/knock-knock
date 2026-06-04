@@ -31,7 +31,7 @@ struct DialView: View {
                     Text("Call anyone")
                         .font(Theme.Font.largeTitle)
                         .foregroundStyle(Theme.Color.text)
-                    Text("Enter a number. If they're on Slide, you can call them — you don't have to be in each other's contacts.")
+                    Text("Enter a number. If they're on Slide, you can call them. You don't have to be in each other's contacts.")
                         .font(Theme.Font.callout)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
@@ -117,15 +117,19 @@ struct DialView: View {
             let results = try await api.syncContacts(phones: [e164], names: [e164])
             if let r = results.first, r.onSlide, let uid = r.userId {
                 result = .onSlide(userId: uid, name: r.displayName ?? e164)
+                Haptics.success()
             } else {
                 result = .notOnSlide
+                Haptics.warning()
             }
         } catch {
             if Config.useMockData {
                 // Demo: pretend the number is on Slide so the flow is testable.
                 result = .onSlide(userId: "u_\(e164)", name: e164)
+                Haptics.success()
             } else {
                 result = .error("Couldn't check that number. Try again.")
+                Haptics.error()
             }
         }
     }

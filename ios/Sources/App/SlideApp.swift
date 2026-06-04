@@ -7,6 +7,8 @@ struct SlideApp: App {
     init() {
         // Quiet, precise system chrome: white, near-black tint.
         configureAppearance()
+        // Warm up the Taptic engine so the first haptic fires without latency.
+        Haptics.prepareAll()
     }
 
     var body: some Scene {

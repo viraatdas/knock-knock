@@ -110,6 +110,7 @@ struct GroupCallPicker: View {
     }
 
     private func toggle(_ contact: Contact) {
+        Haptics.select()
         if selectedIds.contains(contact.id) { selectedIds.remove(contact.id) }
         else { selectedIds.insert(contact.id) }
     }

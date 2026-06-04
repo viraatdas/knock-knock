@@ -32,6 +32,7 @@ final class AppState: ObservableObject {
                 Task { @MainActor in self?.logoutLocally() }
             }
             signaling.delegate = self
+            CallKitManager.shared.delegate = self
         }
 
         // Debug/screenshot hooks: jump straight to a screen in the simulator.
@@ -146,6 +147,7 @@ final class AppState: ObservableObject {
     // MARK: - Calls
 
     func startCall(to user: User, video: Bool) {
+        Haptics.impact()   // committing to a call
         let call = ActiveCall(direction: .outgoing,
                               remoteName: user.displayName ?? user.phone,
                               remotePhone: user.phone,
@@ -161,6 +163,7 @@ final class AppState: ObservableObject {
     func startGroupCall(to users: [User], video: Bool) {
         guard !users.isEmpty else { return }
         guard users.count > 1 else { startCall(to: users[0], video: video); return }
+        Haptics.impact()   // committing to a group call
         let names = users.map { $0.displayName ?? $0.phone }
         let call = ActiveCall(direction: .outgoing,
                               remoteName: names.first ?? "Group",
@@ -217,18 +220,26 @@ final class AppState: ObservableObject {
         }
     }
 
-    func endActiveCall() {
+    func endActiveCall(fromCallKit: Bool = false) {
         guard let call = activeCall else { return }
+        Haptics.strong()   // decisive: hang up
+        if !fromCallKit {
+            CallKitManager.shared.endCall(uuid: call.uuid)
+        }
         if let id = call.callId {
             Task { try? await api.leaveCall(id: id) }
         }
         activeCall = nil
     }
 
-    func acceptIncoming() {
+    func acceptIncoming(fromCallKit: Bool = false) {
         guard let call = activeCall, let id = call.callId else {
             activeCall?.status = .connecting
             return
+        }
+        Haptics.strong()   // decisive: answer
+        if !fromCallKit {
+            CallKitManager.shared.answerCall(uuid: call.uuid)
         }
         call.status = .connecting
         Task {
@@ -247,8 +258,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    func declineIncoming() {
-        if let id = activeCall?.callId {
+    func declineIncoming(fromCallKit: Bool = false) {
+        guard let call = activeCall else { return }
+        Haptics.gentle()   // dismiss
+        if !fromCallKit {
+            CallKitManager.shared.endCall(uuid: call.uuid)
+        }
+        if let id = call.callId {
             Task { try? await api.declineCall(id: id) }
         }
         activeCall = nil
@@ -270,6 +286,7 @@ extension AppState: SignalingClientDelegate {
                                       status: .ringing)
                 call.callId = callId
                 self.activeCall = call
+                Haptics.warning()   // attention: incoming call
                 // Ring natively via CallKit.
                 CallKitManager.shared.reportIncomingCall(
                     uuid: call.uuid, handle: fromName ?? "Slide",
@@ -280,7 +297,10 @@ extension AppState: SignalingClientDelegate {
                     self.activeCall = nil
                 }
             case let .callDeclined(callId, _):
-                if self.activeCall?.callId == callId { self.activeCall = nil }
+                if self.activeCall?.callId == callId {
+                    CallKitManager.shared.reportCallEnded(uuid: self.activeCall!.uuid, reason: .remoteEnded)
+                    self.activeCall = nil
+                }
             case let .callAccepted(callId, _):
                 if self.activeCall?.callId == callId { self.activeCall?.status = .connecting }
             default:
@@ -291,4 +311,31 @@ extension AppState: SignalingClientDelegate {
 
     nonisolated func signalingDidConnect(_ client: SignalingClient) {}
     nonisolated func signalingDidDisconnect(_ client: SignalingClient) {}
+}
+
+// MARK: - CallKit delegate
+
+extension AppState: CallKitManagerDelegate {
+    nonisolated func callKitDidAnswer(callId: UUID) {
+        Task { @MainActor in
+            guard self.activeCall?.uuid == callId else { return }
+            self.acceptIncoming(fromCallKit: true)
+        }
+    }
+
+    nonisolated func callKitDidEnd(callId: UUID) {
+        Task { @MainActor in
+            guard let call = self.activeCall, call.uuid == callId else { return }
+            if call.direction == .incoming && call.status == .ringing {
+                self.declineIncoming(fromCallKit: true)
+            } else {
+                self.endActiveCall(fromCallKit: true)
+            }
+        }
+    }
+
+    nonisolated func callKitDidSetMuted(callId: UUID, muted: Bool) {
+        // The active in-call view owns the media service instance. CallKit mute
+        // state is accepted here so the system UI stays responsive.
+    }
 }

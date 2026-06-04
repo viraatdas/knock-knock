@@ -79,6 +79,10 @@ struct PressableButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.6 : 1)
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(Theme.Motion.fast, value: configuration.isPressed)
+            // Light haptic the moment the press registers — app-wide tap feel.
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { Haptics.tap() }
+            }
     }
 }
 

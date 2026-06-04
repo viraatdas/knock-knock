@@ -29,6 +29,7 @@ final class ContactsViewModel: ObservableObject {
         defer { isImporting = false }
         await syncDeviceContacts()
         await load()
+        Haptics.success()   // import finished
     }
 
     private func syncDeviceContacts() async {
@@ -37,10 +38,14 @@ final class ContactsViewModel: ObservableObject {
         do {
             let granted = try await store.requestAccess(for: .contacts)
             guard granted else { return }
-            let keys = [
+            // Use CNContactFormatter's key descriptor so we capture EVERY name
+            // form (given/family, nickname, company-only, non-Western order),
+            // not just first+last — otherwise lots of contacts show as a number.
+            let keys: [CNKeyDescriptor] = [
                 CNContactPhoneNumbersKey as CNKeyDescriptor,
-                CNContactGivenNameKey as CNKeyDescriptor,
-                CNContactFamilyNameKey as CNKeyDescriptor,
+                CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
+                CNContactNicknameKey as CNKeyDescriptor,
+                CNContactOrganizationNameKey as CNKeyDescriptor,
             ]
             let request = CNContactFetchRequest(keysToFetch: keys)
             // Keep names aligned 1:1 with phones so the server can store the
@@ -48,16 +53,17 @@ final class ContactsViewModel: ObservableObject {
             var phones: [String] = []
             var names: [String] = []
             try store.enumerateContacts(with: request) { contact, _ in
-                let full = [contact.givenName, contact.familyName]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " ")
-                    .trimmingCharacters(in: .whitespaces)
+                // Best available name: formatted full name → nickname → company.
+                var name = CNContactFormatter.string(from: contact, style: .fullName)?
+                    .trimmingCharacters(in: .whitespaces) ?? ""
+                if name.isEmpty { name = contact.nickname.trimmingCharacters(in: .whitespaces) }
+                if name.isEmpty { name = contact.organizationName.trimmingCharacters(in: .whitespaces) }
                 for number in contact.phoneNumbers {
                     let raw = number.value.stringValue.trimmingCharacters(in: .whitespaces)
                     guard !raw.isEmpty else { continue }
                     phones.append(raw)
-                    // Fall back to the number itself if the contact has no name.
-                    names.append(full.isEmpty ? raw : full)
+                    // Fall back to the number itself only if truly no name exists.
+                    names.append(name.isEmpty ? raw : name)
                 }
             }
             if !phones.isEmpty {

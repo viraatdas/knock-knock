@@ -87,16 +87,19 @@ final class OnboardingViewModel: ObservableObject {
         defer { isSending = false }
         do {
             let resp = try await api.verifyOtp(phone: e164, code: code)
+            Haptics.success()   // signed in
             return (resp.user, resp.isNewUser)
         } catch {
             if Config.useMockData {
                 // Accept the dev code (or any 6 digits) offline.
                 TokenStore.shared.save(access: "mock-access", refresh: "mock-refresh")
+                Haptics.success()
                 let isNew = true
                 let user = User(id: "u_me", phone: e164, displayName: nil,
                                 avatarUrl: nil, createdAt: Date(), lastSeenAt: Date())
                 return (user, isNew)
             }
+            Haptics.error()
             errorMessage = (error as? APIError)?.errorDescription ?? "Incorrect code. Try again."
             return nil
         }
