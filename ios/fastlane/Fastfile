@@ -667,6 +667,52 @@ platform :ios do
     end
   end
 
+  desc "Fill the TestFlight beta metadata (description + feedback email + review contact) required for external beta review."
+  lane :tf_beta_meta do
+    app = asc_connect
+    desc_text = "Slide is a simple phone-first video calling app. Tap a contact to start a 1:1 or group video/audio call. Test calls, group calls, and audio routing to Bluetooth/wired earbuds."
+    feedback_email = ENV["TF_FEEDBACK_EMAIL"] || ENV["FASTLANE_APPLE_ID"] || "viraat@exla.ai"
+
+    # 1) Beta app localization (description + feedback email + marketing/privacy URLs)
+    code, body = asc_raw(:get, "v1/apps/#{app.id}/betaAppLocalizations")
+    locs = body["data"] || []
+    loc = locs.find { |l| l.dig("attributes","locale") == "en-US" } || locs.first
+    attrs = { description: desc_text, feedbackEmail: feedback_email }
+    if loc
+      c,b = asc_raw(:patch, "v1/betaAppLocalizations/#{loc['id']}",
+        { data: { type: "betaAppLocalizations", id: loc["id"], attributes: attrs } })
+      UI.message "beta localization PATCH #{c}"
+    else
+      c,b = asc_raw(:post, "v1/betaAppLocalizations",
+        { data: { type: "betaAppLocalizations",
+                  attributes: attrs.merge(locale: "en-US"),
+                  relationships: { app: { data: { type: "apps", id: app.id } } } } })
+      UI.message "beta localization POST #{c}: #{b.inspect[0,120]}"
+    end
+
+    # 2) Beta app review detail (contact info + demo account / notes)
+    contact_first = ENV["TF_CONTACT_FIRST"] || "Viraat"
+    contact_last  = ENV["TF_CONTACT_LAST"]  || "Das"
+    contact_phone = ENV["TF_CONTACT_PHONE"] || "+1 415 555 0137"
+    rdetail = { contactFirstName: contact_first, contactLastName: contact_last,
+                contactEmail: feedback_email, contactPhone: contact_phone,
+                demoAccountRequired: false, demoAccountName: "", demoAccountPassword: "",
+                notes: "Phone-first video calling. No login wall for testing; the app uses phone-number OTP — use any number, the dev build accepts the echoed code." }
+    rc, rbody = asc_raw(:get, "v1/apps/#{app.id}/betaAppReviewDetail")
+    rid = rbody.dig("data","id")
+    if rid
+      c,b = asc_raw(:patch, "v1/betaAppReviewDetails/#{rid}",
+        { data: { type: "betaAppReviewDetails", id: rid, attributes: rdetail } })
+      UI.message "beta review detail PATCH #{c}"
+    else
+      c,b = asc_raw(:post, "v1/betaAppReviewDetails",
+        { data: { type: "betaAppReviewDetails", attributes: rdetail,
+                  relationships: { app: { data: { type: "apps", id: app.id } } } } })
+      UI.message "beta review detail POST #{c}: #{b.inspect[0,120]}"
+    end
+    UI.success "Beta metadata set (description + feedback #{feedback_email} + review contact)."
+  end
+
   desc "Submit the latest build for TestFlight Beta App Review (needed for EXTERNAL testers)."
   lane :tf_beta_submit do
     app = asc_connect
