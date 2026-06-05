@@ -67,10 +67,31 @@ platform :ios do
     )
   end
 
-  desc "Signed archive (.ipa) via gym."
+  desc "Signed archive (.ipa) via gym, MANUALLY signed with an API-key-created Distribution cert + App Store profile that includes Push."
   lane :archive do
     key = asc_api_key
     increment_build_number_if_possible
+
+    # Create/fetch a Distribution cert headlessly via the ASC API key. Writes the
+    # .cer/.p12 into the keychain so codesign can use it.
+    cert(
+      api_key: key,
+      generate_apple_certs: true,
+      output_path: "build/certs",
+    )
+
+    # Create/fetch an App Store provisioning profile for app.exla.slide. Because
+    # PUSH_NOTIFICATIONS is enabled on the App ID, the generated profile includes
+    # the aps-environment entitlement. force:true regenerates it to pick up Push.
+    profile_path = sigh(
+      api_key: key,
+      app_identifier: APP_ID,
+      platform: "ios",
+      force: true,
+      output_path: "build/profiles",
+    )
+    profile_name = lane_context[SharedValues::SIGH_NAME]
+
     gym(
       scheme: SCHEME,
       project: PROJECT,
@@ -78,7 +99,17 @@ platform :ios do
       export_method: "app-store",
       output_directory: "build",
       output_name: "Slide.ipa",
-      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} CODE_SIGN_STYLE=Automatic CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES TARGETED_DEVICE_FAMILY=1",
+      export_team_id: ENV["APPLE_TEAM_ID"],
+      export_options: {
+        signingStyle: "manual",
+        teamID: ENV["APPLE_TEAM_ID"],
+        provisioningProfiles: { APP_ID => profile_name },
+      },
+      # Signing is pinned per-target in project.yml (app target only, so SPM
+      # packages stay automatic). CODE_SIGNING_ALLOWED/REQUIRED=YES is REQUIRED
+      # here — without them the archive step skips embedding the entitlements
+      # file, dropping aps-environment (Firebase phone auth then breaks).
+      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} TARGETED_DEVICE_FAMILY=1 CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES",
     )
   end
 

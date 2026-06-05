@@ -67,6 +67,11 @@ targets:
           CODE_SIGN_ENTITLEMENTS: Slide.entitlements
         Release:
           CODE_SIGN_ENTITLEMENTS: SlideRelease.entitlements
+          # Manual signing pinned to the APP TARGET ONLY (SPM packages like
+          # Firebase/GoogleUtilities reject manual profiles — must stay automatic).
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "app.exla.slide AppStore"
     info:
       path: Generated-Info.plist
       properties:
