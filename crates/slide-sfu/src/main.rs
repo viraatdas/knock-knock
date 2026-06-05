@@ -201,6 +201,7 @@ async fn handle_peer(socket: WebSocket, state: SfuState, room_id: String, user_i
                     rtcp_feedback: codec.capability.rtcp_feedback.clone(),
                 };
                 let kind = remote.kind().to_string();
+                tracing::info!(publisher = %publisher, kind = %kind, "on_track: received published media");
                 let local = room::make_forward_track(cap, publisher, &kind);
                 let published = Arc::new(room::PublishedTrack {
                     publisher,
@@ -252,6 +253,15 @@ async fn handle_peer(socket: WebSocket, state: SfuState, room_id: String, user_i
                         match room::handle_client_offer(&peer_in, &room_in, sdp).await {
                             Ok(answer) => {
                                 let _ = peer_in.tx.send(ServerMessage::Answer { sdp: answer });
+                                // Now push everything already published in the room
+                                // to this peer via an SFU-initiated renegotiation.
+                                // The answer above is delivered first (WS is
+                                // ordered), so the peer is stable before our offer.
+                                if room_in.subscribe_existing(&peer_in).await > 0 {
+                                    if let Err(e) = room::renegotiate(&peer_in).await {
+                                        tracing::warn!(error = %e, "subscribe renegotiation failed");
+                                    }
+                                }
                             }
                             Err(e) => {
                                 let _ = peer_in.tx.send(ServerMessage::Error {

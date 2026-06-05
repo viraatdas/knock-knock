@@ -151,7 +151,9 @@ impl Room {
     /// renegotiating each via an SFU-initiated offer.
     pub async fn publish_track(self: &Arc<Self>, track: Arc<PublishedTrack>) -> Result<()> {
         self.tracks.write().await.push(track.clone());
-        for peer in self.other_peers(track.publisher).await {
+        let others = self.other_peers(track.publisher).await;
+        tracing::info!(publisher = %track.publisher, others = others.len(), "publish_track: fanning out");
+        for peer in others {
             let local: Arc<dyn TrackLocal + Send + Sync> = track.local.clone();
             if peer.pc.add_track(local).await.is_ok() {
                 if let Err(e) = renegotiate(&peer).await {
@@ -164,16 +166,24 @@ impl Room {
 
     /// When a peer joins, give it forwarding tracks for everything already
     /// published in the room.
-    pub async fn subscribe_existing(&self, peer: &Arc<Peer>) -> Result<()> {
+    /// Attach forwarding senders for every track already published in the room
+    /// to `peer`, returning how many were added. The caller must follow this
+    /// with an SFU-initiated `renegotiate` — an answerer can't introduce new
+    /// media, so the new senders only reach the peer via a fresh SFU offer.
+    pub async fn subscribe_existing(&self, peer: &Arc<Peer>) -> usize {
         let tracks = self.tracks.read().await.clone();
-        for t in tracks {
+        let mut added = 0;
+        for t in &tracks {
             if t.publisher == peer.user_id {
                 continue;
             }
             let local: Arc<dyn TrackLocal + Send + Sync> = t.local.clone();
-            let _ = peer.pc.add_track(local).await;
+            if peer.pc.add_track(local).await.is_ok() {
+                added += 1;
+            }
         }
-        Ok(())
+        tracing::info!(peer = %peer.user_id, existing = tracks.len(), added, "subscribe_existing");
+        added
     }
 }
 
@@ -196,10 +206,9 @@ pub async fn handle_client_offer(
     let _guard = peer.neg_lock.lock().await;
     let offer = RTCSessionDescription::offer(sdp)?;
     peer.pc.set_remote_description(offer).await?;
-
-    // Attach forwarding tracks for media already in the room.
-    room.subscribe_existing(peer).await?;
-
+    // NOTE: do NOT add the room's existing tracks here — this is an *answer*,
+    // and an answerer can't introduce new m-lines. They're attached + pushed
+    // via a follow-up SFU renegotiation (see the Offer handler).
     let answer = peer.pc.create_answer(None).await?;
     peer.pc.set_local_description(answer.clone()).await?;
     Ok(answer.sdp)
