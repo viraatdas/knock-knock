@@ -339,6 +339,8 @@ export default function SlideWebApp() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [dialNumber, setDialNumber] = useState("");
+  // Audio/Video slider for the lookup result — you pick, then knock to call.
+  const [dialVideo, setDialVideo] = useState(true);
   const [lookup, setLookup] = useState<LookupState>({ status: "idle" });
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   // Knock: real-time "tap a rhythm" presence ritual. `knockSession` is the
@@ -1296,45 +1298,61 @@ export default function SlideWebApp() {
                 </label>
 
                 {lookup.status === "found" ? (
-                  <div className="flex flex-col gap-3 rounded-[8px] border border-hairline bg-white p-3 sm:flex-row sm:items-center">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full border border-hairline text-[13px] text-text-secondary">
-                      {(lookup.contact.displayName || lookup.contact.phone).slice(0, 2).toUpperCase()}
+                  <div className="rounded-[12px] border border-hairline bg-white p-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-hairline text-[14px] text-text-secondary">
+                        {(lookup.contact.displayName || lookup.contact.phone).slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[17px] text-text">
+                          {lookup.contact.displayName || lookup.contact.phone}
+                        </p>
+                        <p className="text-[12px] text-text-secondary">On Slide</p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] text-text">
-                        {lookup.contact.displayName || lookup.contact.phone}
-                      </p>
-                      <p className="text-[12px] text-text-secondary">On Slide</p>
-                    </div>
-                    <div className="flex gap-2">
+
+                    {/* Audio ↔ Video slider: a dark pill glides under the choice. */}
+                    <div className="relative mt-5 flex rounded-full bg-bg-grouped p-1 text-[14px]">
+                      <span
+                        className="pointer-events-none absolute bottom-1 top-1 w-[calc(50%-4px)] rounded-full bg-text transition-[left] duration-300 ease-out"
+                        style={{ left: dialVideo ? "calc(50% + 0px)" : "4px" }}
+                      />
                       <button
-                        className="inline-flex h-10 items-center gap-2 rounded-[8px] border border-hairline px-3 text-[13px] text-text"
-                        onClick={() => startCall(lookup.contact, false)}
+                        onClick={() => setDialVideo(false)}
+                        className={`relative z-10 flex flex-1 items-center justify-center gap-2 py-2 transition-colors ${
+                          !dialVideo ? "text-white" : "text-text-secondary"
+                        }`}
                       >
                         <PhoneIcon className="h-4 w-4" />
                         Audio
                       </button>
                       <button
-                        className="inline-flex h-10 items-center gap-2 rounded-[8px] bg-text px-3 text-[13px] text-white"
-                        onClick={() => startCall(lookup.contact, true)}
+                        onClick={() => setDialVideo(true)}
+                        className={`relative z-10 flex flex-1 items-center justify-center gap-2 py-2 transition-colors ${
+                          dialVideo ? "text-white" : "text-text-secondary"
+                        }`}
                       >
                         <VideoIcon className="h-4 w-4" />
                         Video
                       </button>
+                    </div>
+
+                    {/* Knock pad: knock on their door to place the call. */}
+                    <div className="mt-6 flex flex-col items-center">
                       <button
-                        className="inline-flex h-10 items-center gap-2 rounded-[8px] border border-hairline px-3 text-[13px] text-text"
-                        disabled={!lookup.contact.userId}
-                        onClick={() =>
-                          lookup.contact.userId &&
-                          openKnock(
-                            lookup.contact.userId,
-                            lookup.contact.displayName || lookup.contact.phone,
-                          )
-                        }
+                        aria-label={`Knock to call ${lookup.contact.displayName || lookup.contact.phone}`}
+                        onClick={() => {
+                          playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
+                          vibrateKnock();
+                          startCall(lookup.contact, dialVideo);
+                        }}
+                        className="grid h-32 w-32 select-none place-items-center rounded-full border border-hairline bg-bg-grouped text-[48px] transition-transform active:scale-95 active:bg-text/[0.06]"
                       >
-                        <span className="text-[15px] leading-none">✊</span>
-                        Knock
+                        ✊
                       </button>
+                      <p className="mt-3 text-[13px] text-text-secondary">
+                        {dialVideo ? "Knock to start a video call" : "Knock to start a call"}
+                      </p>
                     </div>
                   </div>
                 ) : null}
