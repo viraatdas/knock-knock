@@ -1,23 +1,24 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-// A "knock" is a lightweight, real-time presence ping: the caller taps a rhythm,
-// each tap is relayed over the signaling socket, and the callee hears + feels the
-// same taps as they land. No call row, no ringtone loop — it only "rings" while
-// someone is actively knocking.
+// A "knock" is a real-time presence ritual: you tap a rhythm, each tap is
+// relayed over the signaling socket, and the other person feels + sees the same
+// taps land. It's a two-way "duet" — their knock-backs bloom on your stage too.
+// No call row, no ringtone loop; it only "rings" while someone is knocking.
 
-// Synthesize a knuckle-on-door knock with WebAudio (no asset needed):
-// a fast low "thud" body + a high-passed noise "click" attack.
-export function playKnock(ctx: AudioContext | null) {
+// Synthesize a knuckle-on-door knock with WebAudio (no asset needed): a fast low
+// "thud" body + a high-passed noise "click" attack. `pitch` adds gentle variation
+// so a rhythm sounds musical rather than robotic.
+export function playKnock(ctx: AudioContext | null, pitch = 1) {
   if (!ctx) return;
   const t = ctx.currentTime;
 
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = "sine";
-  osc.frequency.setValueAtTime(180, t);
-  osc.frequency.exponentialRampToValueAtTime(90, t + 0.08);
+  osc.frequency.setValueAtTime(180 * pitch, t);
+  osc.frequency.exponentialRampToValueAtTime(90 * pitch, t + 0.08);
   gain.gain.setValueAtTime(0.0001, t);
   gain.gain.exponentialRampToValueAtTime(0.6, t + 0.005);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
@@ -52,49 +53,100 @@ export function vibrateKnock() {
   }
 }
 
-// Full-screen pad: every pointer-down sends one knock (parent handles sound +
-// relay so the caller hears their own rhythm too).
-export function KnockPad({
+type Ripple = { id: number; x: number; y: number; mine: boolean };
+
+// Full-screen immersive stage. Every pointer-down sends one knock (parent relays
+// + plays sound) and blooms a ring where you touched. `theirPulse` increments
+// when the other person knocks back, blooming their ring in a different color.
+export function KnockSurface({
   name,
+  theirPulse,
   onTap,
+  onCall,
   onClose,
 }: {
   name: string;
+  theirPulse: number;
   onTap: () => void;
+  onCall: () => void;
   onClose: () => void;
 }) {
+  const [ripples, setRipples] = useState<Ripple[]>([]);
+  const [taps, setTaps] = useState(0);
+  const idRef = useRef(0);
+
+  const spawn = useCallback((x: number, y: number, mine: boolean) => {
+    const id = ++idRef.current;
+    setRipples((r) => [...r.slice(-14), { id, x, y, mine }]);
+    window.setTimeout(() => {
+      setRipples((r) => r.filter((p) => p.id !== id));
+    }, 950);
+  }, []);
+
+  // Their knock-backs bloom from a wandering spot around the center.
+  useEffect(() => {
+    if (theirPulse <= 0) return;
+    spawn(34 + Math.random() * 32, 30 + Math.random() * 28, false);
+  }, [theirPulse, spawn]);
+
+  const handleTap = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    spawn(x, y, true);
+    setTaps((n) => n + 1);
+    onTap();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-white/92 px-6 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-[8px] border border-hairline bg-white p-6 text-center shadow-[0_20px_80px_rgba(10,10,10,0.10)]">
-        <p className="text-[12px] uppercase tracking-label text-text-secondary">Knocking</p>
-        <h2 className="mt-1 text-[26px] font-light text-text">{name}</h2>
-        <p className="mt-1 text-[13px] text-text-secondary">
-          Tap a rhythm. They feel each knock as you tap it.
-        </p>
+    <div className="knock-stage fixed inset-0 z-[60] select-none text-white">
+      {/* Tap anywhere on the stage. */}
+      <div className="absolute inset-0 touch-none" onPointerDown={handleTap}>
+        {ripples.map((r) => (
+          <span
+            key={r.id}
+            className={`knock-ripple ${r.mine ? "mine" : "theirs"}`}
+            style={{ left: `${r.x}%`, top: `${r.y}%` }}
+          />
+        ))}
+        <div className="pointer-events-none absolute inset-0 grid place-items-center">
+          <div className="text-center">
+            <div className="knock-core mx-auto mb-7 grid h-28 w-28 place-items-center rounded-full border border-white/15 text-[40px]">
+              ✊
+            </div>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">
+              Knocking with
+            </p>
+            <h2 className="mt-1 text-[26px] font-light">{name}</h2>
+            <p className="mt-2 text-[13px] text-white/40">
+              {taps === 0 ? "Tap anywhere to knock" : "They feel every tap"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={onClose}
+        className="absolute right-5 top-5 rounded-full border border-white/15 px-4 py-2 text-[12px] text-white/70 transition-colors hover:border-white/40 hover:text-white"
+      >
+        Done
+      </button>
+      <div className="absolute inset-x-0 bottom-10 flex justify-center">
         <button
-          aria-label={`Knock for ${name}`}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            onTap();
-          }}
-          className="mx-auto mt-6 flex h-44 w-44 select-none items-center justify-center rounded-full border border-hairline bg-bg-grouped text-[44px] text-text transition-transform active:scale-95 active:bg-text/[0.06]"
+          onClick={onCall}
+          className="rounded-full bg-white px-7 py-3 text-[14px] font-medium text-text transition-transform active:scale-95"
         >
-          ✊
-        </button>
-        <button
-          onClick={onClose}
-          className="mt-6 rounded-[8px] border border-hairline px-4 py-2 text-[13px] text-text transition-colors hover:border-text/30"
-        >
-          Done
+          Call {name}
         </button>
       </div>
     </div>
   );
 }
 
-// Transient banner shown to the person being knocked. Each incoming tap re-pulses
-// it; it self-dismisses after a couple seconds of silence.
-export function KnockBanner({
+// Immersive incoming overlay: a centered card that flashes with each received
+// tap (in rhythm) and lets you knock back (→ enters the duet) or pick up.
+export function KnockIncoming({
   name,
   pulseKey,
   onKnockBack,
@@ -108,44 +160,48 @@ export function KnockBanner({
   onDismiss: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  // Re-trigger the pulse animation on every new tap.
+  // Re-trigger the flash on every new tap.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.classList.remove("animate-gentle-pulse");
+    el.classList.remove("knock-flash");
     void el.offsetWidth;
-    el.classList.add("animate-gentle-pulse");
+    el.classList.add("knock-flash");
   }, [pulseKey]);
 
   return (
-    <div className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+    <div className="fixed inset-0 z-[55] grid place-items-center bg-text/10 px-6 backdrop-blur-sm">
       <div
         ref={ref}
-        className="flex w-full max-w-sm items-center gap-3 rounded-[12px] border border-hairline bg-white px-4 py-3 shadow-[0_12px_40px_rgba(10,10,10,0.12)]"
+        className="w-full max-w-sm rounded-[16px] border border-hairline bg-white p-7 text-center shadow-[0_24px_90px_rgba(10,10,10,0.18)]"
       >
-        <span className="text-[22px]">✊</span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[14px] text-text">{name} is knocking</p>
-          <p className="text-[12px] text-text-secondary">Knock back or pick up</p>
+        <div className="knock-core mx-auto mb-4 grid h-20 w-20 place-items-center rounded-full border border-hairline text-[34px]">
+          ✊
+        </div>
+        <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
+          Knock knock
+        </p>
+        <h2 className="mt-1 text-[24px] font-light text-text">{name}</h2>
+        <p className="mt-1 text-[13px] text-text-secondary">is knocking for you</p>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button
+            onClick={onKnockBack}
+            className="rounded-[10px] border border-hairline py-3 text-[14px] text-text transition-colors hover:border-text/30"
+          >
+            Knock back
+          </button>
+          <button
+            onClick={onCall}
+            className="rounded-[10px] bg-text py-3 text-[14px] text-white transition-transform active:scale-95"
+          >
+            Call
+          </button>
         </div>
         <button
-          onClick={onKnockBack}
-          className="rounded-[8px] border border-hairline px-3 py-1.5 text-[12px] text-text hover:border-text/30"
-        >
-          Knock back
-        </button>
-        <button
-          onClick={onCall}
-          className="rounded-[8px] bg-text px-3 py-1.5 text-[12px] text-white"
-        >
-          Call
-        </button>
-        <button
           onClick={onDismiss}
-          aria-label="Dismiss"
-          className="text-text-secondary hover:text-text"
+          className="mt-3 text-[12px] text-text-secondary transition-colors hover:text-text"
         >
-          ✕
+          Dismiss
         </button>
       </div>
     </div>

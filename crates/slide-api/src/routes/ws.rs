@@ -75,6 +75,9 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
     // Inbound pump: handle client → server messages (heartbeat, presence_ping).
     let state_in = state.clone();
     let recv_task = tokio::spawn(async move {
+        // Throttle offline-knock pushes: a knock burst is many taps, but an
+        // offline target should get ONE push per burst, not one per tap.
+        let mut last_knock_push: Option<(Uuid, std::time::Instant)> = None;
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(t) => {
@@ -116,7 +119,15 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                         "pattern": v.get("pattern"),
                                     });
                                     let delivered = state_in.hub.publish(to, out).await;
-                                    if delivered == 0 {
+                                    // One push per burst (>4s gap = new burst),
+                                    // so an away target isn't buried in pushes.
+                                    let fresh_burst = last_knock_push
+                                        .map(|(t, at)| {
+                                            t != to || at.elapsed().as_secs() >= 4
+                                        })
+                                        .unwrap_or(true);
+                                    if delivered == 0 && fresh_burst {
+                                        last_knock_push = Some((to, std::time::Instant::now()));
                                         // Target is offline: escalate the knock to
                                         // a ringable incoming call via push.
                                         tracing::info!(

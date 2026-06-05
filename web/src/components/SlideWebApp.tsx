@@ -11,7 +11,7 @@ import {
   VideoOffIcon,
 } from "./icons";
 import PhoneField from "./PhoneField";
-import { KnockBanner, KnockPad, playKnock, vibrateKnock } from "./Knock";
+import { KnockSurface, KnockIncoming, playKnock, vibrateKnock } from "./Knock";
 import { Room, RoomEvent, Track, VideoPresets, type RemoteTrack } from "livekit-client";
 import { enableWebPush } from "../lib/push";
 import { firebaseAuth } from "../lib/firebase";
@@ -341,8 +341,11 @@ export default function SlideWebApp() {
   const [dialNumber, setDialNumber] = useState("");
   const [lookup, setLookup] = useState<LookupState>({ status: "idle" });
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
-  // Knock: lightweight, real-time "tap a rhythm" presence ping.
-  const [knockPad, setKnockPad] = useState<{ userId: string; name: string } | null>(null);
+  // Knock: real-time "tap a rhythm" presence ritual. `knockSession` is the
+  // full-screen duet stage; `knockTheirPulse` ticks when the peer in that
+  // session knocks back so their ripple blooms on our stage.
+  const [knockSession, setKnockSession] = useState<{ userId: string; name: string } | null>(null);
+  const [knockTheirPulse, setKnockTheirPulse] = useState(0);
   const [knocking, setKnocking] = useState<{
     fromUserId: string;
     fromName: string;
@@ -377,6 +380,7 @@ export default function SlideWebApp() {
   const knockLastTap = useRef<number | null>(null);
   const knockClearTimer = useRef<number | null>(null);
   const knockNotifyAt = useRef(0);
+  const knockSessionRef = useRef<{ userId: string; name: string } | null>(null);
 
   const signedIn = Boolean(tokens && user);
 
@@ -482,6 +486,10 @@ export default function SlideWebApp() {
   useEffect(() => {
     incomingRef.current = incoming;
   }, [incoming]);
+
+  useEffect(() => {
+    knockSessionRef.current = knockSession;
+  }, [knockSession]);
 
   useEffect(() => {
     if (localVideo.current) localVideo.current.srcObject = localStream;
@@ -637,13 +645,23 @@ export default function SlideWebApp() {
       if (event.type === "knock") {
         const fromUserId = event.fromUserId ?? "";
         const fromName = event.fromName ?? "Someone";
+        // Every tap feels + sounds, with gentle pitch variation so a rhythm
+        // reads as musical rather than robotic.
+        playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
+        vibrateKnock();
+
+        // If we're already in the duet stage with this person, land their tap
+        // there (a blooming ripple) instead of popping the incoming card.
+        if (knockSessionRef.current?.userId === fromUserId) {
+          setKnockTheirPulse((n) => n + 1);
+          return;
+        }
+
         setKnocking((cur) => ({
           fromUserId,
           fromName,
           pulse: (cur?.fromUserId === fromUserId ? cur.pulse : 0) + 1,
         }));
-        playKnock(ensureAudio());
-        vibrateKnock();
         // Fire a system notification once per knock burst (a fresh burst starts
         // after a >2s gap) so a knock reaches you even when the tab is in the
         // background — the per-tap sound + vibration carry the rhythm.
@@ -663,7 +681,7 @@ export default function SlideWebApp() {
           }
         }
         if (knockClearTimer.current) window.clearTimeout(knockClearTimer.current);
-        knockClearTimer.current = window.setTimeout(() => setKnocking(null), 2500);
+        knockClearTimer.current = window.setTimeout(() => setKnocking(null), 4000);
       }
       if (event.type === "call_ended" || event.type === "call_declined") {
         const ringing = incomingRef.current;
@@ -730,16 +748,19 @@ export default function SlideWebApp() {
           }),
         );
       }
-      playKnock(ensureAudio());
+      playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
       vibrateKnock();
     },
     [ensureAudio, user],
   );
 
-  const openKnockPad = useCallback((userId: string, name: string) => {
+  // Open the full-screen duet stage for a person (also used by "knock back").
+  const openKnock = useCallback((userId: string, name: string) => {
     knockSeq.current = 0;
     knockLastTap.current = null;
-    setKnockPad({ userId, name });
+    setKnockTheirPulse(0);
+    setKnocking(null);
+    setKnockSession({ userId, name });
   }, []);
 
   // Firebase phone auth: send the SMS via Google (no carrier registration), then
@@ -1305,7 +1326,7 @@ export default function SlideWebApp() {
                         disabled={!lookup.contact.userId}
                         onClick={() =>
                           lookup.contact.userId &&
-                          openKnockPad(
+                          openKnock(
                             lookup.contact.userId,
                             lookup.contact.displayName || lookup.contact.phone,
                           )
@@ -1564,28 +1585,37 @@ export default function SlideWebApp() {
         </div>
       ) : null}
 
-      {knockPad ? (
-        <KnockPad
-          name={knockPad.name}
-          onTap={() => sendKnock(knockPad.userId)}
-          onClose={() => setKnockPad(null)}
+      {knockSession ? (
+        <KnockSurface
+          name={knockSession.name}
+          theirPulse={knockTheirPulse}
+          onTap={() => sendKnock(knockSession.userId)}
+          onCall={() => {
+            const s = knockSession;
+            setKnockSession(null);
+            startCall(
+              { phone: s.name, displayName: s.name, userId: s.userId, onSlide: true },
+              true,
+            );
+          }}
+          onClose={() => setKnockSession(null)}
         />
       ) : null}
 
-      {knocking ? (
-        <KnockBanner
+      {knocking && !knockSession ? (
+        <KnockIncoming
           name={knocking.fromName}
           pulseKey={knocking.pulse}
-          onKnockBack={() => sendKnock(knocking.fromUserId)}
+          onKnockBack={() => {
+            const k = knocking;
+            openKnock(k.fromUserId, k.fromName);
+            sendKnock(k.fromUserId);
+          }}
           onCall={() => {
+            const k = knocking;
             setKnocking(null);
             startCall(
-              {
-                phone: knocking.fromName,
-                displayName: knocking.fromName,
-                userId: knocking.fromUserId,
-                onSlide: true,
-              },
+              { phone: k.fromName, displayName: k.fromName, userId: k.fromUserId, onSlide: true },
               true,
             );
           }}
