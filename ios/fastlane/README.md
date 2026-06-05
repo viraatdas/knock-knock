@@ -37,7 +37,7 @@ Create the App Store Connect app record (idempotent).
 [bundle exec] fastlane ios archive
 ```
 
-Signed archive (.ipa) via gym.
+Signed archive (.ipa) via gym, MANUALLY signed with an API-key-created Distribution cert + App Store profile that includes Push.
 
 ### ios beta
 

@@ -187,7 +187,7 @@ enum CallServiceFactory {
         if Config.useMockCallService {
             return MockCallService()
         }
-        #if canImport(WebRTC)
+        #if canImport(LiveKit)
         return RealCallService()
         #else
         return MockCallService()

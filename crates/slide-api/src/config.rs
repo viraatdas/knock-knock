@@ -37,6 +37,13 @@ pub struct Config {
     pub sfu_jwt_secret: String,
     pub sfu_node_id: String,
 
+    /// LiveKit media server. When `livekit_url` is set the call control plane
+    /// hands clients a LiveKit access token (signed with `livekit_api_secret`)
+    /// + the LiveKit ws URL instead of the legacy custom-SFU join token.
+    pub livekit_url: String,
+    pub livekit_api_key: String,
+    pub livekit_api_secret: String,
+
     pub turn_uris: Vec<String>,
     pub turn_shared_secret: String,
     pub turn_cred_ttl_secs: i64,
@@ -118,6 +125,10 @@ impl Config {
             sfu_public_url: var("SFU_PUBLIC_URL", "ws://localhost:9000"),
             sfu_jwt_secret: var("SFU_JWT_SECRET", "dev-only-sfu-secret-change-me"),
             sfu_node_id: var("SFU_NODE_ID", "sfu-local-1"),
+
+            livekit_url: var("LIVEKIT_URL", ""),
+            livekit_api_key: var("LIVEKIT_API_KEY", ""),
+            livekit_api_secret: var("LIVEKIT_API_SECRET", ""),
 
             turn_uris: var("TURN_URIS", "")
                 .split(',')

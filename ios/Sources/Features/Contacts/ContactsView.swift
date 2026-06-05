@@ -159,7 +159,7 @@ struct ContactsView: View {
             HairlineDivider()
 
             if vm.contacts.isEmpty && !vm.isLoading {
-                VStack(spacing: Theme.Space.lg) {
+                VStack(spacing: Theme.Space.xl) {
                     EmptyStateView(message: "No contacts yet", systemImage: "person.2")
                     Text("Import your contacts to see who's already on Slide. You can call anyone on Slide, friends or not.")
                         .font(Theme.Font.footnote)
@@ -170,8 +170,11 @@ struct ContactsView: View {
                         Task { await vm.importContacts() }
                     }
                     .padding(.horizontal, Theme.Space.xxl)
+                    // Extra breathing room beneath the button so it isn't crowded.
+                    .padding(.top, Theme.Space.sm)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.bottom, Theme.Space.xxl)
             } else {
                 let onSlide = vm.onSlide(query)
                 let invitable = vm.notOnSlide(query)

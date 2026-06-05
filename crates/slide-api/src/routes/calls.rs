@@ -194,8 +194,6 @@ pub async fn create_call(
     }
 
     let view = load_call_view(&state, call_id).await?;
-    let join_token =
-        sfu_client::mint_join_token(&state, uid, call_id, &alloc.room_id, &alloc.sfu_node_id)?;
     let ice = sfu_client::ice_servers(&state, uid);
 
     let caller: Option<(Option<String>, String)> =
@@ -240,10 +238,19 @@ pub async fn create_call(
         }
     }
 
+    let (sfu_url, join_token) = sfu_client::media_join(
+        &state,
+        uid,
+        Some(&from_name),
+        call_id,
+        &alloc.room_id,
+        &alloc.sfu_node_id,
+    )?;
+
     Ok(Json(JoinResponse {
         call: view,
         join_token,
-        sfu_url: alloc.sfu_url,
+        sfu_url,
         ice_servers: ice,
     }))
 }
@@ -297,8 +304,8 @@ pub async fn accept_call(
     .execute(&state.db)
     .await?;
 
-    let join_token =
-        sfu_client::mint_join_token(&state, uid, call_id, &call.room_id, &call.sfu_node_id)?;
+    let (sfu_url, join_token) =
+        sfu_client::media_join(&state, uid, None, call_id, &call.room_id, &call.sfu_node_id)?;
     let ice = sfu_client::ice_servers(&state, uid);
     let view = load_call_view(&state, call_id).await?;
 
@@ -314,7 +321,7 @@ pub async fn accept_call(
     Ok(Json(JoinResponse {
         call: view,
         join_token,
-        sfu_url: format!("{}/ws?room={}", state.cfg.sfu_public_url, call.room_id),
+        sfu_url,
         ice_servers: ice,
     }))
 }

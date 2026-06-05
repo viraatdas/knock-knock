@@ -13,18 +13,22 @@ app = "slide-api"
 primary_region = "iad"
 
 [build]
-  image = "public.ecr.aws/exla/slide:fb2-003256"
+  # Build from source (all-in-one image bundles Redis; DATABASE_URL secret points
+  # at the managed Postgres). Was a prebuilt ECR image; now built on every deploy
+  # so backend changes (e.g. LiveKit token minting) actually ship.
+  dockerfile = "../aws/Dockerfile.allinone"
 
 [env]
   API_BIND = "0.0.0.0:8080"
   EXPOSE_DEV_OTP = "true"
   FIREBASE_PROJECT_ID = "slide-b4c50"
-  # SFU runs on EC2 (real public UDP) behind Caddy TLS via sslip.io. Fly's UDP
-  # proxy rewrites source addrs and breaks WebRTC ICE, so media can't live there.
-  SFU_PUBLIC_URL = "wss://34-234-19-199.sslip.io"
+  # SFU on a Hetzner VPS (public IP directly on the NIC) behind Caddy TLS via
+  # sslip.io. The SFU code is verified (real browsers, bidirectional video).
+  SFU_PUBLIC_URL = "wss://178-156-247-146.sslip.io"
   SMS_PROVIDER = "console"
-  # coturn on the same EC2 box (TURN fallback for symmetric-NAT clients).
-  TURN_URIS = "turn:34.234.19.199:3478?transport=udp,turn:34.234.19.199:3478?transport=tcp"
+  # coturn on the same box (TURN fallback). NOTE: same-box relay hairpins for
+  # clients that REQUIRE TURN (symmetric NAT); move coturn to its own IP if so.
+  TURN_URIS = "turn:178.156.247.146:3478?transport=udp,turn:178.156.247.146:3478?transport=tcp"
   VAPID_SUBJECT = "mailto:viraat@exla.ai"
   RUST_LOG = "info,slide_api=info"
 

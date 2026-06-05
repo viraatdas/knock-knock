@@ -12,6 +12,7 @@ import {
 } from "./icons";
 import PhoneField from "./PhoneField";
 import { KnockBanner, KnockPad, playKnock, vibrateKnock } from "./Knock";
+import { Room, RoomEvent, Track, VideoPresets, type RemoteTrack } from "livekit-client";
 import { enableWebPush } from "../lib/push";
 import { firebaseAuth } from "../lib/firebase";
 import {
@@ -287,12 +288,6 @@ function incomingFrom(event: SignalEvent): IncomingCall | null {
   return { callId, fromUserId, fromName };
 }
 
-function sfuSocketUrl(session: CallSession) {
-  const url = new URL(session.sfuUrl);
-  url.searchParams.set("token", session.joinToken);
-  return url.toString();
-}
-
 function assertBrowserReachableSfu(session: CallSession) {
   if (typeof window === "undefined") return;
   const url = new URL(session.sfuUrl);
@@ -306,6 +301,33 @@ function assertBrowserReachableSfu(session: CallSession) {
   if (window.location.protocol === "https:" && url.protocol !== "wss:") {
     throw new Error("Browser calls on HTTPS need a wss SFU URL.");
   }
+}
+
+// Pretty-print a phone number as it's typed: "+1 415 555 0123" / "415 555 0123".
+// Backend normalization strips the spaces, so this is display-only.
+function formatDial(raw: string): string {
+  const hadPlus = raw.trimStart().startsWith("+");
+  let digits = raw.replace(/\D/g, "");
+  let cc = "";
+  // Peel off a country code when there's an explicit + or more than 10 digits.
+  if (hadPlus || digits.length > 10) {
+    if (digits.startsWith("1")) {
+      cc = "1";
+      digits = digits.slice(1);
+    } else {
+      const n = Math.max(0, digits.length - 10);
+      cc = digits.slice(0, n);
+      digits = digits.slice(n);
+    }
+  }
+  const groups: string[] = [];
+  if (digits.length) groups.push(digits.slice(0, 3));
+  if (digits.length > 3) groups.push(digits.slice(3, 6));
+  if (digits.length > 6) groups.push(digits.slice(6, 10));
+  const local = groups.join(" ");
+  if (cc) return local ? `+${cc} ${local}` : `+${cc}`;
+  if (hadPlus) return `+${local}`;
+  return local;
 }
 
 export default function SlideWebApp() {
@@ -344,8 +366,8 @@ export default function SlideWebApp() {
   const localVideo = useRef<HTMLVideoElement | null>(null);
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
   const signalingSocket = useRef<WebSocket | null>(null);
-  const mediaSocket = useRef<WebSocket | null>(null);
-  const peerConnection = useRef<RTCPeerConnection | null>(null);
+  // LiveKit room for the media plane (replaces the custom SFU socket + PC).
+  const room = useRef<Room | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const ringTimer = useRef<number | null>(null);
   const callStartRef = useRef<number | null>(null);
@@ -354,6 +376,7 @@ export default function SlideWebApp() {
   const knockSeq = useRef(0);
   const knockLastTap = useRef<number | null>(null);
   const knockClearTimer = useRef<number | null>(null);
+  const knockNotifyAt = useRef(0);
 
   const signedIn = Boolean(tokens && user);
 
@@ -621,6 +644,24 @@ export default function SlideWebApp() {
         }));
         playKnock(ensureAudio());
         vibrateKnock();
+        // Fire a system notification once per knock burst (a fresh burst starts
+        // after a >2s gap) so a knock reaches you even when the tab is in the
+        // background — the per-tap sound + vibration carry the rhythm.
+        const nowMs = Date.now();
+        if (nowMs - knockNotifyAt.current > 2000) {
+          knockNotifyAt.current = nowMs;
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try {
+              new Notification(`${fromName} is knocking 👋`, {
+                tag: "slide-knock",
+                renotify: true,
+                silent: false,
+              } as NotificationOptions);
+            } catch {
+              // Some browsers only allow notifications from a service worker.
+            }
+          }
+        }
         if (knockClearTimer.current) window.clearTimeout(knockClearTimer.current);
         knockClearTimer.current = window.setTimeout(() => setKnocking(null), 2500);
       }
@@ -845,7 +886,7 @@ export default function SlideWebApp() {
     ) => {
       if (!entry.userId) {
         if (entry.phone) {
-          setDialNumber(entry.phone);
+          setDialNumber(formatDial(entry.phone));
           setLookup({ status: "idle" });
         }
         return;
@@ -868,22 +909,18 @@ export default function SlideWebApp() {
   const toggleMute = useCallback(() => {
     setMuted((current) => {
       const next = !current;
-      localStream?.getAudioTracks().forEach((track) => {
-        track.enabled = !next;
-      });
+      void room.current?.localParticipant.setMicrophoneEnabled(!next);
       return next;
     });
-  }, [localStream]);
+  }, []);
 
   const toggleCamera = useCallback(() => {
     setCameraOff((current) => {
       const next = !current;
-      localStream?.getVideoTracks().forEach((track) => {
-        track.enabled = !next;
-      });
+      void room.current?.localParticipant.setCameraEnabled(!next);
       return next;
     });
-  }, [localStream]);
+  }, []);
 
   const startMedia = async (
     session: CallSession,
@@ -900,83 +937,68 @@ export default function SlideWebApp() {
     everConnectedRef.current = false;
     callStartRef.current = Date.now();
     assertBrowserReachableSfu(session);
-    const media = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video,
-    });
-    setLocalStream(media);
+
+    // Remote media accumulates here as the other participant publishes tracks.
     const remote = new MediaStream();
     setRemoteStream(remote);
 
-    const pc = new RTCPeerConnection({
-      iceServers: session.iceServers.map((server) => ({
-        urls: server.urls,
-        username: server.username ?? undefined,
-        credential: server.credential ?? undefined,
-      })),
-    });
-    peerConnection.current = pc;
-    media.getTracks().forEach((track) => pc.addTrack(track, media));
-    pc.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach((track) => remote.addTrack(track));
-      setRemoteStream(new MediaStream(remote.getTracks()));
-    };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") {
-        setStatus("Connected");
-        setPeerConnected(true);
+    const refreshRemote = () => setRemoteStream(new MediaStream(remote.getTracks()));
+    const markConnected = () => {
+      setStatus("Connected");
+      setPeerConnected(true);
+      if (!everConnectedRef.current) {
         everConnectedRef.current = true;
         callStartRef.current = Date.now();
       }
-      if (pc.connectionState === "failed") {
-        setStatus("Call failed");
-        setPeerConnected(false);
-      }
     };
 
-    const socket = new WebSocket(sfuSocketUrl(session));
-    mediaSocket.current = socket;
-    pc.onicecandidate = (event) => {
-      if (!event.candidate || socket.readyState !== WebSocket.OPEN) return;
-      socket.send(
-        JSON.stringify({
-          type: "ice",
-          candidate: event.candidate.candidate,
-          sdp_mid: event.candidate.sdpMid,
-          sdp_mline_index: event.candidate.sdpMLineIndex,
-        }),
-      );
-    };
-    socket.onopen = async () => {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
-    };
-    socket.onmessage = async (message) => {
-      const event = JSON.parse(String(message.data)) as {
-        type: string;
-        sdp?: string;
-        candidate?: string;
-        sdp_mid?: string;
-        sdp_mline_index?: number;
-      };
-      if (event.type === "answer" && event.sdp) {
-        await pc.setRemoteDescription({ type: "answer", sdp: event.sdp });
+    const lkRoom = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+      // Capture + publish at 720p so the remote feed is crisp (the default
+      // capture is softer). Simulcast layers let LiveKit drop to lower
+      // resolutions only when bandwidth / the display size calls for it.
+      videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
+      publishDefaults: {
+        videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+        videoEncoding: VideoPresets.h720.encoding,
+      },
+    });
+    room.current = lkRoom;
+
+    lkRoom.on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+      if (track.kind === Track.Kind.Video || track.kind === Track.Kind.Audio) {
+        remote.addTrack(track.mediaStreamTrack);
+        refreshRemote();
+        markConnected();
       }
-      if (event.type === "offer" && event.sdp) {
-        await pc.setRemoteDescription({ type: "offer", sdp: event.sdp });
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.send(JSON.stringify({ type: "answer", sdp: answer.sdp }));
-      }
-      if (event.type === "ice" && event.candidate) {
-        await pc.addIceCandidate({
-          candidate: event.candidate,
-          sdpMid: event.sdp_mid,
-          sdpMLineIndex: event.sdp_mline_index,
-        });
-      }
-    };
+    });
+    lkRoom.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      remote.removeTrack(track.mediaStreamTrack);
+      refreshRemote();
+    });
+    // The far side hung up / the room emptied → tear our side down too.
+    lkRoom.on(RoomEvent.ParticipantDisconnected, () => {
+      if (lkRoom.numParticipants <= 1) endCall(false);
+    });
+    lkRoom.on(RoomEvent.Disconnected, () => {
+      if (room.current === lkRoom) endCall(false);
+    });
+
+    // Connect, then publish camera/mic. TCP fallback (port 7881) is built in,
+    // so this works even where UDP is blocked.
+    await lkRoom.connect(session.sfuUrl, session.joinToken);
+    await lkRoom.localParticipant.setMicrophoneEnabled(true);
+    await lkRoom.localParticipant.setCameraEnabled(video);
+
+    // Mirror the locally published tracks into a stream for the self-preview.
+    const localTracks: MediaStreamTrack[] = [];
+    lkRoom.localParticipant.trackPublications.forEach((pub) => {
+      const t = pub.track?.mediaStreamTrack;
+      if (t) localTracks.push(t);
+    });
+    setLocalStream(new MediaStream(localTracks));
+
     setActiveCall({
       callId: session.call.id,
       peerName,
@@ -1071,10 +1093,10 @@ export default function SlideWebApp() {
 
   const endCall = (notifyServer = true) => {
     stopRingtone();
-    mediaSocket.current?.close();
-    mediaSocket.current = null;
-    peerConnection.current?.close();
-    peerConnection.current = null;
+    // Null the ref first so the room's Disconnected handler doesn't re-enter.
+    const lkRoom = room.current;
+    room.current = null;
+    lkRoom?.disconnect();
     localStream?.getTracks().forEach((track) => track.stop());
     remoteStream?.getTracks().forEach((track) => track.stop());
     if (activeCall) {
@@ -1234,7 +1256,7 @@ export default function SlideWebApp() {
                     <input
                       value={dialNumber}
                       onChange={(event) => {
-                        setDialNumber(event.target.value);
+                        setDialNumber(formatDial(event.target.value));
                         setLookup({ status: "idle" });
                         setCallError(null);
                       }}

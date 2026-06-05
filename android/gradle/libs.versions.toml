@@ -14,6 +14,7 @@ kotlinxCoroutines = "1.8.1"
 securityCrypto = "1.1.0-alpha06"
 coil = "2.7.0"
 webrtc = "125.6422.07"
+livekit = "2.18.2"
 splashscreen = "1.0.1"
 datastore = "1.1.1"
 firebaseBom = "33.5.1"
@@ -46,6 +47,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 webrtc = { group = "io.github.webrtc-sdk", name = "android", version.ref = "webrtc" }
+livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
 
 # Firebase (Cloud Messaging for push). The BoM pins compatible versions.
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }

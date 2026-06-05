@@ -10,7 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.webrtc.VideoTrack
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.VideoTrack
 
 /**
  * Default [CallService] so the in-call UI is fully renderable without a device
@@ -70,4 +71,5 @@ class MockCallService : CallService {
 
     override fun localVideoTrack(): VideoTrack? = null
     override fun remoteVideoTrack(): VideoTrack? = null
+    override fun room(): Room? = null
 }

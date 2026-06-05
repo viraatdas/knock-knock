@@ -17,6 +17,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // LiveKit transitively depends on com.github.davidliu:audioswitch (JitPack).
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

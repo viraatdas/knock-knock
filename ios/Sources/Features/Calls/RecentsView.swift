@@ -133,6 +133,8 @@ struct CallRow: View {
         .padding(.horizontal, Theme.Space.lg)
         .padding(.vertical, Theme.Space.sm)
         .contentShape(Rectangle())
+        // Tap anywhere on the row to call back, not just the phone icon.
+        .onTapGesture { onCallBack() }
     }
 }
 

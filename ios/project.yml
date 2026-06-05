@@ -20,10 +20,10 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: "YES"
 
 packages:
-  WebRTC:
-    url: https://github.com/stasel/WebRTC
-    minVersion: "120.0.0"
-    maxVersion: "200.0.0"
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    minVersion: "2.0.0"
+    maxVersion: "3.0.0"
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     minVersion: "11.0.0"
@@ -79,8 +79,8 @@ targets:
           - CFBundleURLSchemes:
               - app-1-561354442144-ios-898901de87c419eec650c5
     dependencies:
-      - package: WebRTC
-        product: WebRTC
+      - package: LiveKit
+        product: LiveKit
       - package: Firebase
         product: FirebaseAuth
 

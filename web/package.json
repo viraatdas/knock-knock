@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "firebase": "^12.14.0",
+    "livekit-client": "^2.19.1",
     "next": "15.5.18",
     "react": "19.0.0",
     "react-dom": "19.0.0"

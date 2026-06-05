@@ -1,7 +1,8 @@
 package ai.exla.slide.call
 
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.VideoTrack
 import kotlinx.coroutines.flow.StateFlow
-import org.webrtc.VideoTrack
 
 /**
  * Abstraction over the WebRTC media engine. The UI talks only to this interface
@@ -29,4 +30,8 @@ interface CallService {
 
     /** Remote participant's video track once it arrives from the SFU. */
     fun remoteVideoTrack(): VideoTrack?
+
+    /** The LiveKit room backing the call (null for the mock), needed to bind a
+     *  renderer to a track in the UI. */
+    fun room(): Room?
 }

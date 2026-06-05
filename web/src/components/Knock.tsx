@@ -47,7 +47,8 @@ export function playKnock(ctx: AudioContext | null) {
 
 export function vibrateKnock() {
   if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-    navigator.vibrate(35);
+    // A quick double buzz per tap so each knock *feels* like a knock-knock.
+    navigator.vibrate([25, 20, 35]);
   }
 }
 

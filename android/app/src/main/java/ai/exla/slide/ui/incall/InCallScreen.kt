@@ -29,9 +29,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +46,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.exla.slide.call.CallConnectionState
 import ai.exla.slide.call.CallUiState
+import io.livekit.android.renderer.TextureViewRenderer
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.VideoTrack
 import ai.exla.slide.ui.components.AvatarCircle
 import ai.exla.slide.ui.components.CircleIconButton
 import ai.exla.slide.ui.theme.SlideColors
@@ -85,10 +90,14 @@ fun InCallScreen(vm: InCallViewModel, onEnded: () -> Unit) {
         if (!onVideoSurface) {
             AudioOnlyStage(state)
         } else {
-            // Full-bleed remote video renders behind the chrome; a
-            // SurfaceViewRenderer is bound in the real WebRTC implementation.
-            Box(Modifier.fillMaxSize().background(SlideColors.Ink))
-            DraggableSelfView()
+            // Full-bleed remote video behind the chrome + a draggable self-view.
+            LiveKitVideoView(
+                room = vm.room(),
+                track = vm.remoteTrack(),
+                mirror = false,
+                modifier = Modifier.fillMaxSize(),
+            )
+            DraggableSelfView(room = vm.room(), track = vm.localTrack())
         }
 
         AnimatedVisibility(
@@ -210,7 +219,7 @@ private fun ControlBar(
 
 /** Rounded, draggable local self-view in the corner. */
 @Composable
-private fun DraggableSelfView() {
+private fun DraggableSelfView(room: Room?, track: VideoTrack?) {
     var offset by remember { mutableStateOf(Offset.Zero) }
 
     Box(
@@ -237,7 +246,45 @@ private fun DraggableSelfView() {
             },
         contentAlignment = Alignment.Center,
     ) {
-        AvatarCircle(name = "Me", size = 56.dp, backgroundColor = SlideColors.Bg)
+        if (room != null && track != null) {
+            LiveKitVideoView(room = room, track = track, mirror = true, modifier = Modifier.fillMaxSize())
+        } else {
+            AvatarCircle(name = "Me", size = 56.dp, backgroundColor = SlideColors.Bg)
+        }
+    }
+}
+
+/**
+ * Renders a LiveKit [VideoTrack] via a [TextureViewRenderer] inside an
+ * [AndroidView]. Keyed on the track so a new renderer is built when the track
+ * changes; the old one is detached + released on disposal.
+ */
+@Composable
+private fun LiveKitVideoView(
+    room: Room?,
+    track: VideoTrack?,
+    mirror: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (room == null || track == null) {
+        Box(modifier.background(SlideColors.Ink))
+        return
+    }
+    key(track) {
+        AndroidView(
+            modifier = modifier,
+            factory = { ctx ->
+                TextureViewRenderer(ctx).also { view ->
+                    room.initVideoRenderer(view)
+                    view.setMirror(mirror)
+                    track.addRenderer(view)
+                }
+            },
+            onRelease = { view ->
+                track.removeRenderer(view)
+                view.release()
+            },
+        )
     }
 }
 

@@ -136,8 +136,9 @@ dependencies {
     // Images
     implementation(libs.coil.compose)
 
-    // WebRTC (org.webrtc)
-    implementation(libs.webrtc)
+    // LiveKit Android SDK (bundles its own WebRTC under org.webrtc). Replaces the
+    // standalone io.github.webrtc-sdk dep + the custom-SFU client.
+    implementation(libs.livekit.android)
 
     // Firebase Cloud Messaging (push). The dependency is always present so the
     // app compiles; FirebaseApp only initializes once google-services.json + the

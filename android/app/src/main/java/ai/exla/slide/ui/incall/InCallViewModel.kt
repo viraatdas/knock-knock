@@ -64,6 +64,7 @@ class InCallViewModel(
 
     fun localTrack() = callService.localVideoTrack()
     fun remoteTrack() = callService.remoteVideoTrack()
+    fun room() = callService.room()
 
     /** Convenience used by previews/demo: start a mock call to a peer. */
     fun startMockCall(peer: CallPeer) {

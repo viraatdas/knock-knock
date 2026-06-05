@@ -2,7 +2,7 @@ package ai.exla.slide
 
 import android.content.Context
 import ai.exla.slide.call.CallService
-import ai.exla.slide.call.MockCallService
+import ai.exla.slide.call.LiveKitCallService
 import ai.exla.slide.data.api.ApiClient
 import ai.exla.slide.data.auth.TokenStore
 import ai.exla.slide.data.repo.SlideRepository
@@ -28,9 +28,6 @@ class AppContainer(context: Context) {
         SignalingClient(tokenStore, BuildConfig.WS_BASE_URL, apiClient.json)
     }
 
-    /**
-     * Default to the mock so the in-call UI renders without a device/SFU. Swap
-     * to WebRtcCallService(appContext) for real media on a device.
-     */
-    val callService: CallService by lazy { MockCallService() }
+    /** Real media via LiveKit (self-hosted SFU). The mock remains for previews. */
+    val callService: CallService by lazy { LiveKitCallService(appContext) }
 }
