@@ -65,6 +65,10 @@ final class OnboardingViewModel: ObservableObject {
         nationalNumber.filter(\.isNumber).count >= 7
     }
 
+    /// Tracks which verification path the active request used, so verify() can
+    /// match it. Firebase when its send succeeds; otherwise the backend OTP.
+    private var usingFirebase = false
+
     func requestOtp() async -> Bool {
         errorMessage = nil
         isSending = true
@@ -74,10 +78,13 @@ final class OnboardingViewModel: ObservableObject {
         if Config.useFirebaseAuth {
             do {
                 firebaseVerificationID = try await FirebaseAuthService.sendCode(toE164: e164)
+                usingFirebase = true
                 return true
             } catch {
-                errorMessage = error.localizedDescription
-                return false
+                // Firebase can't send (e.g. project billing not enabled, or a
+                // transient config issue). Fall back to the backend OTP so sign-in
+                // still works rather than dead-ending the user.
+                usingFirebase = false
             }
         }
         #endif
@@ -103,7 +110,7 @@ final class OnboardingViewModel: ObservableObject {
         defer { isSending = false }
 
         #if canImport(FirebaseAuth)
-        if Config.useFirebaseAuth, let vid = firebaseVerificationID {
+        if usingFirebase, let vid = firebaseVerificationID {
             do {
                 let idToken = try await FirebaseAuthService.verify(verificationID: vid, code: code)
                 let resp = try await api.firebaseAuth(idToken: idToken)
