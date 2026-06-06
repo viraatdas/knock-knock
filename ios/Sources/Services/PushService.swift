@@ -65,6 +65,12 @@ extension PushService: PKPushRegistryDelegate {
 
         let dict = payload.dictionaryPayload
         let callId = (dict["callId"] as? String) ?? (dict["id"] as? String) ?? ""
+        let eventType = (dict["type"] as? String) ?? "incoming_call"
+        let isTapOnly = eventType == "knock" || ((dict["knock"] as? Bool) == true && callId.isEmpty)
+        guard eventType == "incoming_call", !isTapOnly, !callId.isEmpty else {
+            completion()
+            return
+        }
         let fromUserId = dict["fromUserId"] as? String
         let fromName = (dict["fromName"] as? String) ?? "Slide"
         let callTypeRaw = (dict["callType"] as? String) ?? CallType.oneToOne.rawValue

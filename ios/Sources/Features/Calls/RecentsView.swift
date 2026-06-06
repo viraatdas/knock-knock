@@ -59,13 +59,13 @@ final class RecentsViewModel: ObservableObject {
 struct RecentsView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var vm = RecentsViewModel()
-    @State private var showNewCall = false
+    @State private var showDial = false
 
     var body: some View {
         VStack(spacing: 0) {
             WordmarkBar {
                 Button {
-                    showNewCall = true
+                    showDial = true
                 } label: {
                     Image(systemName: "square.and.pencil")
                         .font(.system(size: 20, weight: .light))
@@ -96,8 +96,8 @@ struct RecentsView: View {
         }
         .background(Theme.Color.bg)
         .task { await vm.load() }
-        .sheet(isPresented: $showNewCall) {
-            NewCallSheet()
+        .sheet(isPresented: $showDial) {
+            DialView()
                 .environmentObject(appState)
         }
     }
@@ -135,68 +135,5 @@ struct CallRow: View {
         .contentShape(Rectangle())
         // Tap anywhere on the row to call back, not just the phone icon.
         .onTapGesture { onCallBack() }
-    }
-}
-
-/// Picker for starting a new call — reuses contacts.
-struct NewCallSheet: View {
-    @EnvironmentObject private var appState: AppState
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var vm = ContactsViewModel()
-    @State private var query = ""
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                SearchField(text: $query, placeholder: "Search contacts")
-                    .padding(.horizontal, Theme.Space.lg)
-                    .padding(.vertical, Theme.Space.md)
-                HairlineDivider()
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(vm.filtered(query).filter(\.onSlide)) { contact in
-                            HStack(spacing: Theme.Space.md) {
-                                AvatarCircle(name: contact.displayName, size: 40)
-                                Text(contact.displayName)
-                                    .font(Theme.Font.body)
-                                    .foregroundStyle(Theme.Color.text)
-                                Spacer()
-                                HStack(spacing: Theme.Space.lg) {
-                                    Button {
-                                        appState.startCall(to: MockData.userForContact(contact), video: false)
-                                        dismiss()
-                                    } label: {
-                                        Image(systemName: "phone")
-                                            .font(.system(size: 18, weight: .light))
-                                            .foregroundStyle(Theme.Color.text)
-                                    }
-                                    Button {
-                                        appState.startCall(to: MockData.userForContact(contact), video: true)
-                                        dismiss()
-                                    } label: {
-                                        Image(systemName: "video")
-                                            .font(.system(size: 18, weight: .light))
-                                            .foregroundStyle(Theme.Color.text)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, Theme.Space.lg)
-                            .padding(.vertical, Theme.Space.sm)
-                            HairlineDivider(leadingInset: Theme.Space.lg + 40 + Theme.Space.md)
-                        }
-                    }
-                }
-            }
-            .background(Theme.Color.bg)
-            .navigationTitle("New call")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(Theme.Color.text)
-                }
-            }
-            .task { await vm.load() }
-        }
     }
 }

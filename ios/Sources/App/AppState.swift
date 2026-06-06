@@ -265,8 +265,9 @@ final class AppState: ObservableObject {
         if let existing = activeCall, existing.callId == callId { return }
 
         let uuid = PushService.uuid(for: callId)
+        let name = displayNameForIncomingCall(fromName)
         let call = ActiveCall(direction: .incoming,
-                              remoteName: fromName ?? "Unknown",
+                              remoteName: name,
                               remotePhone: "",
                               remoteUserId: fromUserId,
                               isVideo: type == .oneToOne ? true : true,
@@ -381,8 +382,10 @@ final class AppState: ObservableObject {
 
     /// Escalate the incoming knock into a real call.
     func callFromKnock(video: Bool = false) {
-        guard let knock = incomingKnock else { return }
-        let user = User(id: knock.fromUserId ?? "",
+        guard let knock = incomingKnock,
+              let userId = knock.fromUserId,
+              !userId.isEmpty else { return }
+        let user = User(id: userId,
                         phone: "",
                         displayName: knock.displayName,
                         avatarUrl: nil,
@@ -460,8 +463,9 @@ extension AppState: SignalingClientDelegate {
                 // Use a deterministic UUID derived from the callId so this call
                 // matches any VoIP push for the same call (same CallKit UUID).
                 let uuid = PushService.uuid(for: callId)
+                let name = self.displayNameForIncomingCall(fromName)
                 let call = ActiveCall(direction: .incoming,
-                                      remoteName: fromName ?? "Unknown",
+                                      remoteName: name,
                                       remotePhone: "",
                                       remoteUserId: fromUserId,
                                       isVideo: type == .oneToOne ? true : true,
@@ -472,8 +476,8 @@ extension AppState: SignalingClientDelegate {
                 Haptics.warning()   // attention: incoming call
                 // Ring natively via CallKit.
                 CallKitManager.shared.reportIncomingCall(
-                    uuid: call.uuid, handle: fromName ?? "Slide",
-                    displayName: fromName ?? "Slide", hasVideo: call.isVideo)
+                    uuid: call.uuid, handle: name,
+                    displayName: name, hasVideo: call.isVideo)
             case let .callEnded(callId):
                 if self.activeCall?.callId == callId {
                     CallKitManager.shared.reportCallEnded(uuid: self.activeCall!.uuid)
@@ -496,6 +500,16 @@ extension AppState: SignalingClientDelegate {
 
     nonisolated func signalingDidConnect(_ client: SignalingClient) {}
     nonisolated func signalingDidDisconnect(_ client: SignalingClient) {}
+}
+
+private extension AppState {
+    func displayNameForIncomingCall(_ fromName: String?) -> String {
+        if let name = fromName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
+        }
+        return "Slide"
+    }
 }
 
 // MARK: - CallKit delegate

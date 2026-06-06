@@ -43,6 +43,15 @@ struct PhoneEntryView: View {
                         .keyboardType(.phonePad)
                         .textContentType(.telephoneNumber)
                         .focused($phoneFocused)
+                        .onChange(of: vm.nationalNumber) { _, newValue in
+                            let formatted = PhoneNumberFormatting.national(
+                                newValue,
+                                country: vm.countryCode
+                            )
+                            if formatted != newValue {
+                                vm.nationalNumber = formatted
+                            }
+                        }
                 }
                 Rectangle()
                     .fill(phoneFocused ? Theme.Color.text : Theme.Color.hairline)
@@ -75,6 +84,12 @@ struct PhoneEntryView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { phoneFocused = true }
+        .onChange(of: vm.countryCode) { _, _ in
+            vm.nationalNumber = PhoneNumberFormatting.national(
+                vm.nationalNumber,
+                country: vm.countryCode
+            )
+        }
         .sheet(isPresented: $showCountryPicker) {
             CountryPickerView(selection: $vm.countryCode)
         }

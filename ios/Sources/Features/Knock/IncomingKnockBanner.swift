@@ -9,6 +9,7 @@ struct IncomingKnockBanner: View {
     @ObservedObject var knock: IncomingKnock
 
     @State private var scale: CGFloat = 1.0
+    @State private var tapStageUser: User?
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
@@ -25,7 +26,7 @@ struct IncomingKnockBanner: View {
                     .font(Theme.Font.callout)
                     .foregroundStyle(Theme.Color.text)
                     .lineLimit(1)
-                Text("is knocking")
+                Text("is tapping")
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
@@ -34,9 +35,12 @@ struct IncomingKnockBanner: View {
 
             HStack(spacing: Theme.Space.xs) {
                 Button {
+                    guard let user = userForTapStage else { return }
                     appState.knockBack()
+                    appState.clearIncomingKnock()
+                    tapStageUser = user
                 } label: {
-                    Text("Knock back")
+                    Text("Tap back")
                         .font(Theme.Font.buttonSmall)
                         .foregroundStyle(Theme.Color.text)
                         .padding(.horizontal, Theme.Space.sm)
@@ -83,6 +87,20 @@ struct IncomingKnockBanner: View {
             withAnimation(.easeOut(duration: 0.10)) { scale = 1.04 }
             withAnimation(.easeOut(duration: 0.22).delay(0.10)) { scale = 1.0 }
         }
+        .fullScreenCover(item: $tapStageUser) { user in
+            KnockPad(user: user)
+                .environmentObject(appState)
+        }
+    }
+
+    private var userForTapStage: User? {
+        guard let id = knock.fromUserId, !id.isEmpty else { return nil }
+        return User(id: id,
+                    phone: "",
+                    displayName: knock.displayName,
+                    avatarUrl: nil,
+                    createdAt: nil,
+                    lastSeenAt: nil)
     }
 }
 

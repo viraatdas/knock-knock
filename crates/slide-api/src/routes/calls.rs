@@ -116,6 +116,22 @@ async fn participant_ids(state: &AppState, call_id: Uuid) -> AppResult<Vec<Uuid>
     Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 
+async fn call_display_name(state: &AppState, user_id: Uuid) -> AppResult<String> {
+    let caller: Option<(Option<String>, String)> =
+        sqlx::query_as("SELECT display_name, phone FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_optional(&state.db)
+            .await?;
+    Ok(caller
+        .as_ref()
+        .and_then(|(name, _)| name.as_ref())
+        .map(|name| name.trim())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .or_else(|| caller.as_ref().map(|(_, phone)| phone.clone()))
+        .unwrap_or_else(|| "Slide".to_string()))
+}
+
 // ── POST /calls ───────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -196,18 +212,7 @@ pub async fn create_call(
     let view = load_call_view(&state, call_id).await?;
     let ice = sfu_client::ice_servers(&state, uid);
 
-    let caller: Option<(Option<String>, String)> =
-        sqlx::query_as("SELECT display_name, phone FROM users WHERE id = $1")
-            .bind(uid)
-            .fetch_optional(&state.db)
-            .await?;
-    let from_name = caller
-        .as_ref()
-        .and_then(|(name, _)| name.as_ref())
-        .filter(|name| !name.trim().is_empty())
-        .cloned()
-        .or_else(|| caller.as_ref().map(|(_, phone)| phone.clone()))
-        .unwrap_or_else(|| "Slide".to_string());
+    let from_name = call_display_name(&state, uid).await?;
 
     // Ring the callees over the signaling socket (push fallback when offline).
     let event = json!({
@@ -234,7 +239,10 @@ pub async fn create_call(
                 from_name: from_name.clone(),
                 knock: false,
             };
-            state.push.notify_incoming(&state.db, *c, &push_payload).await;
+            state
+                .push
+                .notify_incoming(&state.db, *c, &push_payload)
+                .await;
         }
     }
 
@@ -304,8 +312,15 @@ pub async fn accept_call(
     .execute(&state.db)
     .await?;
 
-    let (sfu_url, join_token) =
-        sfu_client::media_join(&state, uid, None, call_id, &call.room_id, &call.sfu_node_id)?;
+    let display_name = call_display_name(&state, uid).await?;
+    let (sfu_url, join_token) = sfu_client::media_join(
+        &state,
+        uid,
+        Some(&display_name),
+        call_id,
+        &call.room_id,
+        &call.sfu_node_id,
+    )?;
     let ice = sfu_client::ice_servers(&state, uid);
     let view = load_call_view(&state, call_id).await?;
 

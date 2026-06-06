@@ -672,7 +672,7 @@ export default function SlideWebApp() {
           knockNotifyAt.current = nowMs;
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
-              new Notification(`${fromName} is knocking 👋`, {
+              new Notification(`${fromName} is tapping`, {
                 tag: "slide-knock",
                 renotify: true,
                 silent: false,
@@ -734,22 +734,24 @@ export default function SlideWebApp() {
 
   const sendKnock = useCallback(
     (toUserId: string) => {
+      const sock = signalingSocket.current;
+      if (!sock || sock.readyState !== WebSocket.OPEN) {
+        setStatus("Tap needs browser calls online");
+        return;
+      }
       const now = Date.now();
       const dt = knockLastTap.current ? now - knockLastTap.current : 0;
       knockLastTap.current = now;
       knockSeq.current += 1;
-      const sock = signalingSocket.current;
-      if (sock && sock.readyState === WebSocket.OPEN) {
-        sock.send(
-          JSON.stringify({
-            type: "knock",
-            to: toUserId,
-            fromName: user?.displayName || user?.phone || "Someone",
-            seq: knockSeq.current,
-            dt,
-          }),
-        );
-      }
+      sock.send(
+        JSON.stringify({
+          type: "knock",
+          to: toUserId,
+          fromName: user?.displayName || user?.phone || "Someone",
+          seq: knockSeq.current,
+          dt,
+        }),
+      );
       playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
       vibrateKnock();
     },
@@ -856,13 +858,15 @@ export default function SlideWebApp() {
     const permission = await Notification.requestPermission();
     setNotificationState(permission);
     if (permission === "granted" && tokensRef.current) {
-      void enableWebPush((pushToken) =>
-        authedFetch("/devices", {
+      void enableWebPush((subscription) =>
+        authedFetch("/push/register", {
           method: "POST",
           body: JSON.stringify({
-            pushToken,
-            platform: "web",
+            pushToken: subscription.endpoint,
             kind: "webpush",
+            p256dh: subscription.p256dh,
+            auth: subscription.auth,
+            platform: "web",
             appVersion: "web",
           }),
         }),
@@ -1337,22 +1341,35 @@ export default function SlideWebApp() {
                       </button>
                     </div>
 
-                    {/* Knock pad: knock on their door to place the call. */}
+                    {/* Tap pad: opens the realtime Tap surface. */}
                     <div className="mt-6 flex flex-col items-center">
                       <button
-                        aria-label={`Knock to call ${lookup.contact.displayName || lookup.contact.phone}`}
+                        aria-label={`Tap ${lookup.contact.displayName || lookup.contact.phone}`}
                         onClick={() => {
-                          playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
-                          vibrateKnock();
-                          startCall(lookup.contact, dialVideo);
+                          if (!lookup.contact.userId) return;
+                          openKnock(
+                            lookup.contact.userId,
+                            lookup.contact.displayName || lookup.contact.phone,
+                          );
                         }}
                         className="grid h-32 w-32 select-none place-items-center rounded-full border border-hairline bg-bg-grouped text-[48px] transition-transform active:scale-95 active:bg-text/[0.06]"
                       >
                         ✊
                       </button>
                       <p className="mt-3 text-[13px] text-text-secondary">
-                        {dialVideo ? "Knock to start a video call" : "Knock to start a call"}
+                        Tap a rhythm. They feel every tap.
                       </p>
+                      <button
+                        onClick={() => startCall(lookup.contact, dialVideo)}
+                        className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-text px-5 text-[14px] font-medium text-white transition-transform active:scale-[0.98]"
+                      >
+                        {dialVideo ? (
+                          <VideoIcon className="h-4 w-4" />
+                        ) : (
+                          <PhoneIcon className="h-4 w-4" />
+                        )}
+                        {dialVideo ? "Start video call" : "Start call"}
+                      </button>
                     </div>
                   </div>
                 ) : null}
@@ -1400,10 +1417,17 @@ export default function SlideWebApp() {
                               </p>
                             ) : null}
                           </div>
-                          <div className="flex gap-1.5 opacity-70 transition-opacity group-hover:opacity-100">
-                            <button
-                              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline text-text transition-colors hover:border-text/30"
-                              onClick={() => callContact(contact, false)}
+	                          <div className="flex gap-1.5 opacity-70 transition-opacity group-hover:opacity-100">
+	                            <button
+	                              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline text-[17px] text-text transition-colors hover:border-text/30"
+	                              onClick={() => openKnock(contact.userId, name)}
+	                              aria-label={`Tap ${name}`}
+	                            >
+	                              ✊
+	                            </button>
+	                            <button
+	                              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline text-text transition-colors hover:border-text/30"
+	                              onClick={() => callContact(contact, false)}
                               aria-label={`Audio call ${name}`}
                             >
                               <PhoneIcon className="h-4 w-4" />

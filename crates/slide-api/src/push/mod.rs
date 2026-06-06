@@ -136,11 +136,25 @@ impl Push {
 
         for sub in subs {
             let result = match sub.kind.as_str() {
-                "apns_voip" => self.apns.send(&sub.token, payload).await,
+                "apns_voip" if payload.kind == "incoming_call" => {
+                    self.apns.send(&sub.token, payload).await
+                }
+                "apns_voip" => {
+                    tracing::debug!(
+                        kind = %payload.kind,
+                        "push: skipping APNs VoIP for non-call notification"
+                    );
+                    Ok(())
+                }
                 "fcm" => self.fcm.send(&sub.token, payload).await,
                 "webpush" => {
                     self.webpush
-                        .send(&sub.token, sub.p256dh.as_deref(), sub.auth.as_deref(), payload)
+                        .send(
+                            &sub.token,
+                            sub.p256dh.as_deref(),
+                            sub.auth.as_deref(),
+                            payload,
+                        )
                         .await
                 }
                 other => {

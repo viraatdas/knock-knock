@@ -19,7 +19,7 @@ struct KnockPad: View {
 
     private var title: String {
         let name = user.displayName ?? user.phone
-        return name.isEmpty ? "Knock" : name
+        return name.isEmpty ? "Tap" : name
     }
 
     var body: some View {
@@ -27,7 +27,7 @@ struct KnockPad: View {
             Spacer().frame(height: Theme.Space.lg)
 
             VStack(spacing: Theme.Space.xs) {
-                Text("Knocking")
+                Text("Tapping")
                     .uppercaseLabel()
                 Text(title)
                     .font(Theme.Font.title)
@@ -39,7 +39,7 @@ struct KnockPad: View {
 
             tapTarget
 
-            Text("Tap a rhythm. They feel each knock.")
+            Text("Tap a rhythm. They feel every tap.")
                 .font(Theme.Font.footnote)
                 .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
@@ -79,8 +79,8 @@ struct KnockPad: View {
                 .scaleEffect(pressScale)
         }
         .contentShape(Circle())
-        .accessibilityLabel("Knock")
-        .accessibilityHint("Double tap to send a knock")
+        .accessibilityLabel("Tap")
+        .accessibilityHint("Double tap to send a Tap")
         .onTapGesture { tap() }
     }
 

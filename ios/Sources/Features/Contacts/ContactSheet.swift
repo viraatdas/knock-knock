@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Tap a contact → their name, an Audio/Video slider, and a knock pad. You pick
-/// the mode, then *knock* to place the call — knocking on their door is how you
-/// reach them. Replaces the old three separate Knock / Audio / Video buttons.
+/// Tap a contact -> their name, a real Tap pad, and a separate Audio/Video call
+/// action. Tap gets their attention; Call starts a call.
 struct ContactSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -12,6 +11,8 @@ struct ContactSheet: View {
     var onInvite: () -> Void = {}
 
     @State private var isVideo = true
+
+    private var user: User { MockData.userForContact(contact) }
 
     var body: some View {
         VStack(spacing: Theme.Space.xl) {
@@ -40,12 +41,18 @@ struct ContactSheet: View {
                     .padding(.horizontal, Theme.Space.xxl)
                     .padding(.top, Theme.Space.sm)
 
-                KnockToCall { start(video: isVideo) }
+                TapPad { tap() }
                     .padding(.top, Theme.Space.lg)
 
-                Text(isVideo ? "Knock to start a video call" : "Knock to start a call")
+                Text("Tap a rhythm. They feel every tap.")
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
+
+                PrimaryButton(title: isVideo ? "Start video call" : "Start call") {
+                    start(video: isVideo)
+                }
+                .padding(.horizontal, Theme.Space.lg)
+                .padding(.top, Theme.Space.sm)
             } else {
                 PrimaryButton(title: "Invite to Slide") {
                     dismiss()
@@ -62,8 +69,12 @@ struct ContactSheet: View {
     }
 
     private func start(video: Bool) {
-        appState.startCall(to: MockData.userForContact(contact), video: video)
+        appState.startCall(to: user, video: video)
         dismiss()
+    }
+
+    private func tap() {
+        appState.sendKnockTap(to: user.id)
     }
 
     private func formatted(_ phone: String) -> String {
@@ -116,18 +127,16 @@ private struct ModeSlider: View {
     }
 }
 
-/// The knock pad: a large ✊ target that knocks (ripple + haptic) and then places
-/// the call. Knocking on their door is the call-initiation gesture.
-private struct KnockToCall: View {
+/// The Tap pad: a large target that sends one realtime Tap per press.
+private struct TapPad: View {
     let action: () -> Void
     @State private var ripple = false
 
     var body: some View {
         Button {
-            Haptics.strong()
+            action()
+            ripple = false
             withAnimation(.easeOut(duration: 0.5)) { ripple = true }
-            // Let the knock register, then ring them.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { action() }
         } label: {
             ZStack {
                 Circle()
@@ -142,6 +151,8 @@ private struct KnockToCall: View {
                 Text("✊").font(.system(size: 58))
             }
         }
+        .accessibilityLabel("Tap")
+        .accessibilityHint("Sends one Tap to this person")
         .buttonStyle(PressableButtonStyle())
     }
 }

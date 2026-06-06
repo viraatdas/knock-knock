@@ -29,6 +29,19 @@ pub struct SyncResult {
     pub on_slide: bool,
 }
 
+fn display_name_for_contact(local_name: &str, phone: &str, matched: Option<&User>) -> String {
+    let local = local_name.trim();
+    if !local.is_empty() && local != phone {
+        return local_name.to_string();
+    }
+    matched
+        .and_then(|u| u.display_name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| local_name.to_string())
+}
+
 /// POST /contacts/sync
 pub async fn sync(
     State(state): State<AppState>,
@@ -60,19 +73,21 @@ pub async fn sync(
         .await?;
 
     let mut by_phone = std::collections::HashMap::new();
-    for u in &matches {
-        by_phone.insert(u.phone.clone(), u.id);
+    for u in matches {
+        by_phone.insert(u.phone.clone(), u);
     }
 
     // Persist resolved contacts for the owner (upsert per phone).
     let mut results = Vec::with_capacity(normalized.len());
     for (e164, name) in &normalized {
-        let contact_user_id = by_phone.get(e164).copied();
+        let matched = by_phone.get(e164);
+        let contact_user_id = matched.map(|u| u.id);
+        let display_name = display_name_for_contact(name, e164, matched);
         // Don't store yourself as your own contact.
         if contact_user_id == Some(uid) {
             results.push(SyncResult {
                 phone: e164.clone(),
-                display_name: name.clone(),
+                display_name,
                 user_id: contact_user_id,
                 on_slide: true,
             });
@@ -98,7 +113,7 @@ pub async fn sync(
 
         results.push(SyncResult {
             phone: e164.clone(),
-            display_name: name.clone(),
+            display_name,
             user_id: contact_user_id,
             on_slide: contact_user_id.is_some(),
         });
@@ -126,12 +141,13 @@ pub async fn list(
     AuthUser(uid): AuthUser,
 ) -> AppResult<Json<Vec<ContactView>>> {
     let contacts: Vec<ContactView> = sqlx::query_as(
-        "SELECT c.id, c.owner_user_id, c.contact_user_id, c.phone, c.display_name,
+        "SELECT c.id, c.owner_user_id, c.contact_user_id, c.phone,
+                COALESCE(NULLIF(NULLIF(c.display_name, c.phone), ''), NULLIF(u.display_name, ''), c.display_name) AS display_name,
                 u.avatar_url AS avatar_url
          FROM contacts c
          LEFT JOIN users u ON u.id = c.contact_user_id
          WHERE c.owner_user_id = $1
-         ORDER BY c.display_name, c.phone",
+         ORDER BY COALESCE(NULLIF(NULLIF(c.display_name, c.phone), ''), NULLIF(u.display_name, ''), c.display_name), c.phone",
     )
     .bind(uid)
     .fetch_all(&state.db)

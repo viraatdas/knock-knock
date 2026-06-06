@@ -116,11 +116,11 @@ export function KnockSurface({
               ✊
             </div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">
-              Knocking with
+              Tapping
             </p>
             <h2 className="mt-1 text-[26px] font-light">{name}</h2>
             <p className="mt-2 text-[13px] text-white/40">
-              {taps === 0 ? "Tap anywhere to knock" : "They feel every tap"}
+              {taps === 0 ? "Tap anywhere" : "They feel every tap"}
             </p>
           </div>
         </div>
@@ -179,16 +179,16 @@ export function KnockIncoming({
           ✊
         </div>
         <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-          Knock knock
+          Tap tap
         </p>
         <h2 className="mt-1 text-[24px] font-light text-text">{name}</h2>
-        <p className="mt-1 text-[13px] text-text-secondary">is knocking for you</p>
+        <p className="mt-1 text-[13px] text-text-secondary">is tapping you</p>
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             onClick={onKnockBack}
             className="rounded-[10px] border border-hairline py-3 text-[14px] text-text transition-colors hover:border-text/30"
           >
-            Knock back
+            Tap back
           </button>
           <button
             onClick={onCall}

@@ -50,12 +50,16 @@ async function getSubscription(): Promise<PushSubscription | null> {
  * Enable web push for the signed-in user: register the SW, ensure a push
  * subscription exists, and POST it to the backend device registry.
  *
- * `registerDevice` should perform the authenticated POST /devices call
- * (the access token lives in the caller). Returns false when unsupported,
- * permission is not granted, or anything fails — never throws.
+ * `registerSubscription` should perform the authenticated POST /push/register
+ * call (the access token lives in the caller). Returns false when unsupported,
+ * permission is not granted, or anything fails.
  */
 export async function enableWebPush(
-  registerDevice: (pushToken: string) => Promise<unknown>,
+  registerSubscription: (subscription: {
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  }) => Promise<unknown>,
 ): Promise<boolean> {
   if (!pushSupported()) return false;
   if (Notification.permission !== "granted") return false;
@@ -63,7 +67,12 @@ export async function enableWebPush(
   try {
     const subscription = await getSubscription();
     if (!subscription) return false;
-    await registerDevice(JSON.stringify(subscription));
+    const json = subscription.toJSON();
+    const endpoint = json.endpoint;
+    const p256dh = json.keys?.p256dh;
+    const auth = json.keys?.auth;
+    if (!endpoint || !p256dh || !auth) return false;
+    await registerSubscription({ endpoint, p256dh, auth });
     return true;
   } catch (err) {
     if (typeof console !== "undefined") {

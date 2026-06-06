@@ -21,23 +21,23 @@ struct DialView: View {
         case error(String)
     }
 
-    private var e164: String { country.dialCode + number.filter(\.isNumber) }
-    private var canCheck: Bool { number.filter(\.isNumber).count >= 4 }
+    private var nationalDigits: String { PhoneNumberFormatting.digits(number) }
+    private var e164: String { country.dialCode + nationalDigits }
+    private var canCheck: Bool { nationalDigits.count >= 4 }
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: Theme.Space.xl) {
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                    Text("Call anyone")
+                    Text("New call")
                         .font(Theme.Font.largeTitle)
                         .foregroundStyle(Theme.Color.text)
-                    Text("Enter a number. If they're on Slide, you can call them. You don't have to be in each other's contacts.")
-                        .font(Theme.Font.callout)
-                        .foregroundStyle(Theme.Color.textSecondary)
                 }
 
                 // Number entry with country selector.
-                VStack(spacing: Theme.Space.sm) {
+                VStack(alignment: .leading, spacing: Theme.Space.sm) {
+                    Text("Phone number")
+                        .uppercaseLabel()
                     HStack(spacing: Theme.Space.md) {
                         Button { showCountryPicker = true } label: {
                             HStack(spacing: Theme.Space.xs) {
@@ -56,7 +56,10 @@ struct DialView: View {
                             .font(Theme.Font.bigDigits)
                             .foregroundStyle(Theme.Color.text)
                             .keyboardType(.phonePad)
-                            .onChange(of: number) { _, _ in result = nil }
+                            .onChange(of: number) { _, newValue in
+                                formatNumber(newValue)
+                                result = nil
+                            }
                     }
                     Rectangle()
                         .fill(Theme.Color.hairline)
@@ -75,20 +78,21 @@ struct DialView: View {
                                     .foregroundStyle(Theme.Color.textSecondary)
                             }
                             Spacer()
-                        }
-                        HStack(spacing: Theme.Space.md) {
-                            PrimaryButton(title: "Audio") { call(userId: userId, name: name, video: false) }
-                            PrimaryButton(title: "Video") { call(userId: userId, name: name, video: true) }
+	                        }
+	                        PrimaryButton(title: "Tap") { tap(userId: userId) }
+	                        HStack(spacing: Theme.Space.md) {
+	                            PrimaryButton(title: "Audio") { call(userId: userId, name: name, video: false) }
+	                            PrimaryButton(title: "Video") { call(userId: userId, name: name, video: true) }
                         }
                     }
                 case .notOnSlide:
-                    Text("That number isn't on Slide yet. Invite them to join.")
+                    Text("Not on Slide yet")
                         .font(Theme.Font.callout)
                         .foregroundStyle(Theme.Color.textSecondary)
                 case .error(let msg):
                     Text(msg).font(Theme.Font.callout).foregroundStyle(Theme.Color.danger)
                 case nil:
-                    PrimaryButton(title: "Check", isLoading: checking, isEnabled: canCheck) {
+                    PrimaryButton(title: "Find on Slide", isLoading: checking, isEnabled: canCheck) {
                         Task { await check() }
                     }
                 }
@@ -107,6 +111,14 @@ struct DialView: View {
             .sheet(isPresented: $showCountryPicker) {
                 CountryPickerView(selection: $country)
             }
+            .onChange(of: country) { _, _ in formatNumber(number) }
+        }
+    }
+
+    private func formatNumber(_ value: String) {
+        let formatted = PhoneNumberFormatting.national(value, country: country)
+        if formatted != value {
+            number = formatted
         }
     }
 
@@ -114,7 +126,7 @@ struct DialView: View {
         checking = true
         defer { checking = false }
         do {
-            let results = try await api.syncContacts(phones: [e164], names: [e164])
+            let results = try await api.syncContacts(phones: [e164])
             if let r = results.first, r.onSlide, let uid = r.userId {
                 result = .onSlide(userId: uid, name: r.displayName ?? e164)
                 Haptics.success()
@@ -134,10 +146,14 @@ struct DialView: View {
         }
     }
 
-    private func call(userId: String, name: String, video: Bool) {
-        let user = User(id: userId, phone: e164, displayName: name,
-                        avatarUrl: nil, createdAt: nil, lastSeenAt: nil)
-        dismiss()
-        appState.startCall(to: user, video: video)
-    }
-}
+	    private func call(userId: String, name: String, video: Bool) {
+	        let user = User(id: userId, phone: e164, displayName: name,
+	                        avatarUrl: nil, createdAt: nil, lastSeenAt: nil)
+	        dismiss()
+	        appState.startCall(to: user, video: video)
+	    }
+
+	    private func tap(userId: String) {
+	        appState.sendKnockTap(to: userId)
+	    }
+	}

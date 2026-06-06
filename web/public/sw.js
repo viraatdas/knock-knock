@@ -8,24 +8,25 @@ self.addEventListener("push", (event) => {
     payload = { body: event.data ? event.data.text() : "" };
   }
 
-  const data = payload.data || {};
+  const data = payload.data || payload;
   const type = data.type || payload.type;
-  const fromName = payload.title || data.fromName || "Slide";
+  const isKnock = type === "knock" || data.knock === true || data.knock === "true";
+  const fromName = payload.title || data.fromName || payload.fromName || "Slide";
   const body =
     payload.body ||
-    (type === "knock" ? "is knocking" : "Incoming Slide call");
+    (isKnock ? "is tapping" : "Incoming Slide call");
 
-  const title = type === "knock" ? `${fromName} is knocking` : fromName;
+  const title = isKnock ? `${fromName} is tapping` : fromName;
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       icon: "/icon-512.png",
       badge: "/icon-512.png",
-      tag: data.callId ? `slide-${data.callId}` : "slide-call",
+      tag: data.callId ? `slide-${data.callId}` : isKnock ? "slide-tap" : "slide-call",
       renotify: true,
-      requireInteraction: type !== "knock",
-      data: { callId: data.callId, type },
+      requireInteraction: !isKnock,
+      data: { callId: data.callId, type, knock: isKnock },
     }),
   );
 });
