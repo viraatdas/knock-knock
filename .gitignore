@@ -76,3 +76,4 @@ android/fastlane/play-service-account.json
 
 # Firebase iOS config (client key; provide locally / via CI, not committed)
 ios/Resources/GoogleService-Info.plist
+.rudder-worktrees/

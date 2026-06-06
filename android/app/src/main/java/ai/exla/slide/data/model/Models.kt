@@ -1,6 +1,7 @@
 package ai.exla.slide.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonElement
 
 /* ---------------- Core domain (camelCase per AGENTS.md) ---------------- */
@@ -33,8 +34,11 @@ data class Contact(
     val userId: String? = null,
     val phone: String,
     val displayName: String? = null,
-    val onSlide: Boolean = false,
-)
+    @SerialName("onSlide") val serverOnSlide: Boolean = false,
+) {
+    val onSlide: Boolean
+        get() = serverOnSlide || contactUserId != null || userId != null
+}
 
 /** IceServer.urls is an array of URLs per AGENTS.md. */
 @Serializable

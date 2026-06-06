@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ai.exla.slide.data.model.Contact
 import ai.exla.slide.data.repo.SlideRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +56,7 @@ class ContactsViewModel(private val repo: SlideRepository) : ViewModel() {
 
     private val _state = MutableStateFlow(ContactsState())
     val state: StateFlow<ContactsState> = _state.asStateFlow()
+    private var loadJob: Job? = null
 
     init { load() }
 
@@ -69,22 +71,39 @@ class ContactsViewModel(private val repo: SlideRepository) : ViewModel() {
             )
         }
 
-    fun load() {
-        _state.update { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
+    fun load(silent: Boolean = false, force: Boolean = false) {
+        val existing = loadJob
+        if (existing?.isActive == true) {
+            if (!force) return
+            existing.cancel()
+        }
+        if (!silent) {
+            _state.update { it.copy(loading = true, error = null) }
+        }
+        loadJob = viewModelScope.launch {
             repo.getContacts()
                 .onSuccess { contacts -> _state.update { it.copy(loading = false, all = contacts) } }
-                .onFailure { _state.update { it.copy(loading = false, error = "Couldn't load contacts.") } }
+                .onFailure {
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            error = if (silent) it.error else "Couldn't load contacts.",
+                        )
+                    }
+                }
         }
     }
 
     /** Sync device phone numbers, then reload the matched/known set. */
-    fun sync(phones: List<String>) {
+    fun sync(phones: List<String>, names: List<String> = emptyList()) {
         viewModelScope.launch {
             _state.update { it.copy(importing = true) }
-            repo.syncContacts(phones)
+            repo.syncContacts(phones, names)
+                .onFailure {
+                    _state.update { it.copy(error = "Couldn't import contacts.") }
+                }
             _state.update { it.copy(importing = false) }
-            load()
+            load(force = true)
         }
     }
 

@@ -15,13 +15,13 @@ import {
 const features = [
   {
     icon: VideoIcon,
-    title: "Made for weak signal.",
-    body: "Slide adapts in real time to whatever bandwidth you've got, gracefully scaling quality instead of freezing or dropping. One bar, packet loss, a crowded conference wifi: the call keeps going.",
+    title: "Made for spontaneous calls.",
+    body: "Call someone by phone number, skip meeting links, and answer wherever you are. Slide keeps the setup light so the call feels quick, casual, and actually fun.",
   },
   {
     icon: WaveformIcon,
-    title: "Audio survives anything.",
-    body: "When the network really tanks, Slide protects the voice first, so even at your worst signal you can still hear each other clearly. No robot-stutter, no awkward 'you're cutting out.'",
+    title: "Knock before you call.",
+    body: "Send a quick tap when you want someone's attention, then slide into audio or video when they are ready. It feels closer to getting a friend than scheduling a meeting.",
   },
   {
     icon: PhoneIcon,
@@ -31,7 +31,7 @@ const features = [
   {
     icon: PeopleIcon,
     title: "Bring everyone into the room.",
-    body: "Group calls that stay smooth even when someone's on the subway. Tap a name, they slide in.",
+    body: "Group calls stay simple: tap the people you want, start the moment, and let them slide in without a calendar invite or a link to hunt down.",
   },
   {
     icon: ShareIcon,
@@ -147,8 +147,8 @@ export default function Home() {
           <div className="mx-auto max-w-5xl px-6 py-28 text-center">
             <Reveal>
               <h2 className="mx-auto max-w-2xl text-[36px] font-light leading-tight tracking-tight text-text sm:text-[48px]">
-                Calls that don&apos;t drop
-                <br className="hidden sm:block" /> when your signal does.
+                Video calling should feel
+                <br className="hidden sm:block" /> spontaneous again.
               </h2>
             </Reveal>
             <Reveal delay={80}>

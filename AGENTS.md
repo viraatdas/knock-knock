@@ -124,6 +124,11 @@ Contacts:
 Older clients may omit it; the server should preserve existing names instead of
 replacing them with blanks.
 
+For client rendering, treat `contactUserId` on `GET /contacts` and `userId` on
+`POST /contacts/sync` as the source of truth for whether somebody is on Slide.
+The `onSlide` boolean is compatibility sugar for sync results and should not be
+required on stored contact rows.
+
 Calls:
 
 | Method | Path | Body | Returns |
@@ -204,14 +209,16 @@ Flow:
 
 Current known live surfaces:
 
-- Landing site: live at `https://web-viraatdas-projects.vercel.app`, including
-  `/privacy` and `/terms`.
-- Backend API: live demo on AWS App Runner at
-  `https://nck3w7ufbz.us-east-1.awsapprunner.com`.
-- API health: `GET /v1/health` returns `ok`, verified May 28, 2026.
-- Backend image: `public.ecr.aws/h1f5g0k2/slide:allinone`.
-- Backend caveat: the all-in-one image bundles Postgres and Redis, so its DB is
-  ephemeral. This is fine for demo/smoke testing, not production user data.
+- Landing site: live at `https://slide.viraat.dev`, Vercel project `web`,
+  including `/privacy`, `/terms`, and `/web`.
+- Backend API: live on Fly at `https://slide-api.fly.dev`, Fly app
+  `slide-api`, org `exla`.
+- API health: `GET /v1/health` returns `ok`, verified June 6, 2026.
+- Backend deploy command: `fly deploy -c deploy/fly/slide-api.fly.toml`.
+- Backend image: built from `deploy/aws/Dockerfile.allinone` on each Fly deploy.
+- Backend caveat: Fly runs a single API machine because app signaling is
+  in-memory. Keep `min_machines_running = 1` and do not scale horizontally until
+  the call signaling hub is backed by durable/shared state.
 - iOS: signed IPA for `app.exla.slide`, v1.0.0, was uploaded to App Store
   Connect on May 30, 2026. App record: `Slide Video Calls`, Apple ID
   `1780017294`.
@@ -219,20 +226,21 @@ Current known live surfaces:
 
 Production backend guidance:
 
-- For durable data, set external `DATABASE_URL` and `REDIS_URL` to managed
-  services and redeploy.
+- `DATABASE_URL` is a Fly secret pointing at managed Postgres. Redis is bundled
+  in the all-in-one container unless a `REDIS_URL` secret is set.
 - `sqlx` uses prepared statements, so use a direct Postgres connection or a
   session pooler on port 5432. Do not use a transaction pooler on 6543.
 - `SMS_PROVIDER=console` is dev/demo only. Production needs Twilio or another
   real SMS provider.
-- App Runner does not support inbound UDP. The API can run there, but the SFU
-  media plane needs ECS Fargate, EC2, or another host behind UDP-capable
-  networking. Set `SFU_PUBLIC_URL` after deploying the media node.
+- AWS App Runner is legacy for this app. Its ingress rejected WebSocket upgrades,
+  which breaks the `/v1/ws` incoming-call signaling path. Use Fly for the API.
+- The SFU media plane is separate from the API. Set `SFU_PUBLIC_URL` to the
+  deployed SFU WebSocket endpoint and keep TURN settings current.
 
 Live smoke command:
 
 ```bash
-BASE=https://nck3w7ufbz.us-east-1.awsapprunner.com/v1 \
+BASE=https://slide-api.fly.dev/v1 \
   PHONE_A=+14155559001 PHONE_B=+14155559002 ./scripts/smoke.sh
 ```
 

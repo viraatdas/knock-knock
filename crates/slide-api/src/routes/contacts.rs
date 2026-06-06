@@ -42,6 +42,49 @@ fn display_name_for_contact(local_name: &str, phone: &str, matched: Option<&User
         .unwrap_or_else(|| local_name.to_string())
 }
 
+/// Link previously-synced contact rows to a user that just signed up.
+///
+/// Contacts can be uploaded before the phone number belongs to a Slide user.
+/// Those rows are intentionally stored with a null contact_user_id, so we repair
+/// them when the matching account appears instead of waiting for every owner to
+/// re-upload their address book.
+pub(crate) async fn link_existing_contacts_for_user(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    phone: &str,
+) -> AppResult<u64> {
+    let result = sqlx::query(
+        "UPDATE contacts
+         SET contact_user_id = $1
+         WHERE phone = $2
+           AND owner_user_id <> $1
+           AND contact_user_id IS NULL",
+    )
+    .bind(user_id)
+    .bind(phone)
+    .execute(&state.db)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
+async fn repair_owner_contacts(state: &AppState, owner_user_id: uuid::Uuid) -> AppResult<u64> {
+    let result = sqlx::query(
+        "UPDATE contacts c
+         SET contact_user_id = u.id
+         FROM users u
+         WHERE c.owner_user_id = $1
+           AND c.contact_user_id IS NULL
+           AND c.phone = u.phone
+           AND u.id <> c.owner_user_id",
+    )
+    .bind(owner_user_id)
+    .execute(&state.db)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
 /// POST /contacts/sync
 pub async fn sync(
     State(state): State<AppState>,
@@ -140,6 +183,10 @@ pub async fn list(
     State(state): State<AppState>,
     AuthUser(uid): AuthUser,
 ) -> AppResult<Json<Vec<ContactView>>> {
+    if let Err(err) = repair_owner_contacts(&state, uid).await {
+        tracing::warn!(error = ?err, owner_user_id = %uid, "failed to repair owner contacts");
+    }
+
     let contacts: Vec<ContactView> = sqlx::query_as(
         "SELECT c.id, c.owner_user_id, c.contact_user_id, c.phone,
                 COALESCE(NULLIF(NULLIF(c.display_name, c.phone), ''), NULLIF(u.display_name, ''), c.display_name) AS display_name,

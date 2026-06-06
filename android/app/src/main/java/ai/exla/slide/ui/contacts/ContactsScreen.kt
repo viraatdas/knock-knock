@@ -38,6 +38,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +53,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import ai.exla.slide.call.CallPeer
 import ai.exla.slide.data.model.Contact
 import ai.exla.slide.ui.components.AvatarCircle
@@ -62,6 +66,7 @@ import ai.exla.slide.ui.components.Hairline
 import ai.exla.slide.ui.components.PrimaryButton
 import ai.exla.slide.ui.components.quietClickable
 import ai.exla.slide.ui.theme.SlideColors
+import kotlinx.coroutines.delay
 
 @Composable
 fun ContactsScreen(
@@ -71,13 +76,25 @@ fun ContactsScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var sheetContact by remember { mutableStateOf<Contact?>(null) }
+
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            vm.load(silent = true)
+            while (true) {
+                delay(5_000)
+                vm.load(silent = true)
+            }
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            vm.sync(readDevicePhoneNumbers(context))
+            val batch = readDeviceContacts(context)
+            vm.sync(batch.phones, batch.names)
         } else {
             vm.setImporting(false)
         }
@@ -88,7 +105,8 @@ fun ContactsScreen(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
             == PackageManager.PERMISSION_GRANTED
         ) {
-            vm.sync(readDevicePhoneNumbers(context))
+            val batch = readDeviceContacts(context)
+            vm.sync(batch.phones, batch.names)
         } else {
             permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
         }
@@ -195,23 +213,36 @@ fun ContactsScreen(
     }
 }
 
-/** Reads name + phone numbers from the device address book. Caller must hold READ_CONTACTS. */
-private fun readDevicePhoneNumbers(context: Context): List<String> {
+private data class DeviceContactBatch(val phones: List<String>, val names: List<String>)
+
+/** Reads names + phone numbers from the device address book. Caller must hold READ_CONTACTS. */
+private fun readDeviceContacts(context: Context): DeviceContactBatch {
     val phones = mutableListOf<String>()
+    val names = mutableListOf<String>()
     val resolver = context.contentResolver
-    val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER)
+    val projection = arrayOf(
+        ContactsContract.CommonDataKinds.Phone.NUMBER,
+        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
+    )
     runCatching {
         resolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             projection, null, null, null,
         )?.use { cursor ->
             val numberIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY)
             while (cursor.moveToNext() && phones.size < 1000) {
-                if (numberIdx >= 0) cursor.getString(numberIdx)?.let { phones.add(it) }
+                val phone = if (numberIdx >= 0) cursor.getString(numberIdx) else null
+                val trimmedPhone = phone?.trim().orEmpty()
+                if (trimmedPhone.isEmpty()) continue
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                val trimmedName = name?.trim().orEmpty()
+                phones.add(trimmedPhone)
+                names.add(trimmedName.ifEmpty { trimmedPhone })
             }
         }
     }
-    return phones
+    return DeviceContactBatch(phones, names)
 }
 
 /** Fires an SMS intent pre-filled with the verbatim invite, with a chooser fallback. */

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // A "knock" is a real-time presence ritual: you tap a rhythm, each tap is
 // relayed over the signaling socket, and the other person feels + sees the same
-// taps land. It's a two-way "duet" — their knock-backs bloom on your stage too.
+// taps land. It's a two-way "duet"; their knock-backs bloom on your stage too.
 // No call row, no ringtone loop; it only "rings" while someone is knocking.
 
 // Synthesize a knuckle-on-door knock with WebAudio (no asset needed): a fast low

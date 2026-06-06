@@ -8,18 +8,33 @@ final class ContactsViewModel: ObservableObject {
     @Published var isImporting = false
 
     private let api = APIClient.shared
+    private var activeLoadCount = 0
+    private var latestLoadGeneration = 0
 
-    func load() async {
-        isLoading = true
-        defer { isLoading = false }
+    func load(showLoading: Bool = true, force: Bool = false) async {
+        if activeLoadCount > 0 && !force { return }
+        latestLoadGeneration += 1
+        let generation = latestLoadGeneration
+        activeLoadCount += 1
+        if showLoading { isLoading = true }
+        defer {
+            activeLoadCount -= 1
+            if showLoading && generation == latestLoadGeneration { isLoading = false }
+        }
         do {
             let list = try await api.contacts()
-            contacts = list.sorted { $0.displayName < $1.displayName }
+            guard generation == latestLoadGeneration else { return }
+            replaceContacts(list)
         } catch {
+            guard generation == latestLoadGeneration else { return }
             if Config.useMockData {
-                contacts = MockData.contacts.sorted { $0.displayName < $1.displayName }
+                replaceContacts(MockData.contacts)
             }
         }
+    }
+
+    func replaceContacts(_ list: [Contact]) {
+        contacts = list.sorted { $0.displayName < $1.displayName }
     }
 
     /// User-triggered: request Contacts permission, read names + numbers, sync,
@@ -28,7 +43,7 @@ final class ContactsViewModel: ObservableObject {
         isImporting = true
         defer { isImporting = false }
         await syncDeviceContacts()
-        await load()
+        await load(force: true)
         Haptics.success()   // import finished
     }
 
@@ -108,6 +123,7 @@ final class ContactsViewModel: ObservableObject {
 
 struct ContactsView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var vm = ContactsViewModel()
     @State private var query = ""
     @State private var selected: Contact?
@@ -224,8 +240,19 @@ struct ContactsView: View {
         }
         .background(Theme.Color.bg)
         .task {
-            await vm.load()
-            appState.replaceContactCache(vm.contacts)
+            await refreshContacts()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if Task.isCancelled { return }
+                await refreshContacts(showLoading: false)
+            }
+        }
+        .refreshable {
+            await refreshContacts(force: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await refreshContacts(showLoading: false) }
         }
         .sheet(item: $selected) { contact in
             ContactSheet(contact: contact, onInvite: { inviteTarget = contact })
@@ -250,6 +277,11 @@ struct ContactsView: View {
 
     private func importContacts() async {
         await vm.importContacts()
+        appState.replaceContactCache(vm.contacts)
+    }
+
+    private func refreshContacts(showLoading: Bool = true, force: Bool = false) async {
+        await vm.load(showLoading: showLoading, force: force)
         appState.replaceContactCache(vm.contacts)
     }
 }

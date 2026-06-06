@@ -105,10 +105,14 @@ impl FirebaseVerifier {
 
         let mut v = Validation::new(Algorithm::RS256);
         v.set_audience(&[&self.project_id]);
-        v.set_issuer(&[&format!("https://securetoken.google.com/{}", self.project_id)]);
+        v.set_issuer(&[&format!(
+            "https://securetoken.google.com/{}",
+            self.project_id
+        )]);
         v.leeway = 30;
 
-        let data = decode::<FirebaseClaims>(id_token, &key, &v).map_err(|_| AppError::Unauthorized)?;
+        let data =
+            decode::<FirebaseClaims>(id_token, &key, &v).map_err(|_| AppError::Unauthorized)?;
         Ok(data.claims)
     }
 }

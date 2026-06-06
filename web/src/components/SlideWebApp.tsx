@@ -22,7 +22,7 @@ import {
 } from "firebase/auth";
 
 // slide-api on Fly. AWS App Runner's Envoy ingress rejects WebSocket upgrades
-// (403), so the /v1/ws signaling socket can't connect there — calls never ring.
+// (403), so the /v1/ws signaling socket can't connect there; calls never ring.
 // Fly serves WebSockets, so the API (REST + WS) lives there.
 const API_BASE =
   process.env.NEXT_PUBLIC_SLIDE_API_BASE_URL ??
@@ -210,7 +210,7 @@ class ApiError extends Error {
   }
 }
 
-// Decode a JWT's `exp` (seconds since epoch) without verifying the signature —
+// Decode a JWT's `exp` (seconds since epoch) without verifying the signature;
 // used only to decide whether to proactively refresh before opening the socket.
 function tokenExpiry(jwt: string): number | null {
   try {
@@ -262,7 +262,7 @@ async function jsonFetch<T>(
       const data = await response.json();
       message = data?.error?.message ?? data?.message ?? message;
     } catch {
-      // non-JSON body — keep the status line.
+      // non-JSON body; keep the status line.
     }
     throw new ApiError(response.status, message);
   }
@@ -339,7 +339,7 @@ export default function SlideWebApp() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [dialNumber, setDialNumber] = useState("");
-  // Audio/Video slider for the lookup result — you pick, then knock to call.
+  // Audio/Video slider for the lookup result; you pick, then knock to call.
   const [dialVideo, setDialVideo] = useState(true);
   const [lookup, setLookup] = useState<LookupState>({ status: "idle" });
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
@@ -666,7 +666,7 @@ export default function SlideWebApp() {
         }));
         // Fire a system notification once per knock burst (a fresh burst starts
         // after a >2s gap) so a knock reaches you even when the tab is in the
-        // background — the per-tap sound + vibration carry the rhythm.
+        // background; the per-tap sound + vibration carry the rhythm.
         const nowMs = Date.now();
         if (nowMs - knockNotifyAt.current > 2000) {
           knockNotifyAt.current = nowMs;

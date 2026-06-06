@@ -22,7 +22,6 @@ export const metadata: Metadata = {
   keywords: [
     "video calling",
     "fun video calling",
-    "low bandwidth video call",
     "phone number signup",
     "group video",
     "screen share",

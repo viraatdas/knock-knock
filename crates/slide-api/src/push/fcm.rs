@@ -204,7 +204,11 @@ impl Inner {
             .await
             .map_err(|e| format!("fcm token decode failed: {e}"))?;
 
-        let expires_in = if tok.expires_in == 0 { 3600 } else { tok.expires_in };
+        let expires_in = if tok.expires_in == 0 {
+            3600
+        } else {
+            tok.expires_in
+        };
         let mut guard = self.cached.write().await;
         *guard = Some((tok.access_token.clone(), now + expires_in));
         Ok(tok.access_token)

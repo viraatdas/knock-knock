@@ -10,7 +10,7 @@ use slide_core::{
     otp, phone,
 };
 
-use crate::{otp_store, state::AppState, tokens};
+use crate::{otp_store, routes::contacts, state::AppState, tokens};
 
 #[derive(Deserialize)]
 pub struct RequestOtpBody {
@@ -70,12 +70,12 @@ pub async fn verify_otp(
         otp_store::OtpCheck::Ok => {}
         otp_store::OtpCheck::Wrong => return Err(AppError::bad_request("incorrect code")),
         otp_store::OtpCheck::Expired => {
-            return Err(AppError::bad_request("code expired — request a new one"))
+            return Err(AppError::bad_request("code expired — request a new one"));
         }
         otp_store::OtpCheck::TooManyAttempts => {
             return Err(AppError::bad_request(
                 "too many attempts — request a new code",
-            ))
+            ));
         }
     }
 
@@ -84,10 +84,7 @@ pub async fn verify_otp(
 
 /// Upsert the user by phone and mint an access + refresh token pair. Shared by
 /// both the OTP flow and Firebase phone auth so they behave identically.
-pub async fn issue_session_for_phone(
-    state: &AppState,
-    e164: &str,
-) -> AppResult<TokenResponse> {
+pub async fn issue_session_for_phone(state: &AppState, e164: &str) -> AppResult<TokenResponse> {
     let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE phone = $1")
         .bind(e164)
         .fetch_optional(&state.db)
@@ -100,6 +97,10 @@ pub async fn issue_session_for_phone(
                 .bind(e164)
                 .fetch_one(&state.db)
                 .await?;
+            if let Err(err) = contacts::link_existing_contacts_for_user(state, u.id, &u.phone).await
+            {
+                tracing::warn!(error = ?err, user_id = %u.id, "failed to link existing contacts for new user");
+            }
             (u, true)
         }
     };
