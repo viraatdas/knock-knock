@@ -42,7 +42,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Slide — video calling that feels fun again",
+        alt: "Slide: video calling that feels fun again",
       },
     ],
   },

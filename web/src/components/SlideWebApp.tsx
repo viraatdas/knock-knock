@@ -227,7 +227,7 @@ function tokenExpiry(jwt: string): number | null {
 
 function humanizeCallError(message: string): string {
   if (/participant required/i.test(message)) {
-    return "You can't call your own number — try a different one.";
+    return "You can't call your own number. Try a different one.";
   }
   if (/exactly one participant/i.test(message)) {
     return "Group calls aren't supported on the web yet.";
