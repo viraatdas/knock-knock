@@ -72,6 +72,17 @@ final class CallKitManager: NSObject, @unchecked Sendable {
         }
     }
 
+    func updateCall(uuid: UUID, handle: String, displayName: String, hasVideo: Bool) {
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: handle)
+        update.localizedCallerName = displayName
+        update.hasVideo = hasVideo
+        update.supportsHolding = false
+        update.supportsGrouping = false
+        update.supportsUngrouping = false
+        provider.reportCall(with: uuid, updated: update)
+    }
+
     // MARK: - Outgoing
 
     func startOutgoingCall(uuid: UUID, handle: String, displayName: String, hasVideo: Bool) {

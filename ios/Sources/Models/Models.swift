@@ -30,6 +30,16 @@ struct Contact: Codable, Identifiable, Hashable {
     var avatarUrl: String? = nil
 
     var onSlide: Bool { contactUserId != nil }
+
+    var slideUser: User? {
+        guard let contactUserId, !contactUserId.isEmpty else { return nil }
+        return User(id: contactUserId,
+                    phone: phone,
+                    displayName: displayName,
+                    avatarUrl: avatarUrl,
+                    createdAt: nil,
+                    lastSeenAt: nil)
+    }
 }
 
 /// Result row from POST /contacts/sync.
@@ -58,6 +68,9 @@ struct CallParticipant: Codable, Hashable {
     let state: ParticipantState
     var joinedAt: Date?
     var leftAt: Date?
+    var displayName: String? = nil
+    var phone: String? = nil
+    var avatarUrl: String? = nil
 }
 
 struct Call: Codable, Identifiable, Hashable {

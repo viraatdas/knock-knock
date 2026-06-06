@@ -4,6 +4,7 @@ import SwiftUI
 struct SlideApp: App {
     @StateObject private var appState = AppState()
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Quiet, precise system chrome: white, near-black tint.
@@ -19,6 +20,10 @@ struct SlideApp: App {
                 .tint(Theme.Color.accent)
                 .preferredColorScheme(.light) // design is white-first, no dark mode
                 .task { await appState.bootstrap() }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    Task { await appState.appBecameActive() }
+                }
         }
     }
 

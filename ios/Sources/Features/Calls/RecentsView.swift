@@ -7,8 +7,11 @@ final class RecentsViewModel: ObservableObject {
     @Published var nextCursor: String?
 
     private let api = APIClient.shared
+    private var currentUserId: String?
+    private var contactsByUserId: [String: Contact] = [:]
 
-    func load() async {
+    func load(currentUserId: String?) async {
+        self.currentUserId = currentUserId
         isLoading = true
         defer { isLoading = false }
         do {
@@ -18,17 +21,26 @@ final class RecentsViewModel: ObservableObject {
         } catch {
             if Config.useMockData { calls = MockData.calls }
         }
+        do {
+            let contacts = try await api.contacts()
+            var byUserId: [String: Contact] = [:]
+            for contact in contacts {
+                guard let userId = contact.contactUserId else { continue }
+                byUserId[userId] = byUserId[userId] ?? contact
+            }
+            contactsByUserId = byUserId
+        } catch {
+            contactsByUserId = [:]
+        }
     }
 
     func displayName(for call: Call) -> String {
-        // Pick the participant who isn't me.
-        let meId = MockData.me.id
-        let other = call.participants.first(where: { $0.userId != meId })?.userId ?? call.createdBy
-        return MockData.names[other] ?? "Unknown"
+        guard let other = otherParticipant(for: call) else { return "Slide" }
+        return displayName(for: other)
     }
 
     func subtitle(for call: Call) -> (text: String, isMissed: Bool) {
-        let meId = MockData.me.id
+        let meId = currentUserId ?? MockData.me.id
         let outgoing = call.createdBy == meId
         switch call.status {
         case .missed:
@@ -48,11 +60,43 @@ final class RecentsViewModel: ObservableObject {
     }
 
     func userFor(call: Call) -> User {
-        let meId = MockData.me.id
-        let otherId = call.participants.first(where: { $0.userId != meId })?.userId ?? call.createdBy
-        let name = MockData.names[otherId] ?? "Unknown"
-        return User(id: otherId, phone: "", displayName: name, avatarUrl: nil,
+        guard let other = otherParticipant(for: call) else {
+            return User(id: call.createdBy, phone: "", displayName: "Slide",
+                        avatarUrl: nil, createdAt: nil, lastSeenAt: nil)
+        }
+        if let contact = contactsByUserId[other.userId], let user = contact.slideUser {
+            return user
+        }
+        let name = displayName(for: other)
+        return User(id: other.userId, phone: other.phone ?? "", displayName: name, avatarUrl: other.avatarUrl,
                     createdAt: nil, lastSeenAt: nil)
+    }
+
+    private func otherParticipant(for call: Call) -> CallParticipant? {
+        let meId = currentUserId ?? MockData.me.id
+        if let other = call.participants.first(where: { $0.userId != meId }) {
+            return other
+        }
+        if let createdBy = call.participants.first(where: { $0.userId == call.createdBy }) {
+            return createdBy
+        }
+        return call.participants.first
+    }
+
+    private func displayName(for participant: CallParticipant) -> String {
+        if let contact = contactsByUserId[participant.userId] {
+            let name = contact.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty,
+           name.localizedCaseInsensitiveCompare("unknown") != .orderedSame,
+           name.localizedCaseInsensitiveCompare("someone") != .orderedSame {
+            return name
+        }
+        if let phone = participant.phone, !phone.isEmpty { return phone }
+        if Config.useMockData, let name = MockData.names[participant.userId] { return name }
+        return "Slide"
     }
 }
 
@@ -95,7 +139,7 @@ struct RecentsView: View {
             }
         }
         .background(Theme.Color.bg)
-        .task { await vm.load() }
+        .task { await vm.load(currentUserId: appState.currentUser?.id) }
         .sheet(isPresented: $showDial) {
             DialView()
                 .environmentObject(appState)

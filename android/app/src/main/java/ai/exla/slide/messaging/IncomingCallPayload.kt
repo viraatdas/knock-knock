@@ -38,9 +38,17 @@ data class IncomingCallPayload(
                 type = extras.getString(EXTRA_TYPE) ?: "incoming_call",
                 callId = callId,
                 fromUserId = extras.getString(EXTRA_FROM_USER_ID).orEmpty(),
-                fromName = extras.getString(EXTRA_FROM_NAME) ?: "Slide",
+                fromName = sanitizeCallerName(extras.getString(EXTRA_FROM_NAME)),
                 callType = extras.getString(EXTRA_CALL_TYPE) ?: "one_to_one",
             )
         }
     }
+}
+
+internal fun sanitizeCallerName(value: String?, fallback: String = "Slide"): String {
+    val cleaned = value?.trim().orEmpty()
+    if (cleaned.isBlank()) return fallback
+    if (cleaned.equals("unknown", ignoreCase = true)) return fallback
+    if (cleaned.equals("someone", ignoreCase = true)) return fallback
+    return cleaned
 }

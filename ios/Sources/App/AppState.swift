@@ -15,6 +15,7 @@ enum AppPhase: Equatable {
 final class AppState: ObservableObject {
     @Published var phase: AppPhase = .loading
     @Published var currentUser: User?
+    @Published private(set) var contacts: [Contact] = []
 
     let api = APIClient.shared
     let tokens = TokenStore.shared
@@ -121,6 +122,7 @@ final class AppState: ObservableObject {
             phase = (user.displayName?.isEmpty ?? true) ? .needsName : .home
             signaling.connect()
             Task { await registerDeviceIfPossible() }
+            Task { await refreshContactCache() }
         } catch APIError.unauthorized, APIError.notAuthenticated {
             logoutLocally()
         } catch {
@@ -132,6 +134,7 @@ final class AppState: ObservableObject {
                 phase = .home
             }
             signaling.connect()
+            Task { await refreshContactCache() }
         }
     }
 
@@ -140,11 +143,13 @@ final class AppState: ObservableObject {
         phase = (isNewUser || (user.displayName?.isEmpty ?? true)) ? .needsName : .home
         signaling.connect()
         Task { await registerDeviceIfPossible() }
+        Task { await refreshContactCache() }
     }
 
     func didCompleteName(user: User) {
         currentUser = user
         phase = .home
+        Task { await refreshContactCache() }
     }
 
     func logout() {
@@ -158,8 +163,32 @@ final class AppState: ObservableObject {
         signaling.disconnect()
         tokens.clear()
         currentUser = nil
+        contacts = []
         activeCall = nil
         phase = .onboarding
+    }
+
+    func refreshContactCache() async {
+        guard tokens.isAuthenticated else { return }
+        do {
+            let list = try await api.contacts()
+            contacts = list
+            refreshActiveCallDisplayName()
+        } catch {
+            // Contacts are a display-name enhancement. Never block calls on it.
+        }
+    }
+
+    func replaceContactCache(_ list: [Contact]) {
+        contacts = list
+        refreshActiveCallDisplayName()
+    }
+
+    func appBecameActive() async {
+        guard tokens.isAuthenticated else { return }
+        signaling.connect()
+        await refreshContactCache()
+        await reconcileActiveRingingCall()
     }
 
     private func registerDeviceIfPossible() async {
@@ -265,7 +294,7 @@ final class AppState: ObservableObject {
         if let existing = activeCall, existing.callId == callId { return }
 
         let uuid = PushService.uuid(for: callId)
-        let name = displayNameForIncomingCall(fromName)
+        let name = displayNameForIncomingCall(fromUserId: fromUserId, fromName: fromName)
         let call = ActiveCall(direction: .incoming,
                               remoteName: name,
                               remotePhone: "",
@@ -276,6 +305,9 @@ final class AppState: ObservableObject {
                               uuid: uuid)
         call.callId = callId
         activeCall = call
+        CallKitManager.shared.updateCall(uuid: uuid, handle: name,
+                                         displayName: name, hasVideo: call.isVideo)
+        Task { await reconcileActiveRingingCall() }
         // CallKit ring was already started by PushService; no reportIncomingCall
         // here (that would double-report the same UUID).
     }
@@ -463,7 +495,7 @@ extension AppState: SignalingClientDelegate {
                 // Use a deterministic UUID derived from the callId so this call
                 // matches any VoIP push for the same call (same CallKit UUID).
                 let uuid = PushService.uuid(for: callId)
-                let name = self.displayNameForIncomingCall(fromName)
+                let name = self.displayNameForIncomingCall(fromUserId: fromUserId, fromName: fromName)
                 let call = ActiveCall(direction: .incoming,
                                       remoteName: name,
                                       remotePhone: "",
@@ -503,12 +535,71 @@ extension AppState: SignalingClientDelegate {
 }
 
 private extension AppState {
-    func displayNameForIncomingCall(_ fromName: String?) -> String {
-        if let name = fromName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
+    func displayNameForIncomingCall(fromUserId: String?, fromName: String?) -> String {
+        if let fromUserId,
+           let contact = contacts.first(where: { $0.contactUserId == fromUserId }) {
+            let name = contact.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        if let name = sanitizedRemoteName(fromName) {
             return name
         }
         return "Slide"
+    }
+
+    func sanitizedRemoteName(_ fromName: String?) -> String? {
+        if let name = fromName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty,
+           name.localizedCaseInsensitiveCompare("unknown") != .orderedSame,
+           name.localizedCaseInsensitiveCompare("someone") != .orderedSame {
+            return name
+        }
+        return nil
+    }
+
+    func reconcileActiveRingingCall() async {
+        guard let call = activeCall,
+              call.status == .ringing,
+              let callId = call.callId else { return }
+        do {
+            let response = try await api.calls()
+            guard let serverCall = response.calls.first(where: { $0.id == callId }) else {
+                clearRingingCallIfStillActive(call)
+                return
+            }
+            switch serverCall.status {
+            case .ringing:
+                return
+            case .active:
+                if serverCall.type == .oneToOne {
+                    clearRingingCallIfStillActive(call)
+                }
+            case .ended, .missed, .declined:
+                clearRingingCallIfStillActive(call)
+            }
+        } catch {
+            // Avoid hiding a real incoming call just because the network blipped.
+        }
+    }
+
+    func clearRingingCallIfStillActive(_ call: ActiveCall) {
+        guard activeCall?.id == call.id else { return }
+        CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .remoteEnded)
+        activeCall = nil
+    }
+
+    func refreshActiveCallDisplayName() {
+        guard let call = activeCall,
+              call.direction == .incoming,
+              let remoteUserId = call.remoteUserId else { return }
+        let name = displayNameForIncomingCall(fromUserId: remoteUserId, fromName: call.remoteName)
+        guard name != call.remoteName else { return }
+        call.remoteName = name
+        if !call.isGroup {
+            call.memberNames = [name]
+        }
+        CallKitManager.shared.updateCall(uuid: call.uuid, handle: name,
+                                         displayName: name, hasVideo: call.isVideo)
     }
 }
 

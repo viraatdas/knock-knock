@@ -12,7 +12,7 @@ struct ContactSheet: View {
 
     @State private var isVideo = true
 
-    private var user: User { MockData.userForContact(contact) }
+    private var user: User? { contact.slideUser }
 
     var body: some View {
         VStack(spacing: Theme.Space.xl) {
@@ -69,11 +69,13 @@ struct ContactSheet: View {
     }
 
     private func start(video: Bool) {
+        guard let user else { return }
         appState.startCall(to: user, video: video)
         dismiss()
     }
 
     private func tap() {
+        guard let user else { return }
         appState.sendKnockTap(to: user.id)
     }
 

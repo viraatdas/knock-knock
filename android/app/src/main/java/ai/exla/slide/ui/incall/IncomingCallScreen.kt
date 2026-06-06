@@ -69,7 +69,7 @@ fun IncomingCallScreen(
         )
         Spacer(Modifier.height(24.dp))
         Text(
-            peer.displayName ?: peer.phone ?: "Unknown",
+            peer.displayName ?: peer.phone ?: "Slide",
             color = SlideColors.Ink,
             fontWeight = FontWeight.Light,
             fontSize = 30.sp,

@@ -65,6 +65,11 @@ class SlideConnectionService : ConnectionService() {
             activeConnection = null
         }
 
+        fun endActiveConnectionFromRemote() {
+            activeConnection?.endFromRemote()
+            activeConnection = null
+        }
+
         /**
          * Resolves the incoming-call ringtone: the bundled `res/raw/ringtone` if
          * one was added at build time, otherwise the system default ringtone.
@@ -123,6 +128,11 @@ class SlideConnection : Connection() {
 
     fun disconnectFromApp() {
         setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
+        destroy()
+    }
+
+    fun endFromRemote() {
+        setDisconnected(DisconnectCause(DisconnectCause.REMOTE))
         destroy()
     }
 }

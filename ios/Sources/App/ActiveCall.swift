@@ -13,7 +13,7 @@ final class ActiveCall: ObservableObject, Identifiable {
     let uuid: UUID
 
     let direction: Direction
-    let remoteName: String
+    @Published var remoteName: String
     let remotePhone: String
     let remoteUserId: String?
     let isVideo: Bool
@@ -22,7 +22,7 @@ final class ActiveCall: ObservableObject, Identifiable {
     let isGroup: Bool
     /// Display names of the invited group members (excludes self). For 1:1 this
     /// is just `[remoteName]`.
-    let memberNames: [String]
+    @Published var memberNames: [String]
 
     @Published var status: Status
     @Published var callId: String?

@@ -1,1 +1,1 @@
-Initial release of Slide — video calls built for bad internet.
+Initial release of Slide. Make video calling actually fun.

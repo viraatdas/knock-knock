@@ -27,6 +27,7 @@ import ai.exla.slide.data.model.SignalEnvelope
 import ai.exla.slide.knock.IncomingKnockBanner
 import ai.exla.slide.knock.KnockPad
 import ai.exla.slide.knock.KnockViewModel
+import ai.exla.slide.messaging.IncomingCallNotifier
 import ai.exla.slide.ui.VmFactory
 import ai.exla.slide.ui.incall.InCallScreen
 import ai.exla.slide.ui.incall.InCallViewModel
@@ -107,9 +108,17 @@ fun SlideAppRoot(container: AppContainer) {
                     val eventCallId = event.callId ?: event.call?.id
                     when (val current = screen) {
                         is RootScreen.Incoming ->
-                            if (current.callId == eventCallId) screen = RootScreen.Main
+                            if (current.callId == eventCallId) {
+                                IncomingCallNotifier.dismiss(context)
+                                SlideConnectionService.endActiveConnectionFromRemote()
+                                screen = RootScreen.Main
+                            }
                         is RootScreen.InCall ->
-                            if (current.incomingCallId == eventCallId) screen = RootScreen.Main
+                            if (current.incomingCallId == eventCallId) {
+                                IncomingCallNotifier.dismiss(context)
+                                SlideConnectionService.endActiveConnectionFromRemote()
+                                screen = RootScreen.Main
+                            }
                         else -> Unit
                     }
                 }
@@ -241,9 +250,11 @@ private fun SignalEnvelope.toIncomingScreen(): RootScreen.Incoming? {
         ?: (from as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
         ?: call?.createdBy
         ?: "unknown"
-    val name = fromName
+    val name = fromName?.cleanDisplayName()
         ?: (from as? JsonObject)?.get("displayName")?.jsonPrimitive?.contentOrNull
+            ?.cleanDisplayName()
         ?: (from as? JsonObject)?.get("phone")?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
         ?: "Slide"
     val phone = (from as? JsonObject)?.get("phone")?.jsonPrimitive?.contentOrNull
     return RootScreen.Incoming(
@@ -254,4 +265,12 @@ private fun SignalEnvelope.toIncomingScreen(): RootScreen.Incoming? {
             phone = phone,
         ),
     )
+}
+
+private fun String.cleanDisplayName(): String? {
+    val cleaned = trim()
+    if (cleaned.isBlank()) return null
+    if (cleaned.equals("unknown", ignoreCase = true)) return null
+    if (cleaned.equals("someone", ignoreCase = true)) return null
+    return cleaned
 }

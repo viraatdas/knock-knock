@@ -50,6 +50,9 @@ data class CallParticipant(
     val state: String,                 // invited|ringing|joined|left|declined
     val joinedAt: String? = null,
     val leftAt: String? = null,
+    val displayName: String? = null,
+    val phone: String? = null,
+    val avatarUrl: String? = null,
 )
 
 @Serializable

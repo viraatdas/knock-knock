@@ -53,8 +53,7 @@ class SlidePushService : FirebaseMessagingService() {
                 type = type,
                 callId = callId,
                 fromUserId = data["fromUserId"].orEmpty(),
-                fromName = data["fromName"]?.takeIf { it.isNotBlank() }
-                    ?: if (type == "knock") "Someone is knocking" else "Slide",
+                fromName = sanitizeCallerName(data["fromName"]),
                 callType = data["callType"]?.takeIf { it.isNotBlank() } ?: "one_to_one",
             ),
         )

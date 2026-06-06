@@ -116,7 +116,8 @@ struct GroupCallPicker: View {
     }
 
     private func place(video: Bool) {
-        let users = selectedContacts.map { MockData.userForContact($0) }
+        let users = selectedContacts.compactMap(\.slideUser)
+        guard users.count >= 2 else { return }
         dismiss()
         appState.startGroupCall(to: users, video: video)
     }

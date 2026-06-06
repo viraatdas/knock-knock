@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.exla.slide.call.CallPeer
 import ai.exla.slide.data.model.Call
+import ai.exla.slide.data.model.CallParticipant
 import ai.exla.slide.ui.components.AvatarCircle
 import ai.exla.slide.ui.components.EmptyState
 import ai.exla.slide.ui.components.Hairline
@@ -91,11 +92,14 @@ fun CallsScreen(
 
 @Composable
 private fun CallRow(call: Call, currentUserId: String?, onCallBack: (CallPeer) -> Unit) {
-    // Resolve the "other" participant (one-to-one). Without an embedded user
-    // object on Call, we fall back to a short id label.
-    val otherId = call.participants.firstOrNull { it.userId != currentUserId }?.userId
+    val other = otherParticipant(call, currentUserId)
     val display = displayNameFor(call, currentUserId)
-    val peer = CallPeer(userId = otherId ?: call.createdBy ?: "", displayName = display)
+    val peer = CallPeer(
+        userId = other?.userId ?: call.createdBy ?: "",
+        displayName = display,
+        phone = other?.phone,
+        avatarUrl = other?.avatarUrl,
+    )
 
     // Incoming if someone else created the call.
     val incoming = call.createdBy != null && call.createdBy != currentUserId
@@ -146,8 +150,22 @@ private fun CallRow(call: Call, currentUserId: String?, onCallBack: (CallPeer) -
 }
 
 private fun displayNameFor(call: Call, currentUserId: String?): String {
-    val other = call.participants.firstOrNull { it.userId != currentUserId }?.userId
-        ?: call.createdBy
-    // Fallback to a short id label when no name is provided by the control plane.
-    return other?.takeLast(4)?.let { "Contact $it" } ?: "Unknown"
+    val other = otherParticipant(call, currentUserId)
+    return other?.displayName?.cleanDisplayName()
+        ?: other?.phone?.takeIf { it.isNotBlank() }
+        ?: "Slide"
+}
+
+private fun otherParticipant(call: Call, currentUserId: String?): CallParticipant? {
+    return call.participants.firstOrNull { it.userId != currentUserId }
+        ?: call.participants.firstOrNull { it.userId == call.createdBy }
+        ?: call.participants.firstOrNull()
+}
+
+private fun String?.cleanDisplayName(): String? {
+    val cleaned = this?.trim().orEmpty()
+    if (cleaned.isBlank()) return null
+    if (cleaned.equals("unknown", ignoreCase = true)) return null
+    if (cleaned.equals("someone", ignoreCase = true)) return null
+    return cleaned
 }

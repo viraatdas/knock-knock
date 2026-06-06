@@ -5,9 +5,9 @@
 //! reaches via `sfuUrl` + `joinToken`.
 
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use slide_core::{
     error::{AppError, AppResult},
-    models::{Call, CallParticipant, CallType},
+    models::{Call, CallStatus, CallType, ParticipantState},
     turn::IceServer,
 };
 
@@ -31,6 +31,9 @@ struct ParticipantView {
     state: String,
     joined_at: Option<DateTime<Utc>>,
     left_at: Option<DateTime<Utc>>,
+    display_name: Option<String>,
+    phone: Option<String>,
+    avatar_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +50,17 @@ struct CallView {
     ended_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     participants: Vec<ParticipantView>,
+}
+
+#[derive(sqlx::FromRow)]
+struct ParticipantRow {
+    user_id: Uuid,
+    state: ParticipantState,
+    joined_at: Option<DateTime<Utc>>,
+    left_at: Option<DateTime<Utc>>,
+    display_name: Option<String>,
+    phone: Option<String>,
+    avatar_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -79,11 +93,16 @@ async fn load_call_view(state: &AppState, call_id: Uuid) -> AppResult<CallView> 
         .await?
         .ok_or(AppError::NotFound)?;
 
-    let parts: Vec<CallParticipant> =
-        sqlx::query_as("SELECT * FROM call_participants WHERE call_id = $1")
-            .bind(call_id)
-            .fetch_all(&state.db)
-            .await?;
+    let parts: Vec<ParticipantRow> = sqlx::query_as(
+        "SELECT p.user_id, p.state, p.joined_at, p.left_at,
+                    u.display_name, u.phone, u.avatar_url
+               FROM call_participants p
+               LEFT JOIN users u ON u.id = p.user_id
+              WHERE p.call_id = $1",
+    )
+    .bind(call_id)
+    .fetch_all(&state.db)
+    .await?;
 
     Ok(CallView {
         id: call.id,
@@ -102,6 +121,9 @@ async fn load_call_view(state: &AppState, call_id: Uuid) -> AppResult<CallView> 
                 state: participant_state_str(&p.state),
                 joined_at: p.joined_at,
                 left_at: p.left_at,
+                display_name: p.display_name,
+                phone: p.phone,
+                avatar_url: p.avatar_url,
             })
             .collect(),
     })
@@ -265,22 +287,32 @@ pub async fn create_call(
 
 // ── helpers to ensure the caller belongs to the call ──────────────────────────
 
-async fn require_participant(state: &AppState, call_id: Uuid, uid: Uuid) -> AppResult<Call> {
+struct ParticipantAccess {
+    call: Call,
+    participant_state: ParticipantState,
+}
+
+async fn require_participant(
+    state: &AppState,
+    call_id: Uuid,
+    uid: Uuid,
+) -> AppResult<ParticipantAccess> {
     let call: Call = sqlx::query_as("SELECT * FROM calls WHERE id = $1")
         .bind(call_id)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound)?;
-    let is_part: Option<(Uuid,)> =
-        sqlx::query_as("SELECT user_id FROM call_participants WHERE call_id = $1 AND user_id = $2")
+    let participant: Option<(ParticipantState,)> =
+        sqlx::query_as("SELECT state FROM call_participants WHERE call_id = $1 AND user_id = $2")
             .bind(call_id)
             .bind(uid)
             .fetch_optional(&state.db)
             .await?;
-    if is_part.is_none() {
-        return Err(AppError::Forbidden);
-    }
-    Ok(call)
+    let participant_state = participant.ok_or(AppError::Forbidden)?.0;
+    Ok(ParticipantAccess {
+        call,
+        participant_state,
+    })
 }
 
 // ── POST /calls/:id/accept ────────────────────────────────────────────────────
@@ -290,27 +322,43 @@ pub async fn accept_call(
     AuthUser(uid): AuthUser,
     Path(call_id): Path<Uuid>,
 ) -> AppResult<Json<JoinResponse>> {
-    let call = require_participant(&state, call_id, uid).await?;
-    if matches!(call.status, slide_core::models::CallStatus::Ended) {
+    let access = require_participant(&state, call_id, uid).await?;
+    let call = access.call;
+    if matches!(
+        call.status,
+        CallStatus::Ended | CallStatus::Missed | CallStatus::Declined
+    ) {
+        return Err(AppError::conflict("call already ended"));
+    }
+    let can_accept = matches!(access.participant_state, ParticipantState::Ringing)
+        || (matches!(access.participant_state, ParticipantState::Joined)
+            && matches!(call.status, CallStatus::Active));
+    if !can_accept {
+        return Err(AppError::conflict("call is not ringing"));
+    }
+
+    let updated = sqlx::query(
+        "UPDATE calls SET status = 'active', started_at = COALESCE(started_at, now())
+         WHERE id = $1 AND status IN ('ringing', 'active')",
+    )
+    .bind(call_id)
+    .execute(&state.db)
+    .await?;
+    if updated.rows_affected() == 0 {
         return Err(AppError::conflict("call already ended"));
     }
 
-    sqlx::query(
+    let participant_updated = sqlx::query(
         "UPDATE call_participants SET state = 'joined', joined_at = COALESCE(joined_at, now())
-         WHERE call_id = $1 AND user_id = $2",
+         WHERE call_id = $1 AND user_id = $2 AND state IN ('ringing', 'joined')",
     )
     .bind(call_id)
     .bind(uid)
     .execute(&state.db)
     .await?;
-
-    sqlx::query(
-        "UPDATE calls SET status = 'active', started_at = COALESCE(started_at, now())
-         WHERE id = $1 AND status <> 'ended'",
-    )
-    .bind(call_id)
-    .execute(&state.db)
-    .await?;
+    if participant_updated.rows_affected() == 0 {
+        return Err(AppError::conflict("call is not ringing"));
+    }
 
     let display_name = call_display_name(&state, uid).await?;
     let (sfu_url, join_token) = sfu_client::media_join(
@@ -348,7 +396,49 @@ pub async fn decline_call(
     AuthUser(uid): AuthUser,
     Path(call_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    let call = require_participant(&state, call_id, uid).await?;
+    let access = require_participant(&state, call_id, uid).await?;
+    let call = access.call;
+    if matches!(
+        call.status,
+        CallStatus::Ended | CallStatus::Missed | CallStatus::Declined
+    ) {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    if !matches!(access.participant_state, ParticipantState::Ringing) {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    if matches!(call.call_type, CallType::OneToOne) {
+        let updated = sqlx::query(
+            "UPDATE calls SET status = 'declined', ended_at = now()
+              WHERE id = $1 AND status = 'ringing'",
+        )
+        .bind(call_id)
+        .execute(&state.db)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Ok(StatusCode::NO_CONTENT);
+        }
+
+        sqlx::query(
+            "UPDATE call_participants SET state = 'declined' WHERE call_id = $1 AND user_id = $2",
+        )
+        .bind(call_id)
+        .bind(uid)
+        .execute(&state.db)
+        .await?;
+
+        let others: Vec<Uuid> = participant_ids(&state, call_id)
+            .await?
+            .into_iter()
+            .filter(|id| *id != uid)
+            .collect();
+        let event = json!({ "type": "call_declined", "callId": call_id, "userId": uid });
+        state.hub.publish_many(&others, &event).await;
+        let end = json!({ "type": "call_ended", "callId": call_id });
+        state.hub.publish_many(&others, &end).await;
+        return Ok(StatusCode::NO_CONTENT);
+    }
 
     sqlx::query(
         "UPDATE call_participants SET state = 'declined' WHERE call_id = $1 AND user_id = $2",
@@ -365,29 +455,19 @@ pub async fn decline_call(
         .collect();
 
     let mut ended = false;
-    if matches!(call.call_type, CallType::OneToOne) {
-        sqlx::query(
-            "UPDATE calls SET status = 'declined', ended_at = now() WHERE id = $1 AND status <> 'ended'",
-        )
-        .bind(call_id)
-        .execute(&state.db)
-        .await?;
+    // Group: end only if nobody is still ringing or joined.
+    let active: Vec<(Uuid,)> = sqlx::query_as(
+        "SELECT user_id FROM call_participants WHERE call_id = $1 AND state IN ('ringing','joined')",
+    )
+    .bind(call_id)
+    .fetch_all(&state.db)
+    .await?;
+    if active.is_empty() {
+        sqlx::query("UPDATE calls SET status = 'ended', ended_at = now() WHERE id = $1 AND status NOT IN ('ended', 'missed', 'declined')")
+            .bind(call_id)
+            .execute(&state.db)
+            .await?;
         ended = true;
-    } else {
-        // Group: end only if nobody is still ringing or joined.
-        let active: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT user_id FROM call_participants WHERE call_id = $1 AND state IN ('ringing','joined')",
-        )
-        .bind(call_id)
-        .fetch_all(&state.db)
-        .await?;
-        if active.is_empty() {
-            sqlx::query("UPDATE calls SET status = 'ended', ended_at = now() WHERE id = $1")
-                .bind(call_id)
-                .execute(&state.db)
-                .await?;
-            ended = true;
-        }
     }
 
     let event = json!({ "type": "call_declined", "callId": call_id, "userId": uid });
@@ -407,7 +487,82 @@ pub async fn leave_call(
     AuthUser(uid): AuthUser,
     Path(call_id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    require_participant(&state, call_id, uid).await?;
+    let access = require_participant(&state, call_id, uid).await?;
+    let call = access.call;
+    if matches!(
+        call.status,
+        CallStatus::Ended | CallStatus::Missed | CallStatus::Declined
+    ) {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    let others: Vec<Uuid> = participant_ids(&state, call_id)
+        .await?
+        .into_iter()
+        .filter(|id| *id != uid)
+        .collect();
+
+    if matches!(call.call_type, CallType::OneToOne) {
+        if matches!(access.participant_state, ParticipantState::Ringing) {
+            let updated = sqlx::query(
+                "UPDATE calls SET status = 'declined', ended_at = now()
+                  WHERE id = $1 AND status = 'ringing'",
+            )
+            .bind(call_id)
+            .execute(&state.db)
+            .await?;
+            if updated.rows_affected() == 0 {
+                return Ok(StatusCode::NO_CONTENT);
+            }
+            sqlx::query(
+                "UPDATE call_participants SET state = 'declined'
+                  WHERE call_id = $1 AND user_id = $2 AND state = 'ringing'",
+            )
+            .bind(call_id)
+            .bind(uid)
+            .execute(&state.db)
+            .await?;
+            let event = json!({ "type": "call_declined", "callId": call_id, "userId": uid });
+            state.hub.publish_many(&others, &event).await;
+            let end = json!({ "type": "call_ended", "callId": call_id });
+            state.hub.publish_many(&others, &end).await;
+            return Ok(StatusCode::NO_CONTENT);
+        }
+
+        sqlx::query(
+            "UPDATE call_participants SET state = 'left', left_at = now()
+             WHERE call_id = $1 AND user_id = $2",
+        )
+        .bind(call_id)
+        .bind(uid)
+        .execute(&state.db)
+        .await?;
+        sqlx::query(
+            "UPDATE call_participants
+                SET state = 'left', left_at = COALESCE(left_at, now())
+              WHERE call_id = $1 AND state = 'ringing'",
+        )
+        .bind(call_id)
+        .execute(&state.db)
+        .await?;
+        sqlx::query(
+            "UPDATE calls
+                SET status = CASE
+                        WHEN status = 'ringing' THEN 'missed'::call_status
+                        ELSE 'ended'::call_status
+                    END,
+                    ended_at = now()
+              WHERE id = $1 AND status NOT IN ('ended', 'missed', 'declined')",
+        )
+        .bind(call_id)
+        .execute(&state.db)
+        .await?;
+        let event = json!({ "type": "participant_left", "callId": call_id, "userId": uid });
+        state.hub.publish_many(&others, &event).await;
+        let end = json!({ "type": "call_ended", "callId": call_id });
+        state.hub.publish_many(&others, &end).await;
+        return Ok(StatusCode::NO_CONTENT);
+    }
 
     sqlx::query(
         "UPDATE call_participants SET state = 'left', left_at = now()
@@ -418,11 +573,6 @@ pub async fn leave_call(
     .execute(&state.db)
     .await?;
 
-    let others: Vec<Uuid> = participant_ids(&state, call_id)
-        .await?
-        .into_iter()
-        .filter(|id| *id != uid)
-        .collect();
     let event = json!({ "type": "participant_left", "callId": call_id, "userId": uid });
     state.hub.publish_many(&others, &event).await;
 
@@ -434,7 +584,7 @@ pub async fn leave_call(
     .fetch_all(&state.db)
     .await?;
     if still_joined.is_empty() {
-        sqlx::query("UPDATE calls SET status = 'ended', ended_at = now() WHERE id = $1 AND status <> 'ended'")
+        sqlx::query("UPDATE calls SET status = 'ended', ended_at = now() WHERE id = $1 AND status NOT IN ('ended', 'missed', 'declined')")
             .bind(call_id)
             .execute(&state.db)
             .await?;

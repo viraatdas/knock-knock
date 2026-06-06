@@ -141,7 +141,7 @@ struct ContactsView: View {
                     .buttonStyle(PressableButtonStyle())
                     .accessibilityLabel("New group call")
                     // Header import action.
-                    Button(action: { Task { await vm.importContacts() } }) {
+                    Button(action: { Task { await importContacts() } }) {
                         Image(systemName: "square.and.arrow.down")
                             .font(.system(size: 20, weight: .light))
                             .foregroundStyle(Theme.Color.text)
@@ -167,7 +167,7 @@ struct ContactsView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, Theme.Space.xxl)
                     PrimaryButton(title: "Import contacts", isLoading: vm.isImporting) {
-                        Task { await vm.importContacts() }
+                        Task { await importContacts() }
                     }
                     .padding(.horizontal, Theme.Space.xxl)
                     // Extra breathing room beneath the button so it isn't crowded.
@@ -223,7 +223,10 @@ struct ContactsView: View {
             }
         }
         .background(Theme.Color.bg)
-        .task { await vm.load() }
+        .task {
+            await vm.load()
+            appState.replaceContactCache(vm.contacts)
+        }
         .sheet(item: $selected) { contact in
             ContactSheet(contact: contact, onInvite: { inviteTarget = contact })
                 .environmentObject(appState)
@@ -243,6 +246,11 @@ struct ContactsView: View {
             InviteComposer(phone: contact.phone)
                 .ignoresSafeArea()
         }
+    }
+
+    private func importContacts() async {
+        await vm.importContacts()
+        appState.replaceContactCache(vm.contacts)
     }
 }
 
