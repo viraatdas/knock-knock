@@ -832,8 +832,8 @@ platform :ios do
   lane :tf_public_link do
     app = asc_connect
     name = ENV["TF_GROUP"] || "Friends"
-    groups = Spaceship::ConnectAPI::BetaGroup.all(app_id: app.id)
-    grp = groups.find { |g| g.name == name && !g.is_internal_group }
+    groups = tf_groups(app)
+    grp = groups.find { |g| g["name"] == name && !g["internal"] }
     if grp.nil?
       # Create an external group (external groups support public links).
       code, body = asc_raw(:post, "v1/betaGroups", {
@@ -844,16 +844,18 @@ platform :ios do
       gid = body.dig("data","id")
       UI.success "Created external group '#{name}' (#{gid})"
     else
-      gid = grp.id
-      asc_raw(:patch, "v1/betaGroups/#{gid}", {
+      gid = grp["id"]
+      code, body = asc_raw(:patch, "v1/betaGroups/#{gid}", {
         data: { type: "betaGroups", id: gid, attributes: { publicLinkEnabled: true } } })
+      UI.user_error!("enable public link #{code}: #{body.inspect[0,200]}") unless (200..299).include?(code)
       UI.success "Enabled public link on existing group '#{name}' (#{gid})"
     end
     # Attach the latest build to the group so the link actually serves something.
     build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
     if build
-      asc_raw(:post, "v1/betaGroups/#{gid}/relationships/builds",
+      code, body = asc_raw(:post, "v1/betaGroups/#{gid}/relationships/builds",
               { data: [{ type: "builds", id: build.id }] })
+      UI.user_error!("attach build #{code}: #{body.inspect[0,200]}") unless (200..299).include?(code) || code == 409
       UI.message "Attached build #{build.version} to '#{name}'"
     end
     code, body = asc_raw(:get, "v1/betaGroups/#{gid}")
