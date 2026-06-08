@@ -8,23 +8,23 @@ enum Theme {
     // MARK: Color tokens
 
     enum Color {
-        /// #FFFFFF — every background.
-        static let bg = SwiftUI.Color(hex: 0xFFFFFF)
-        /// #FAFAFA — grouped sections.
-        static let bgGrouped = SwiftUI.Color(hex: 0xFAFAFA)
-        /// #0A0A0A — primary near-black text.
-        static let text = SwiftUI.Color(hex: 0x0A0A0A)
-        /// #6B7280 — secondary gray.
-        static let textSecondary = SwiftUI.Color(hex: 0x6B7280)
-        /// #ECECEC — 1px borders & dividers.
-        static let hairline = SwiftUI.Color(hex: 0xECECEC)
-        /// #0A0A0A — primary action / active toggles — pure black.
-        static let accent = SwiftUI.Color(hex: 0x0A0A0A)
-        /// #E5484D — end call / decline / log out — the ONLY red.
-        static let danger = SwiftUI.Color(hex: 0xE5484D)
+        /// #FAF6EF — warm eggshell, every background (was pure white).
+        static let bg = SwiftUI.Color(hex: 0xFAF6EF)
+        /// #F2ECE1 — slightly deeper eggshell for grouped sections.
+        static let bgGrouped = SwiftUI.Color(hex: 0xF2ECE1)
+        /// #2A211B — warm dark-brown primary text (was near-black).
+        static let text = SwiftUI.Color(hex: 0x2A211B)
+        /// #8A7C6D — warm taupe secondary text.
+        static let textSecondary = SwiftUI.Color(hex: 0x8A7C6D)
+        /// #E6DCCB — warm 1px borders & dividers.
+        static let hairline = SwiftUI.Color(hex: 0xE6DCCB)
+        /// #5A4632 — primary action / active toggles — rich espresso brown.
+        static let accent = SwiftUI.Color(hex: 0x5A4632)
+        /// #D4694F — warm terracotta for end call / decline / destructive.
+        static let danger = SwiftUI.Color(hex: 0xD4694F)
 
-        /// On-black text/icon color (for filled accent buttons).
-        static let onAccent = SwiftUI.Color.white
+        /// On-accent text/icon color (cream, for filled brown buttons).
+        static let onAccent = SwiftUI.Color(hex: 0xFAF6EF)
     }
 
     // MARK: Spacing — 8px grid
@@ -42,10 +42,11 @@ enum Theme {
 
     // MARK: Radii — 12-16px subtle
 
+    // Softer, rounder corners for a cozy feel.
     enum Radius {
-        static let small: CGFloat = 12
-        static let medium: CGFloat = 14
-        static let large: CGFloat = 16
+        static let small: CGFloat = 14
+        static let medium: CGFloat = 18
+        static let large: CGFloat = 22
         static let pill: CGFloat = 999
     }
 

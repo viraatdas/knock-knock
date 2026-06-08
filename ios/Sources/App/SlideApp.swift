@@ -28,29 +28,35 @@ struct SlideApp: App {
     }
 
     private func configureAppearance() {
+        // Warm palette (matches Theme): eggshell bg, espresso ink, taupe secondary.
+        let egg = UIColor(red: 0xFA/255.0, green: 0xF6/255.0, blue: 0xEF/255.0, alpha: 1)
+        let ink = UIColor(red: 0x2A/255.0, green: 0x21/255.0, blue: 0x1B/255.0, alpha: 1)
+        let taupe = UIColor(red: 0x8A/255.0, green: 0x7C/255.0, blue: 0x6D/255.0, alpha: 1)
+        let hairline = UIColor(red: 0xE6/255.0, green: 0xDC/255.0, blue: 0xCB/255.0, alpha: 1)
+
         let tab = UITabBarAppearance()
         tab.configureWithOpaqueBackground()
-        tab.backgroundColor = UIColor.white
-        tab.shadowColor = UIColor(white: 0xEC / 255.0, alpha: 1) // hairline
+        tab.backgroundColor = egg
+        tab.shadowColor = hairline
         let item = tab.stackedLayoutAppearance
         item.normal.titleTextAttributes = [
-            .foregroundColor: UIColor(white: 0x6B / 255.0, alpha: 1),
+            .foregroundColor: taupe,
             .font: UIFont.systemFont(ofSize: 10, weight: .regular)
         ]
         item.selected.titleTextAttributes = [
-            .foregroundColor: UIColor(white: 0x0A / 255.0, alpha: 1),
+            .foregroundColor: ink,
             .font: UIFont.systemFont(ofSize: 10, weight: .medium)
         ]
-        item.normal.iconColor = UIColor(white: 0x6B / 255.0, alpha: 1)
-        item.selected.iconColor = UIColor(white: 0x0A / 255.0, alpha: 1)
+        item.normal.iconColor = taupe
+        item.selected.iconColor = ink
         UITabBar.appearance().standardAppearance = tab
         UITabBar.appearance().scrollEdgeAppearance = tab
 
         let nav = UINavigationBarAppearance()
         nav.configureWithOpaqueBackground()
-        nav.backgroundColor = .white
+        nav.backgroundColor = egg
         nav.shadowColor = .clear
-        nav.titleTextAttributes = [.foregroundColor: UIColor(white: 0x0A / 255.0, alpha: 1)]
+        nav.titleTextAttributes = [.foregroundColor: ink]
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
     }

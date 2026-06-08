@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Tap a contact -> their name, a real Tap pad, and a separate Audio/Video call
-/// action. Tap gets their attention; Call starts a call.
+/// Tap a contact -> their name, a real Knock action, and separate Audio/Video
+/// call actions. Knock starts a call-style ring with knock presentation.
 struct ContactSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -41,10 +41,10 @@ struct ContactSheet: View {
                     .padding(.horizontal, Theme.Space.xxl)
                     .padding(.top, Theme.Space.sm)
 
-                TapPad { tap() }
+                ContactKnockButton { tap() }
                     .padding(.top, Theme.Space.lg)
 
-                Text("Tap a rhythm. They feel every tap.")
+                Text("Knock to ring them with a slide-to-pick-up.")
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
 
@@ -76,7 +76,8 @@ struct ContactSheet: View {
 
     private func tap() {
         guard let user else { return }
-        appState.sendKnockTap(to: user.id)
+        appState.startKnockCall(to: user)
+        dismiss()
     }
 
     private func formatted(_ phone: String) -> String {
@@ -129,8 +130,8 @@ private struct ModeSlider: View {
     }
 }
 
-/// The Tap pad: a large target that sends one realtime Tap per press.
-private struct TapPad: View {
+/// The Knock pad: a large target that starts a call-style knock invitation.
+private struct ContactKnockButton: View {
     let action: () -> Void
     @State private var ripple = false
 
@@ -150,11 +151,13 @@ private struct TapPad: View {
                     .fill(Theme.Color.bg)
                     .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
                     .frame(width: 140, height: 140)
-                Text("✊").font(.system(size: 58))
+                Image(systemName: "hand.wave.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(Theme.Color.accent)
             }
         }
-        .accessibilityLabel("Tap")
-        .accessibilityHint("Sends one Tap to this person")
+        .accessibilityLabel("Knock")
+        .accessibilityHint("Starts a knock call to this person")
         .buttonStyle(PressableButtonStyle())
     }
 }

@@ -4,9 +4,9 @@ import SwiftUI
 
 /// The "Slide" wordmark — always thin (300), tracking +0.04em.
 struct Wordmark: View {
-    var size: CGFloat = 28
+    var size: CGFloat = 24
     var body: some View {
-        Text("Slide").wordmarkStyle(size)
+        Text("Knock Knock").wordmarkStyle(size)
     }
 }
 

@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// A big circular ✊ tap target. Each tap relays a knock to `user` and plays a
-/// local sound + haptic so the caller feels the rhythm they're tapping.
+/// A big circular ✊ target. Pressing it starts a call-style knock invitation so
+/// the other phone rings through CallKit/Telecom even when the app is closed.
 ///
 /// Brand: pure white background, thin near-black type, generous whitespace, one
-/// restrained accent (the black tap target).
+/// restrained accent (the black knock target).
 struct KnockPad: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -16,10 +16,11 @@ struct KnockPad: View {
     @State private var pressScale: CGFloat = 1.0
     @State private var ringPulse: Bool = false
     @State private var tapCount: Int = 0
+    @State private var didStart = false
 
     private var title: String {
         let name = user.displayName ?? user.phone
-        return name.isEmpty ? "Tap" : name
+        return name.isEmpty ? "Slide" : name
     }
 
     var body: some View {
@@ -27,7 +28,7 @@ struct KnockPad: View {
             Spacer().frame(height: Theme.Space.lg)
 
             VStack(spacing: Theme.Space.xs) {
-                Text("Tapping")
+                Text("Knock knock knock")
                     .uppercaseLabel()
                 Text(title)
                     .font(Theme.Font.title)
@@ -39,7 +40,7 @@ struct KnockPad: View {
 
             tapTarget
 
-            Text("Tap a rhythm. They feel every tap.")
+            Text("Knock to ring them with a slide-to-pick-up.")
                 .font(Theme.Font.footnote)
                 .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
@@ -73,21 +74,23 @@ struct KnockPad: View {
                 .fill(Theme.Color.accent)
                 .frame(width: 200, height: 200)
                 .overlay(
-                    Text("✊")
-                        .font(.system(size: 86))
+                    Image(systemName: "hand.wave.fill")
+                        .font(.system(size: 76))
+                        .foregroundStyle(Theme.Color.onAccent)
                 )
                 .scaleEffect(pressScale)
         }
         .contentShape(Circle())
-        .accessibilityLabel("Tap")
-        .accessibilityHint("Double tap to send a Tap")
+        .accessibilityLabel("Knock")
+        .accessibilityHint("Starts a knock call")
         .onTapGesture { tap() }
     }
 
     private func tap() {
-        guard !user.id.isEmpty else { return }
+        guard !user.id.isEmpty, !didStart else { return }
+        didStart = true
         tapCount += 1
-        appState.sendKnockTap(to: user.id)
+        appState.startKnockCall(to: user)
 
         // Quick squish-and-release; toggle the ring to retrigger its animation.
         withAnimation(.easeOut(duration: 0.08)) { pressScale = 0.92 }

@@ -25,7 +25,7 @@ struct IncomingCallView: View {
                 Text(call.remoteName)
                     .font(Theme.Font.largeTitle)
                     .foregroundStyle(Theme.Color.text)
-                Text(call.isVideo ? "Incoming video call" : "Incoming call")
+                Text(subtitle)
                     .font(Theme.Font.callout)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
@@ -33,27 +33,22 @@ struct IncomingCallView: View {
             Spacer()
             Spacer()
 
-            // Decline (red) / Accept (black) circular buttons.
-            HStack(spacing: Theme.Space.xxxl) {
+            VStack(spacing: Theme.Space.lg) {
+                SlideToAnswerControl(isVideo: call.isVideo) {
+                    accept()
+                }
+
                 VStack(spacing: Theme.Space.sm) {
                     CircleActionButton(systemImage: "phone.down",
-                                       diameter: 76,
+                                       diameter: 68,
                                        filled: true,
                                        tint: Theme.Color.danger) {
                         decline()
                     }
                     Text("Decline").uppercaseLabel()
                 }
-                VStack(spacing: Theme.Space.sm) {
-                    CircleActionButton(systemImage: call.isVideo ? "video" : "phone",
-                                       diameter: 76,
-                                       filled: true,
-                                       tint: Theme.Color.accent) {
-                        accept()
-                    }
-                    Text("Accept").uppercaseLabel()
-                }
             }
+            .padding(.horizontal, Theme.Space.xl)
             .padding(.bottom, Theme.Space.xxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -68,5 +63,75 @@ struct IncomingCallView: View {
 
     private func decline() {
         appState.declineIncoming()
+    }
+
+    private var subtitle: String {
+        if call.isKnock { return "is knocking" }
+        return call.isVideo ? "Incoming video call" : "Incoming call"
+    }
+}
+
+private struct SlideToAnswerControl: View {
+    let isVideo: Bool
+    let onComplete: () -> Void
+
+    @State private var dragOffset: CGFloat = 0
+    @State private var completed = false
+
+    private let height: CGFloat = 68
+    private let knobSize: CGFloat = 60
+    private let inset: CGFloat = 4
+
+    var body: some View {
+        GeometryReader { geo in
+            let maxOffset = max(0, geo.size.width - knobSize - inset * 2)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                    .fill(Theme.Color.bgGrouped)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                            .stroke(Theme.Color.hairline, lineWidth: 1)
+                    )
+
+                Text(isVideo ? "Swipe for video" : "Swipe to pick up")
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, knobSize + Theme.Space.sm)
+
+                Circle()
+                    .fill(Theme.Color.accent)
+                    .frame(width: knobSize, height: knobSize)
+                    .overlay {
+                        Image(systemName: isVideo ? "video.fill" : "phone.fill")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(Theme.Color.bg)
+                    }
+                    .offset(x: inset + dragOffset)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                guard !completed else { return }
+                                dragOffset = min(max(0, value.translation.width), maxOffset)
+                            }
+                            .onEnded { _ in
+                                guard !completed else { return }
+                                if dragOffset >= maxOffset * 0.72 {
+                                    completed = true
+                                    withAnimation(Theme.Motion.standard) {
+                                        dragOffset = maxOffset
+                                    }
+                                    onComplete()
+                                } else {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                                        dragOffset = 0
+                                    }
+                                }
+                            }
+                    )
+            }
+            .frame(height: height)
+        }
+        .frame(height: height)
     }
 }

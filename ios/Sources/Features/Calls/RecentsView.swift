@@ -111,12 +111,12 @@ struct RecentsView: View {
                 Button {
                     showDial = true
                 } label: {
-                    Image(systemName: "square.and.pencil")
+                    Image(systemName: "circle.grid.3x3")
                         .font(.system(size: 20, weight: .light))
                         .foregroundStyle(Theme.Color.text)
                 }
                 .buttonStyle(PressableButtonStyle())
-                .accessibilityLabel("New call")
+                .accessibilityLabel("Open callpad")
             }
             HairlineDivider()
 
@@ -126,11 +126,16 @@ struct RecentsView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(vm.calls) { call in
+                            let user = vm.userFor(call: call)
                             CallRow(name: vm.displayName(for: call),
                                     subtitle: vm.subtitle(for: call),
-                                    isVideo: false) {
-                                appState.startCall(to: vm.userFor(call: call), video: false)
-                            }
+                                    isVideo: call.videoEnabled ?? true,
+                                    onKnock: {
+                                        appState.startKnockCall(to: user)
+                                    },
+                                    onCallBack: {
+                                        appState.startCall(to: user, video: call.videoEnabled ?? true)
+                                    })
                             HairlineDivider(leadingInset: Theme.Space.lg + 44 + Theme.Space.md)
                         }
                     }
@@ -151,6 +156,7 @@ struct CallRow: View {
     let name: String
     let subtitle: (text: String, isMissed: Bool)
     var isVideo: Bool
+    let onKnock: () -> Void
     let onCallBack: () -> Void
 
     var body: some View {
@@ -166,18 +172,32 @@ struct CallRow: View {
                                                        : Theme.Color.textSecondary)
             }
             Spacer()
-            Button(action: onCallBack) {
-                Image(systemName: isVideo ? "video" : "phone")
-                    .font(.system(size: 18, weight: .light))
-                    .foregroundStyle(Theme.Color.text)
+            HStack(spacing: Theme.Space.sm) {
+                Button(action: onKnock) {
+                    Image(systemName: "hand.wave")
+                        .font(.system(size: 17, weight: .light))
+                        .foregroundStyle(Theme.Color.accent)
+                        .frame(width: 38, height: 38)
+                        .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("Knock \(name)")
+
+                Button(action: onCallBack) {
+                    Image(systemName: isVideo ? "video" : "phone")
+                        .font(.system(size: 18, weight: .light))
+                        .foregroundStyle(Theme.Color.text)
+                        .frame(width: 38, height: 38)
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("Call back \(name)")
             }
-            .buttonStyle(PressableButtonStyle())
-            .accessibilityLabel("Call back \(name)")
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.vertical, Theme.Space.sm)
         .contentShape(Rectangle())
-        // Tap anywhere on the row to call back, not just the phone icon.
-        .onTapGesture { onCallBack() }
+        // Recents are a lightweight "reach them again" surface: tapping the row
+        // knocks; the explicit phone/video icon starts the matching call.
+        .onTapGesture { onKnock() }
     }
 }

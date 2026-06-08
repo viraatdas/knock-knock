@@ -628,9 +628,10 @@ platform :ios do
     UI.message "app_info locales: " + locs.map(&:locale).join(", ")
     loc = locs.find { |l| l.locale == "en-US" } || locs.first
     UI.message "before: name=#{loc.name.inspect} subtitle=#{loc.subtitle.inspect}"
-    new_name = ENV["SLIDE_APP_NAME"] || "Slide"
-    loc.update(attributes: { name: new_name, subtitle: "Make video calling fun" })
-    UI.success "set name (#{new_name}) + subtitle on #{loc.locale}"
+    new_name = ENV["SLIDE_APP_NAME"] || "Knock Knock - Video Chat"
+    new_sub = ENV["SLIDE_APP_SUBTITLE"] || "Cozy video calls with people you know"
+    loc.update(attributes: { name: new_name, subtitle: new_sub })
+    UI.success "set name (#{new_name}) + subtitle (#{new_sub}) on #{loc.locale}"
   end
 
   desc "Probe pricing + privacy API surface."

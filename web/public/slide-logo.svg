@@ -1,25 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180" role="img" aria-label="Slide">
-  <rect width="180" height="180" rx="40" fill="#FFFFFF"/>
-  <rect x="0.5" y="0.5" width="179" height="179" rx="39.5" fill="none" stroke="#ECECEC"/>
-  <!-- motion streaks -->
-  <g stroke="#2F6FF0" stroke-width="5.5" stroke-linecap="round">
-    <line x1="20" y1="78" x2="48" y2="78"/>
-    <line x1="24" y1="90" x2="56" y2="90"/>
-    <line x1="20" y1="102" x2="48" y2="102"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180" role="img" aria-label="Knock Knock">
+  <rect width="180" height="180" rx="40" fill="#FAF6EF"/>
+  <rect x="0.5" y="0.5" width="179" height="179" rx="39.5" fill="none" stroke="#E6DCCB"/>
+  <!-- door -->
+  <rect x="104" y="40" width="52" height="112" rx="6" fill="#7A5A3E"/>
+  <rect x="110" y="48" width="40" height="96" rx="4" fill="none" stroke="#5A4632" stroke-width="2.5"/>
+  <circle cx="113" cy="96" r="3.5" fill="#D4694F"/>
+  <!-- knock arcs -->
+  <g fill="none" stroke="#D4694F" stroke-width="3" stroke-linecap="round">
+    <path d="M92 84 a10 10 0 0 1 0 20"/>
+    <path d="M98 80 a16 16 0 0 1 0 28"/>
   </g>
-  <!-- sliding figure -->
-  <g fill="none" stroke="#16181D" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-    <!-- head -->
-    <circle cx="92" cy="56" r="13" fill="#16181D" stroke="none"/>
-    <!-- torso leaning forward -->
-    <line x1="93" y1="69" x2="104" y2="108"/>
-    <!-- front leg reaching into slide -->
-    <polyline points="104,108 128,112 144,130"/>
-    <!-- back leg trailing -->
-    <line x1="104" y1="108" x2="74" y2="134"/>
-    <!-- lead arm forward -->
-    <line x1="97" y1="80" x2="130" y2="70"/>
-    <!-- trailing arm back -->
-    <line x1="97" y1="80" x2="64" y2="92"/>
+  <!-- stick figure knocking -->
+  <g fill="none" stroke="#2A211B" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="58" cy="58" r="12" fill="#2A211B" stroke="none"/>
+    <line x1="58" y1="70" x2="56" y2="112"/>
+    <line x1="56" y1="112" x2="44" y2="140"/>
+    <line x1="56" y1="112" x2="70" y2="140"/>
+    <line x1="58" y1="80" x2="42" y2="104"/>
+    <line x1="58" y1="80" x2="88" y2="68"/>
   </g>
 </svg>

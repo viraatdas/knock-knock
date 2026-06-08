@@ -9,7 +9,7 @@ struct IncomingKnockBanner: View {
     @ObservedObject var knock: IncomingKnock
 
     @State private var scale: CGFloat = 1.0
-    @State private var tapStageUser: User?
+    @State private var knockStageUser: User?
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
@@ -17,7 +17,9 @@ struct IncomingKnockBanner: View {
                 Circle()
                     .fill(Theme.Color.bgGrouped)
                     .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
-                Text("✊").font(.system(size: 22))
+                Image(systemName: "hand.wave.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Theme.Color.accent)
             }
             .frame(width: 44, height: 44)
 
@@ -26,7 +28,7 @@ struct IncomingKnockBanner: View {
                     .font(Theme.Font.callout)
                     .foregroundStyle(Theme.Color.text)
                     .lineLimit(1)
-                Text("is tapping")
+                Text("is knocking")
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
@@ -35,12 +37,12 @@ struct IncomingKnockBanner: View {
 
             HStack(spacing: Theme.Space.xs) {
                 Button {
-                    guard let user = userForTapStage else { return }
+                    guard let user = userForKnockStage else { return }
                     appState.knockBack()
                     appState.clearIncomingKnock()
-                    tapStageUser = user
+                    knockStageUser = user
                 } label: {
-                    Text("Tap back")
+                    Text("Knock back")
                         .font(Theme.Font.buttonSmall)
                         .foregroundStyle(Theme.Color.text)
                         .padding(.horizontal, Theme.Space.sm)
@@ -87,13 +89,13 @@ struct IncomingKnockBanner: View {
             withAnimation(.easeOut(duration: 0.10)) { scale = 1.04 }
             withAnimation(.easeOut(duration: 0.22).delay(0.10)) { scale = 1.0 }
         }
-        .fullScreenCover(item: $tapStageUser) { user in
+        .fullScreenCover(item: $knockStageUser) { user in
             KnockPad(user: user)
                 .environmentObject(appState)
         }
     }
 
-    private var userForTapStage: User? {
+    private var userForKnockStage: User? {
         guard let id = knock.fromUserId, !id.isEmpty else { return nil }
         return User(id: id,
                     phone: "",
