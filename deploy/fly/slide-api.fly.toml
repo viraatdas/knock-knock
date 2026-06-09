@@ -20,7 +20,7 @@ primary_region = "iad"
 
 [env]
   API_BIND = "0.0.0.0:8080"
-  EXPOSE_DEV_OTP = "true"
+  EXPOSE_DEV_OTP = "false"
   FIREBASE_PROJECT_ID = "slide-b4c50"
   # SFU on a Hetzner VPS (public IP directly on the NIC) behind Caddy TLS via
   # sslip.io. The SFU code is verified (real browsers, bidirectional video).

@@ -151,6 +151,14 @@ Declare App Privacy: 'Data Not Collected' (publishes the privacy answers).
 
 Set the age-rating declaration to all-clear (4+), auto-resolving STRING vs BOOLEAN per field.
 
+### ios asc_names
+
+```sh
+[bundle exec] fastlane ios asc_names
+```
+
+Show every name field ASC has (app record + app_info localizations) so we know what TestFlight reads.
+
 ### ios asc_text
 
 ```sh
