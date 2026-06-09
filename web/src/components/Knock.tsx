@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // A "knock" is a real-time presence ritual: you tap a rhythm, each tap is
 // relayed over the signaling socket, and the other person feels + sees the same
 // taps land. It's a two-way "duet"; their knock-backs bloom on your stage too.
-// No call row, no ringtone loop; it only "rings" while someone is knocking.
+// The live rhythm stays WebSocket-only. The explicit Knock action can escalate
+// to a call-style invitation so closed phones ring through the OS call UI.
 
 // Synthesize a knuckle-on-door knock with WebAudio (no asset needed): a fast low
 // "thud" body + a high-passed noise "click" attack. `pitch` adds gentle variation
@@ -74,6 +75,12 @@ export function KnockSurface({
   const [ripples, setRipples] = useState<Ripple[]>([]);
   const [taps, setTaps] = useState(0);
   const idRef = useRef(0);
+  const knockLabel = (() => {
+    if (taps === 0) return "Knock anywhere";
+    if (taps === 1) return "Knock";
+    if (taps === 2) return "Knock knock";
+    return "Knock knock knock";
+  })();
 
   const spawn = useCallback((x: number, y: number, mine: boolean) => {
     const id = ++idRef.current;
@@ -101,7 +108,7 @@ export function KnockSurface({
 
   return (
     <div className="knock-stage fixed inset-0 z-[60] select-none text-white">
-      {/* Tap anywhere on the stage. */}
+      {/* Knock anywhere on the stage. */}
       <div className="absolute inset-0 touch-none" onPointerDown={handleTap}>
         {ripples.map((r) => (
           <span
@@ -112,16 +119,17 @@ export function KnockSurface({
         ))}
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
           <div className="text-center">
-            <div className="knock-core mx-auto mb-7 grid h-28 w-28 place-items-center rounded-full border border-white/15 text-[40px]">
-              ✊
+            <div className="relative mx-auto mb-7 h-28 w-28">
+              {taps > 0 ? <span key={taps} className="knock-hit-ring" /> : null}
+              <div className="knock-core absolute inset-0 grid place-items-center rounded-full border border-white/15 text-[40px]">
+                ✊
+              </div>
             </div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">
-              Tapping
+              Knock knock knock
             </p>
             <h2 className="mt-1 text-[26px] font-light">{name}</h2>
-            <p className="mt-2 text-[13px] text-white/40">
-              {taps === 0 ? "Tap anywhere" : "They feel every tap"}
-            </p>
+            <p className="mt-2 text-[13px] text-white/40">{knockLabel}</p>
           </div>
         </div>
       </div>
@@ -137,7 +145,7 @@ export function KnockSurface({
           onClick={onCall}
           className="rounded-full bg-white px-7 py-3 text-[14px] font-medium text-text transition-transform active:scale-95"
         >
-          Call {name}
+          Knock {name}
         </button>
       </div>
     </div>
@@ -179,16 +187,16 @@ export function KnockIncoming({
           ✊
         </div>
         <p className="text-[11px] uppercase tracking-[0.22em] text-text-secondary">
-          Tap tap
+          Knock knock knock
         </p>
         <h2 className="mt-1 text-[24px] font-light text-text">{name}</h2>
-        <p className="mt-1 text-[13px] text-text-secondary">is tapping you</p>
+        <p className="mt-1 text-[13px] text-text-secondary">is knocking</p>
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             onClick={onKnockBack}
             className="rounded-[10px] border border-hairline py-3 text-[14px] text-text transition-colors hover:border-text/30"
           >
-            Tap back
+            Knock back
           </button>
           <button
             onClick={onCall}

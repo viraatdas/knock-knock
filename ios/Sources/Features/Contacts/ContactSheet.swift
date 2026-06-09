@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Tap a contact -> their name, a real Knock action, and separate Audio/Video
-/// call actions. Knock starts a call-style ring with knock presentation.
+/// Tap a contact -> their name, a tap-to-reach action, and separate Audio/Video
+/// call actions. Tap starts a call-style ring with tap presentation.
 struct ContactSheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -41,10 +41,10 @@ struct ContactSheet: View {
                     .padding(.horizontal, Theme.Space.xxl)
                     .padding(.top, Theme.Space.sm)
 
-                ContactKnockButton { tap() }
+                ContactTapButton { tap() }
                     .padding(.top, Theme.Space.lg)
 
-                Text("Knock to ring them with a slide-to-pick-up.")
+                Text("Tap until they pick up.")
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
 
@@ -76,7 +76,7 @@ struct ContactSheet: View {
 
     private func tap() {
         guard let user else { return }
-        appState.startKnockCall(to: user)
+        appState.startKnockCall(to: user, video: isVideo)
         dismiss()
     }
 
@@ -89,22 +89,33 @@ struct ContactSheet: View {
 /// segment; tapping either side switches (with a selection haptic).
 private struct ModeSlider: View {
     @Binding var isVideo: Bool
+    @State private var dragX: CGFloat?
+    @State private var previewIsVideo: Bool?
 
     var body: some View {
-        ZStack {
-            Capsule().fill(Theme.Color.bgGrouped)
-            GeometryReader { geo in
+        GeometryReader { geo in
+            let width = geo.size.width
+            let height = geo.size.height
+            let selectedIsVideo = previewIsVideo ?? isVideo
+            let thumbWidth = max(0, width / 2 - 8)
+            let thumbX = dragX ?? (selectedIsVideo ? width * 0.75 : width * 0.25)
+
+            ZStack {
+                Capsule().fill(Theme.Color.bgGrouped)
                 Capsule()
                     .fill(Theme.Color.text)
-                    .frame(width: geo.size.width / 2 - 8, height: geo.size.height - 8)
-                    .position(x: isVideo ? geo.size.width * 0.75 : geo.size.width * 0.25,
-                              y: geo.size.height / 2)
-                    .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isVideo)
+                    .frame(width: thumbWidth, height: height - 8)
+                    .position(x: min(max(thumbX, width * 0.25), width * 0.75),
+                              y: height / 2)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isVideo)
+                    .animation(.interactiveSpring(response: 0.22, dampingFraction: 0.86), value: dragX)
+
+                HStack(spacing: 0) {
+                    segment("Audio", icon: "phone", selected: !selectedIsVideo) { set(false) }
+                    segment("Video", icon: "video", selected: selectedIsVideo) { set(true) }
+                }
             }
-            HStack(spacing: 0) {
-                segment("Audio", icon: "phone", selected: !isVideo) { set(false) }
-                segment("Video", icon: "video", selected: isVideo) { set(true) }
-            }
+            .gesture(slideGesture(width: width))
         }
         .frame(height: 48)
     }
@@ -113,6 +124,25 @@ private struct ModeSlider: View {
         guard v != isVideo else { return }
         Haptics.select()
         isVideo = v
+    }
+
+    private func slideGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let x = min(max(value.location.x, width * 0.25), width * 0.75)
+                let v = value.location.x >= width / 2
+                dragX = x
+                if previewIsVideo != v {
+                    previewIsVideo = v
+                    Haptics.select()
+                }
+            }
+            .onEnded { value in
+                let v = value.location.x >= width / 2
+                isVideo = v
+                dragX = nil
+                previewIsVideo = nil
+            }
     }
 
     private func segment(_ title: String, icon: String, selected: Bool,
@@ -130,8 +160,8 @@ private struct ModeSlider: View {
     }
 }
 
-/// The Knock pad: a large target that starts a call-style knock invitation.
-private struct ContactKnockButton: View {
+/// Large tap target that starts a call-style invitation.
+private struct ContactTapButton: View {
     let action: () -> Void
     @State private var ripple = false
 
@@ -151,13 +181,13 @@ private struct ContactKnockButton: View {
                     .fill(Theme.Color.bg)
                     .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
                     .frame(width: 140, height: 140)
-                Image(systemName: "hand.wave.fill")
-                    .font(.system(size: 52))
+                Text("tap")
+                    .font(.system(size: 34, weight: .medium))
                     .foregroundStyle(Theme.Color.accent)
             }
         }
-        .accessibilityLabel("Knock")
-        .accessibilityHint("Starts a knock call to this person")
+        .accessibilityLabel("Tap")
+        .accessibilityHint("Starts a tap call to this person")
         .buttonStyle(PressableButtonStyle())
     }
 }

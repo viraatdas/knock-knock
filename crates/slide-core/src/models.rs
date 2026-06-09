@@ -91,6 +91,8 @@ pub struct Call {
     pub call_type: CallType,
     pub created_by: Uuid,
     pub status: CallStatus,
+    pub video_enabled: bool,
+    pub ring_style: String,
     pub started_at: Option<DateTime<Utc>>,
     pub ended_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,

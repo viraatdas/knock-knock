@@ -77,18 +77,22 @@ fun InCallScreen(vm: InCallViewModel, onEnded: () -> Unit) {
         }
     }
 
-    val onVideoSurface = !state.audioOnly && state.remoteVideoActive
+    val isVideoCall = !state.audioOnly
+    val onVideoSurface = isVideoCall && state.remoteVideoActive
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (state.audioOnly) SlideColors.Bg else SlideColors.Ink)
+            .background(if (isVideoCall) SlideColors.Ink else SlideColors.Bg)
             .pointerInput(Unit) {
                 detectTapGestures { chromeVisible = !chromeVisible }
             },
     ) {
-        if (!onVideoSurface) {
+        if (!isVideoCall) {
             AudioOnlyStage(state)
+        } else if (!onVideoSurface) {
+            VideoConnectingStage(state)
+            DraggableSelfView(room = vm.room(), track = vm.localTrack())
         } else {
             // Full-bleed remote video behind the chrome + a draggable self-view.
             LiveKitVideoView(
@@ -106,7 +110,7 @@ fun InCallScreen(vm: InCallViewModel, onEnded: () -> Unit) {
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            TopChrome(state, onVideoSurface)
+            TopChrome(state, isVideoCall)
         }
 
         AnimatedVisibility(
@@ -117,7 +121,7 @@ fun InCallScreen(vm: InCallViewModel, onEnded: () -> Unit) {
         ) {
             ControlBar(
                 state = state,
-                onVideoSurface = onVideoSurface,
+                isVideoCall = isVideoCall,
                 onMute = { vm.toggleMic() },
                 onFlip = { vm.flipCamera() },
                 onVideo = { vm.toggleCamera() },
@@ -149,8 +153,34 @@ private fun AudioOnlyStage(state: CallUiState) {
 }
 
 @Composable
-private fun TopChrome(state: CallUiState, onVideoSurface: Boolean) {
-    val tint = if (onVideoSurface) SlideColors.OnVideo else SlideColors.Ink
+private fun VideoConnectingStage(state: CallUiState) {
+    Column(
+        modifier = Modifier.fillMaxSize().systemBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.weight(1f))
+        AvatarCircle(
+            name = state.peer?.displayName,
+            size = 120.dp,
+            backgroundColor = SlideColors.OnVideo.copy(alpha = 0.1f),
+            textColor = SlideColors.OnVideo,
+        )
+        Spacer(Modifier.height(24.dp))
+        Text(
+            state.peer?.displayName ?: "Calling…",
+            color = SlideColors.OnVideo,
+            fontWeight = FontWeight.Light,
+            fontSize = 28.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(videoWaitingText(state), color = SlideColors.OnVideo.copy(alpha = 0.7f), fontSize = 15.sp)
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun TopChrome(state: CallUiState, isVideoCall: Boolean) {
+    val tint = if (isVideoCall) SlideColors.OnVideo else SlideColors.Ink
     Column(
         modifier = Modifier.fillMaxWidth().systemBarsPadding().padding(top = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -169,13 +199,13 @@ private fun TopChrome(state: CallUiState, onVideoSurface: Boolean) {
 @Composable
 private fun ControlBar(
     state: CallUiState,
-    onVideoSurface: Boolean,
+    isVideoCall: Boolean,
     onMute: () -> Unit,
     onFlip: () -> Unit,
     onVideo: () -> Unit,
     onEnd: () -> Unit,
 ) {
-    val tint = if (onVideoSurface) SlideColors.OnVideo else SlideColors.Ink
+    val tint = if (isVideoCall) SlideColors.OnVideo else SlideColors.Ink
 
     Row(
         modifier = Modifier
@@ -192,20 +222,22 @@ private fun ControlBar(
             diameter = 56.dp,
             color = tint,
         )
-        CircleIconButton(
-            icon = Icons.Outlined.Cameraswitch,
-            contentDescription = "Flip camera",
-            onClick = onFlip,
-            diameter = 56.dp,
-            color = tint,
-        )
-        CircleIconButton(
-            icon = if (state.cameraEnabled) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
-            contentDescription = "Camera on/off",
-            onClick = onVideo,
-            diameter = 56.dp,
-            color = tint,
-        )
+        if (isVideoCall) {
+            CircleIconButton(
+                icon = Icons.Outlined.Cameraswitch,
+                contentDescription = "Flip camera",
+                onClick = onFlip,
+                diameter = 56.dp,
+                color = tint,
+            )
+            CircleIconButton(
+                icon = if (state.cameraEnabled) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
+                contentDescription = "Camera on/off",
+                onClick = onVideo,
+                diameter = 56.dp,
+                color = tint,
+            )
+        }
         CircleIconButton(
             icon = Icons.Outlined.CallEnd,
             contentDescription = "End call",
@@ -289,9 +321,16 @@ private fun LiveKitVideoView(
 }
 
 private fun statusText(state: CallUiState): String = when (state.connection) {
-    CallConnectionState.Connecting -> "Connecting…"
+    CallConnectionState.Connecting -> if (state.ringStyle == "knock") "Knocking…" else "Connecting…"
     CallConnectionState.Connected -> formatDuration(state.durationSec)
     CallConnectionState.Ended -> "Call ended"
     CallConnectionState.Failed -> "Call failed"
-    CallConnectionState.Idle -> "Calling…"
+    CallConnectionState.Idle -> if (state.ringStyle == "knock") "Knocking…" else "Calling…"
+}
+
+private fun videoWaitingText(state: CallUiState): String {
+    if (state.connection == CallConnectionState.Connected && !state.remoteVideoActive) {
+        return "Waiting for video"
+    }
+    return statusText(state)
 }

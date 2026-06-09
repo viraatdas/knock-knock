@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A lightweight incoming-knock banner — NOT CallKit. Shows "<name> is knocking"
-/// with "Knock back" and "Call" actions. Re-pulses on each received tap (driven
+/// A lightweight incoming tap banner — NOT CallKit. Shows "<name> is tapping"
+/// with "Tap back" and "Call" actions. Re-pulses on each received tap (driven
 /// by `knock.pulse`) and self-dismisses ~2.5s after the last tap (handled by
 /// AppState's auto-clear timer).
 struct IncomingKnockBanner: View {
@@ -17,8 +17,8 @@ struct IncomingKnockBanner: View {
                 Circle()
                     .fill(Theme.Color.bgGrouped)
                     .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
-                Image(systemName: "hand.wave.fill")
-                    .font(.system(size: 20))
+                Text("tap")
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Theme.Color.accent)
             }
             .frame(width: 44, height: 44)
@@ -28,7 +28,7 @@ struct IncomingKnockBanner: View {
                     .font(Theme.Font.callout)
                     .foregroundStyle(Theme.Color.text)
                     .lineLimit(1)
-                Text("is knocking")
+                Text("is tapping")
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
@@ -42,7 +42,7 @@ struct IncomingKnockBanner: View {
                     appState.clearIncomingKnock()
                     knockStageUser = user
                 } label: {
-                    Text("Knock back")
+                    Text("Tap back")
                         .font(Theme.Font.buttonSmall)
                         .foregroundStyle(Theme.Color.text)
                         .padding(.horizontal, Theme.Space.sm)

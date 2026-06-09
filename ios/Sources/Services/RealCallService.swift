@@ -107,6 +107,15 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         DispatchQueue.main.async {
             self.delegate?.callService(self, didUpdateParticipants: mapped)
         }
+        refreshRemoteVideoState()
+    }
+
+    private func refreshRemoteVideoState() {
+        let anyVideo = room.remoteParticipants.values.contains { $0.firstCameraVideoTrack != nil }
+        hasRemoteVideo = anyVideo
+        DispatchQueue.main.async {
+            self.delegate?.callServiceRemoteVideoBecameAvailable(self)
+        }
     }
 }
 
@@ -145,11 +154,21 @@ extension RealCallService: RoomDelegate {
     func room(_ room: Room, participant: LiveKit.RemoteParticipant,
               didSubscribeTrack publication: RemoteTrackPublication) {
         rebuildParticipants()
-        let anyVideo = room.remoteParticipants.values.contains { $0.firstCameraVideoTrack != nil }
-        if anyVideo && !hasRemoteVideo {
-            hasRemoteVideo = true
-            DispatchQueue.main.async { self.delegate?.callServiceRemoteVideoBecameAvailable(self) }
-        }
+    }
+
+    func room(_ room: Room, participant: LiveKit.RemoteParticipant,
+              didUnsubscribeTrack publication: RemoteTrackPublication) {
+        rebuildParticipants()
+    }
+
+    func room(_ room: Room, participant: LiveKit.RemoteParticipant,
+              didUnpublishTrack publication: RemoteTrackPublication) {
+        rebuildParticipants()
+    }
+
+    func room(_ room: Room, participant: Participant,
+              trackPublication: TrackPublication, didUpdateIsMuted isMuted: Bool) {
+        rebuildParticipants()
     }
 }
 

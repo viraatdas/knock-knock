@@ -33,7 +33,9 @@ class MockCallService : CallService {
             peer = request.peer,
             connection = CallConnectionState.Connecting,
             isIncoming = request.isIncoming,
-            audioOnly = true,            // mock has no real video
+            ringStyle = request.ringStyle,
+            cameraEnabled = request.videoEnabled,
+            audioOnly = !request.videoEnabled,
             remoteVideoActive = false,
         )
         scope.launch {
@@ -50,7 +52,7 @@ class MockCallService : CallService {
 
     override fun end() {
         ticker?.cancel()
-        _state.update { it.copy(connection = CallConnectionState.Ended) }
+        _state.value = CallUiState(connection = CallConnectionState.Ended)
     }
 
     override fun toggleMic(): Boolean {
@@ -60,6 +62,7 @@ class MockCallService : CallService {
     }
 
     override fun toggleCamera(): Boolean {
+        if (_state.value.audioOnly) return false
         val next = !_state.value.cameraEnabled
         _state.update { it.copy(cameraEnabled = next) }
         return next

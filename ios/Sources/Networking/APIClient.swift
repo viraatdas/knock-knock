@@ -153,10 +153,14 @@ actor APIClient {
 
     // MARK: - Calls control plane
 
-    func createCall(type: CallType, participantUserIds: [String]) async throws -> CallSession {
+    func createCall(type: CallType, participantUserIds: [String],
+                    videoEnabled: Bool = true,
+                    ringStyle: String = "call") async throws -> CallSession {
         let body: [String: Any] = [
             "type": type.rawValue,
-            "participantUserIds": participantUserIds
+            "participantUserIds": participantUserIds,
+            "videoEnabled": videoEnabled,
+            "ringStyle": ringStyle
         ]
         let data = try await send(path: "/calls", method: "POST", jsonObject: body,
                                   authenticated: true, allowEmpty: false)

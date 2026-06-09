@@ -97,9 +97,21 @@ pub async fn issue_session_for_phone(state: &AppState, e164: &str) -> AppResult<
                 .bind(e164)
                 .fetch_one(&state.db)
                 .await?;
-            if let Err(err) = contacts::link_existing_contacts_for_user(state, u.id, &u.phone).await
-            {
-                tracing::warn!(error = ?err, user_id = %u.id, "failed to link existing contacts for new user");
+            match contacts::link_existing_contacts_for_user(state, u.id, &u.phone).await {
+                Ok(owner_ids) => {
+                    if !owner_ids.is_empty() {
+                        let event = json!({
+                            "type": "contacts_updated",
+                            "reason": "contact_joined",
+                            "userId": u.id,
+                            "phone": &u.phone,
+                        });
+                        state.hub.publish_many(&owner_ids, &event).await;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(error = ?err, user_id = %u.id, "failed to link existing contacts for new user");
+                }
             }
             (u, true)
         }

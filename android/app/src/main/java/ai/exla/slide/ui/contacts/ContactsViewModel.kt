@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import ai.exla.slide.data.model.Contact
 import ai.exla.slide.data.repo.SlideRepository
+import ai.exla.slide.signaling.SignalingClient
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,13 +53,25 @@ data class ContactsState(
     }
 }
 
-class ContactsViewModel(private val repo: SlideRepository) : ViewModel() {
+class ContactsViewModel(
+    private val repo: SlideRepository,
+    private val signaling: SignalingClient,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(ContactsState())
     val state: StateFlow<ContactsState> = _state.asStateFlow()
     private var loadJob: Job? = null
 
-    init { load() }
+    init {
+        load()
+        viewModelScope.launch {
+            signaling.events.collect { event ->
+                if (event.type == "contacts_updated") {
+                    load(silent = true, force = true)
+                }
+            }
+        }
+    }
 
     fun setQuery(value: String) = _state.update { it.copy(query = value) }
 

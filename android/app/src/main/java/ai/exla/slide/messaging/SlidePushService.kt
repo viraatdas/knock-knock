@@ -1,6 +1,7 @@
 package ai.exla.slide.messaging
 
 import ai.exla.slide.SlideApp
+import ai.exla.slide.call.telecom.SlideConnectionService
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +19,7 @@ import kotlinx.coroutines.launch
  * then it is dead code that simply compiles.
  *
  * Expected data payload (all string values, FCM data is always strings):
- *   type       -> "incoming_call" | "knock"
+ *   type       -> "incoming_call" | "knock" | "call_ended" | "call_declined"
  *   callId     -> call id (or knock correlation id)
  *   fromUserId -> caller's user id
  *   fromName   -> caller's display name
@@ -44,6 +45,11 @@ class SlidePushService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         val data = message.data
         val type = data["type"]?.takeIf { it.isNotBlank() } ?: return
+        if (type == "call_ended" || type == "call_declined") {
+            IncomingCallNotifier.dismiss(this)
+            SlideConnectionService.endActiveConnectionFromRemote()
+            return
+        }
         if (type != "incoming_call" && type != "knock") return
 
         val callId = data["callId"]?.takeIf { it.isNotBlank() } ?: return
@@ -55,6 +61,9 @@ class SlidePushService : FirebaseMessagingService() {
                 fromUserId = data["fromUserId"].orEmpty(),
                 fromName = sanitizeCallerName(data["fromName"]),
                 callType = data["callType"]?.takeIf { it.isNotBlank() } ?: "one_to_one",
+                videoEnabled = data["videoEnabled"]?.toBooleanStrictOrNull() ?: true,
+                ringStyle = data["ringStyle"]?.takeIf { it.isNotBlank() }
+                    ?: if (data["knock"]?.toBooleanStrictOrNull() == true || type == "knock") "knock" else "call",
             ),
         )
     }

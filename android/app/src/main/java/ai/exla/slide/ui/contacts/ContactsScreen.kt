@@ -71,7 +71,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun ContactsScreen(
     vm: ContactsViewModel,
-    onCall: (CallPeer) -> Unit,
+    onCall: (CallPeer, Boolean) -> Unit,
     onKnock: (CallPeer) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -146,8 +146,8 @@ fun ContactsScreen(
             message = state.dialMessage,
             onCheck = vm::checkDialNumber,
             onInvite = { invite(context, state.dialNumber) },
-            onAudio = { state.dialLookup?.toPeer()?.let(onCall) },
-            onVideo = { state.dialLookup?.toPeer()?.let(onCall) },
+            onAudio = { state.dialLookup?.toPeer()?.let { onCall(it, false) } },
+            onVideo = { state.dialLookup?.toPeer()?.let { onCall(it, true) } },
             onKnock = { state.dialLookup?.toPeer()?.let(onKnock) },
         )
         Spacer(Modifier.height(8.dp))
@@ -199,11 +199,11 @@ fun ContactsScreen(
             onDismiss = { sheetContact = null },
             onAudio = {
                 sheetContact = null
-                onCall(contact.toPeer())
+                onCall(contact.toPeer(), false)
             },
             onVideo = {
                 sheetContact = null
-                onCall(contact.toPeer())
+                onCall(contact.toPeer(), true)
             },
             onKnock = {
                 sheetContact = null

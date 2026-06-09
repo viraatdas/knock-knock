@@ -17,6 +17,7 @@ final class ActiveCall: ObservableObject, Identifiable {
     let remotePhone: String
     let remoteUserId: String?
     let isVideo: Bool
+    let isKnock: Bool
 
     /// Whether this is a group call (more than one other participant).
     let isGroup: Bool
@@ -30,6 +31,7 @@ final class ActiveCall: ObservableObject, Identifiable {
 
     init(direction: Direction, remoteName: String, remotePhone: String,
          remoteUserId: String?, isVideo: Bool, status: Status,
+         isKnock: Bool = false,
          isGroup: Bool = false, memberNames: [String] = [],
          uuid: UUID = UUID()) {
         self.uuid = uuid
@@ -38,6 +40,7 @@ final class ActiveCall: ObservableObject, Identifiable {
         self.remotePhone = remotePhone
         self.remoteUserId = remoteUserId
         self.isVideo = isVideo
+        self.isKnock = isKnock
         self.status = status
         self.isGroup = isGroup
         self.memberNames = memberNames.isEmpty ? [remoteName] : memberNames

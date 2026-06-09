@@ -13,8 +13,10 @@ data class IncomingCallPayload(
     val fromUserId: String,
     val fromName: String,
     val callType: String,
+    val videoEnabled: Boolean,
+    val ringStyle: String,
 ) {
-    val isKnock: Boolean get() = type == "knock"
+    val isKnock: Boolean get() = type == "knock" || ringStyle == "knock"
 
     fun putInto(intent: Intent): Intent = intent.apply {
         putExtra(EXTRA_TYPE, type)
@@ -22,6 +24,8 @@ data class IncomingCallPayload(
         putExtra(EXTRA_FROM_USER_ID, fromUserId)
         putExtra(EXTRA_FROM_NAME, fromName)
         putExtra(EXTRA_CALL_TYPE, callType)
+        putExtra(EXTRA_VIDEO_ENABLED, videoEnabled)
+        putExtra(EXTRA_RING_STYLE, ringStyle)
     }
 
     companion object {
@@ -30,6 +34,8 @@ data class IncomingCallPayload(
         const val EXTRA_FROM_USER_ID = "ai.exla.slide.push.FROM_USER_ID"
         const val EXTRA_FROM_NAME = "ai.exla.slide.push.FROM_NAME"
         const val EXTRA_CALL_TYPE = "ai.exla.slide.push.CALL_TYPE"
+        const val EXTRA_VIDEO_ENABLED = "ai.exla.slide.push.VIDEO_ENABLED"
+        const val EXTRA_RING_STYLE = "ai.exla.slide.push.RING_STYLE"
 
         fun fromExtras(extras: Bundle?): IncomingCallPayload? {
             extras ?: return null
@@ -40,7 +46,21 @@ data class IncomingCallPayload(
                 fromUserId = extras.getString(EXTRA_FROM_USER_ID).orEmpty(),
                 fromName = sanitizeCallerName(extras.getString(EXTRA_FROM_NAME)),
                 callType = extras.getString(EXTRA_CALL_TYPE) ?: "one_to_one",
+                videoEnabled = extras.videoEnabled(),
+                ringStyle = extras.getString(EXTRA_RING_STYLE)
+                    ?: if (extras.getString(EXTRA_TYPE) == "knock") "knock" else "call",
             )
+        }
+
+        @Suppress("DEPRECATION")
+        private fun Bundle.videoEnabled(): Boolean {
+            if (!containsKey(EXTRA_VIDEO_ENABLED)) return true
+            val raw = get(EXTRA_VIDEO_ENABLED)
+            return when (raw) {
+                is Boolean -> raw
+                is String -> raw.toBooleanStrictOrNull() ?: true
+                else -> getBoolean(EXTRA_VIDEO_ENABLED, true)
+            }
         }
     }
 }

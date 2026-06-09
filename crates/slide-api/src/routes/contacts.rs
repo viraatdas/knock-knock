@@ -52,20 +52,24 @@ pub(crate) async fn link_existing_contacts_for_user(
     state: &AppState,
     user_id: uuid::Uuid,
     phone: &str,
-) -> AppResult<u64> {
-    let result = sqlx::query(
+) -> AppResult<Vec<uuid::Uuid>> {
+    let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(
         "UPDATE contacts
          SET contact_user_id = $1
          WHERE phone = $2
            AND owner_user_id <> $1
-           AND contact_user_id IS NULL",
+           AND contact_user_id IS NULL
+         RETURNING owner_user_id",
     )
     .bind(user_id)
     .bind(phone)
-    .execute(&state.db)
+    .fetch_all(&state.db)
     .await?;
 
-    Ok(result.rows_affected())
+    let mut owners: Vec<uuid::Uuid> = rows.into_iter().map(|(id,)| id).collect();
+    owners.sort();
+    owners.dedup();
+    Ok(owners)
 }
 
 async fn repair_owner_contacts(state: &AppState, owner_user_id: uuid::Uuid) -> AppResult<u64> {

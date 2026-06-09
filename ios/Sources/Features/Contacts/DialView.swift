@@ -29,7 +29,7 @@ struct DialView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: Theme.Space.xl) {
                 VStack(alignment: .leading, spacing: Theme.Space.sm) {
-                    Text("New call")
+                    Text("Callpad")
                         .font(Theme.Font.largeTitle)
                         .foregroundStyle(Theme.Color.text)
                 }
@@ -78,11 +78,11 @@ struct DialView: View {
                                     .foregroundStyle(Theme.Color.textSecondary)
                             }
                             Spacer()
-	                        }
-	                        PrimaryButton(title: "Tap") { tap(userId: userId) }
-	                        HStack(spacing: Theme.Space.md) {
-	                            PrimaryButton(title: "Audio") { call(userId: userId, name: name, video: false) }
-	                            PrimaryButton(title: "Video") { call(userId: userId, name: name, video: true) }
+                        }
+                        PrimaryButton(title: "Tap") { tap(userId: userId, name: name) }
+                        HStack(spacing: Theme.Space.md) {
+                            PrimaryButton(title: "Audio") { call(userId: userId, name: name, video: false) }
+                            PrimaryButton(title: "Video") { call(userId: userId, name: name, video: true) }
                         }
                     }
                 case .notOnSlide:
@@ -146,14 +146,17 @@ struct DialView: View {
         }
     }
 
-	    private func call(userId: String, name: String, video: Bool) {
-	        let user = User(id: userId, phone: e164, displayName: name,
-	                        avatarUrl: nil, createdAt: nil, lastSeenAt: nil)
-	        dismiss()
-	        appState.startCall(to: user, video: video)
-	    }
+    private func call(userId: String, name: String, video: Bool) {
+        let user = User(id: userId, phone: e164, displayName: name,
+                        avatarUrl: nil, createdAt: nil, lastSeenAt: nil)
+        dismiss()
+        appState.startCall(to: user, video: video)
+    }
 
-	    private func tap(userId: String) {
-	        appState.sendKnockTap(to: userId)
-	    }
-	}
+    private func tap(userId: String, name: String) {
+        let user = User(id: userId, phone: e164, displayName: name,
+                        avatarUrl: nil, createdAt: nil, lastSeenAt: nil)
+        dismiss()
+        appState.startKnockCall(to: user)
+    }
+}

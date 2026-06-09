@@ -23,19 +23,35 @@ class InCallViewModel(
     val state: StateFlow<CallUiState> = callService.state
 
     /** Place an outgoing one-to-one call to a peer user. */
-    fun placeCall(peer: CallPeer) {
+    fun placeCall(peer: CallPeer, videoEnabled: Boolean, ringStyle: String = "call") {
         viewModelScope.launch {
-            repo.createCall(peer.userId).onSuccess { session ->
-                callService.start(StartCallRequest(session, peer, isIncoming = false))
+            repo.createCall(peer.userId, videoEnabled, ringStyle).onSuccess { session ->
+                callService.start(
+                    StartCallRequest(
+                        session,
+                        peer,
+                        isIncoming = false,
+                        videoEnabled = session.call.videoEnabled,
+                        ringStyle = session.call.ringStyle,
+                    )
+                )
             }
         }
     }
 
     /** Accept an incoming call by id. */
-    fun acceptCall(callId: String, peer: CallPeer) {
+    fun acceptCall(callId: String, peer: CallPeer, videoEnabled: Boolean) {
         viewModelScope.launch {
             repo.acceptCall(callId).onSuccess { session ->
-                callService.start(StartCallRequest(session, peer, isIncoming = true))
+                callService.start(
+                    StartCallRequest(
+                        session,
+                        peer,
+                        isIncoming = true,
+                        videoEnabled = session.call.videoEnabled,
+                        ringStyle = session.call.ringStyle,
+                    )
+                )
             }
         }
     }
@@ -77,6 +93,8 @@ class InCallViewModel(
                 ),
                 peer = peer,
                 isIncoming = false,
+                videoEnabled = true,
+                ringStyle = "call",
             )
         )
     }

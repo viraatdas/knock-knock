@@ -254,6 +254,9 @@ struct ContactsView: View {
             guard phase == .active else { return }
             Task { await refreshContacts(showLoading: false) }
         }
+        .onChange(of: appState.contacts) { _, contacts in
+            vm.replaceContacts(contacts)
+        }
         .sheet(item: $selected) { contact in
             ContactSheet(contact: contact, onInvite: { inviteTarget = contact })
                 .environmentObject(appState)

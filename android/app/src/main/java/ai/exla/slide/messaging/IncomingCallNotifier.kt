@@ -73,12 +73,16 @@ object IncomingCallNotifier {
         val acceptPi = actionPendingIntent(context, ACTION_ACCEPT, payload)
         val declinePi = actionPendingIntent(context, ACTION_DECLINE, payload)
 
-        val label = if (payload.isKnock) "Knock from ${payload.fromName}" else payload.fromName
-        val subtitle = if (payload.isKnock) "is knocking" else "Incoming call"
+        val callerLabel = if (payload.isKnock) "${payload.fromName} is knocking" else payload.fromName
+        val subtitle = when {
+            payload.isKnock -> "is knocking"
+            payload.videoEnabled -> "Incoming video call"
+            else -> "Incoming call"
+        }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.sym_call_incoming)
-            .setContentTitle(label)
+            .setContentTitle(callerLabel)
             .setContentText(subtitle)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -88,7 +92,7 @@ object IncomingCallNotifier {
             .setFullScreenIntent(fullScreenPi, true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val caller = Person.Builder().setName(payload.fromName).setImportant(true).build()
+            val caller = Person.Builder().setName(callerLabel).setImportant(true).build()
             builder.setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(caller, declinePi, acceptPi)
             )

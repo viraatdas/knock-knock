@@ -26,7 +26,8 @@ final class PushService: NSObject, @unchecked Sendable {
     /// Invoked when a VoIP push arrives. AppState wires this up to surface the
     /// call and join it on answer. Parameters mirror the push payload.
     var onIncomingCall: ((_ callId: String, _ fromUserId: String?,
-                          _ fromName: String?, _ callType: CallType) -> Void)?
+                          _ fromName: String?, _ callType: CallType,
+                          _ videoEnabled: Bool, _ ringStyle: String) -> Void)?
 
     private override init() { super.init() }
 
@@ -75,7 +76,10 @@ extension PushService: PKPushRegistryDelegate {
         let fromName = Self.sanitizedName(dict["fromName"] as? String) ?? "Slide"
         let callTypeRaw = (dict["callType"] as? String) ?? CallType.oneToOne.rawValue
         let callType = CallType(rawValue: callTypeRaw) ?? .oneToOne
-        let hasVideo = callType == .oneToOne ? true : true
+        let hasVideo = Self.boolValue(dict["videoEnabled"]) ?? true
+        let ringStyle = (dict["ringStyle"] as? String)
+            ?? ((Self.boolValue(dict["knock"]) ?? false) ? "knock" : "call")
+        let displayName = ringStyle == "knock" ? "\(fromName) is tapping" : fromName
 
         // CRITICAL: report an incoming call to CallKit synchronously on every
         // VoIP push, before returning, or iOS will kill the app. We mint a
@@ -83,11 +87,11 @@ extension PushService: PKPushRegistryDelegate {
         // match this CallKit call to the server-side call.
         let uuid = Self.uuid(for: callId)
         CallKitManager.shared.reportIncomingCall(
-            uuid: uuid, handle: fromName, displayName: fromName,
+            uuid: uuid, handle: fromName, displayName: displayName,
             hasVideo: hasVideo) { _ in completion() }
 
         // Hand off to the app layer so answering actually joins the call.
-        onIncomingCall?(callId, fromUserId, fromName, callType)
+        onIncomingCall?(callId, fromUserId, fromName, callType, hasVideo, ringStyle)
     }
 
     /// Derive a stable UUID from the server call id so the CallKit call UUID is
@@ -116,5 +120,20 @@ extension PushService: PKPushRegistryDelegate {
             return nil
         }
         return name
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool? {
+        switch value {
+        case let b as Bool:
+            return b
+        case let s as String:
+            if s.caseInsensitiveCompare("true") == .orderedSame { return true }
+            if s.caseInsensitiveCompare("false") == .orderedSame { return false }
+            return nil
+        case let n as NSNumber:
+            return n.boolValue
+        default:
+            return nil
+        }
     }
 }

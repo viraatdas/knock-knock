@@ -46,6 +46,15 @@ type ContactSyncResult = {
   onSlide: boolean;
 };
 
+type ServerContact = {
+  id: string;
+  ownerUserId: string;
+  contactUserId?: string | null;
+  phone: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+};
+
 type IceServer = {
   urls: string[];
   username?: string | null;
@@ -56,6 +65,23 @@ type Call = {
   id: string;
   type?: string;
   createdBy?: string;
+  status?: string;
+  videoEnabled?: boolean;
+  ringStyle?: string;
+  participants?: CallParticipant[];
+};
+
+type CallParticipant = {
+  userId: string;
+  state?: string;
+  displayName?: string | null;
+  phone?: string | null;
+  avatarUrl?: string | null;
+};
+
+type HistoryResponse = {
+  calls: Call[];
+  nextCursor?: string | null;
 };
 
 type CallSession = {
@@ -71,6 +97,10 @@ type SignalEvent = {
   callType?: string;
   fromUserId?: string;
   fromName?: string;
+  phone?: string;
+  videoEnabled?: boolean | string;
+  ringStyle?: string;
+  knock?: boolean | string;
   call?: Call;
   from?: string | User;
 };
@@ -79,6 +109,8 @@ type IncomingCall = {
   callId: string;
   fromUserId: string;
   fromName: string;
+  video: boolean;
+  ringStyle: string;
 };
 
 type ActiveCall = {
@@ -285,7 +317,35 @@ function incomingFrom(event: SignalEvent): IncomingCall | null {
     fromObject?.displayName ??
     fromObject?.phone ??
     "Slide";
-  return { callId, fromUserId, fromName };
+  const rawVideo = event.videoEnabled ?? event.call?.videoEnabled;
+  const video =
+    typeof rawVideo === "string" ? rawVideo !== "false" : rawVideo ?? true;
+  const isKnock = event.knock === true || event.knock === "true";
+  const ringStyle =
+    event.ringStyle ?? event.call?.ringStyle ?? (isKnock ? "knock" : "call");
+  return { callId, fromUserId, fromName, video, ringStyle };
+}
+
+function incomingFromCall(call: Call, currentUserId: string): IncomingCall | null {
+  const me = call.participants?.find((participant) => participant.userId === currentUserId);
+  if (me?.state !== "ringing" || call.createdBy === currentUserId) return null;
+  const caller = call.participants?.find((participant) => participant.userId === call.createdBy);
+  return {
+    callId: call.id,
+    fromUserId: call.createdBy ?? caller?.userId ?? "unknown",
+    fromName: caller?.displayName ?? caller?.phone ?? "Slide",
+    video: call.videoEnabled ?? true,
+    ringStyle: call.ringStyle ?? "call",
+  };
+}
+
+function serverContactToContact(contact: ServerContact): Contact | null {
+  if (!contact.contactUserId) return null;
+  return {
+    userId: contact.contactUserId,
+    phone: contact.phone,
+    displayName: contact.displayName,
+  };
 }
 
 function assertBrowserReachableSfu(session: CallSession) {
@@ -361,6 +421,7 @@ export default function SlideWebApp() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [recents, setRecents] = useState<RecentCall[]>([]);
   const [peerConnected, setPeerConnected] = useState(false);
+  const [remoteVideoReady, setRemoteVideoReady] = useState(false);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -378,6 +439,7 @@ export default function SlideWebApp() {
   const callStartRef = useRef<number | null>(null);
   const everConnectedRef = useRef(false);
   const incomingRef = useRef<IncomingCall | null>(null);
+  const activeCallRef = useRef<ActiveCall | null>(null);
   const knockSeq = useRef(0);
   const knockLastTap = useRef<number | null>(null);
   const knockClearTimer = useRef<number | null>(null);
@@ -489,6 +551,15 @@ export default function SlideWebApp() {
     incomingRef.current = incoming;
   }, [incoming]);
 
+  const setCurrentActiveCall = useCallback((next: ActiveCall | null) => {
+    activeCallRef.current = next;
+    setActiveCall(next);
+  }, []);
+
+  useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
   useEffect(() => {
     knockSessionRef.current = knockSession;
   }, [knockSession]);
@@ -565,23 +636,91 @@ export default function SlideWebApp() {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") {
       return;
     }
-    new Notification("Incoming Slide call", {
-      body: `${call.fromName} is calling your browser.`,
+    const isKnock = call.ringStyle === "knock";
+    new Notification(isKnock ? `${call.fromName} is knocking` : "Incoming Slide call", {
+      body: isKnock ? "Open Slide to answer." : `${call.fromName} is calling your browser.`,
       icon: "/icon.svg",
       tag: `slide-${call.callId}`,
     });
   }, []);
+
+  const hydrateIncomingCalls = useCallback(
+    async (preferredCallId?: string | null) => {
+      if (!tokensRef.current || !user?.id) return false;
+      const response = await authedFetch<HistoryResponse>("/calls?limit=20");
+      const incomingCalls = response.calls
+        .map((call) => incomingFromCall(call, user.id))
+        .filter((call): call is IncomingCall => Boolean(call));
+      const next =
+        incomingCalls.find((call) => call.callId === preferredCallId) ?? incomingCalls[0];
+      if (!next) {
+        if (preferredCallId) {
+          setIncoming((current) => (current?.callId === preferredCallId ? null : current));
+        }
+        return false;
+      }
+      setIncoming(next);
+      incomingRef.current = next;
+      setStatus("Incoming call");
+      playRingtone();
+      return true;
+    },
+    [authedFetch, playRingtone, user?.id],
+  );
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const message = event.data as { type?: string; call?: SignalEvent } | null;
+      if (message?.type !== "slide-notification-click") return;
+      const next = message.call ? incomingFrom(message.call) : null;
+      if (next) {
+        setIncoming(next);
+        incomingRef.current = next;
+        setStatus("Incoming call");
+      }
+      void hydrateIncomingCalls(next?.callId ?? message.call?.callId).catch(() => undefined);
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [hydrateIncomingCalls]);
+
+  useEffect(() => {
+    if (!signedIn || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const callId = params.get("incomingCallId");
+    void hydrateIncomingCalls(callId).catch(() => undefined);
+    if (callId) {
+      params.delete("incomingCallId");
+      const query = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${query ? `?${query}` : ""}`,
+      );
+    }
+  }, [hydrateIncomingCalls, signedIn]);
 
   const rememberContact = useCallback((contact: Contact) => {
     setContacts((current) => {
       const next = [
         contact,
         ...current.filter((entry) => entry.userId !== contact.userId),
-      ].slice(0, 12);
+      ];
       saveList("slide.web.contacts", next);
       return next;
     });
   }, []);
+
+  const refreshContacts = useCallback(async () => {
+    if (!tokensRef.current) return;
+    const serverContacts = await authedFetch<ServerContact[]>("/contacts");
+    const onSlideContacts = serverContacts
+      .map(serverContactToContact)
+      .filter((contact): contact is Contact => Boolean(contact));
+    saveList("slide.web.contacts", onSlideContacts);
+    setContacts(onSlideContacts);
+  }, [authedFetch]);
 
   const recordRecent = useCallback((call: RecentCall) => {
     setRecents((current) => {
@@ -591,6 +730,15 @@ export default function SlideWebApp() {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    void refreshContacts().catch(() => undefined);
+    const id = window.setInterval(() => {
+      void refreshContacts().catch(() => undefined);
+    }, 15000);
+    return () => window.clearInterval(id);
+  }, [refreshContacts, signedIn]);
 
   useEffect(() => {
     if (!tokens) {
@@ -629,88 +777,93 @@ export default function SlideWebApp() {
       };
       ws.onerror = () => setStatus("Signaling error");
       ws.onmessage = (message) => {
-      let event: SignalEvent | null = null;
-      try {
-        event = JSON.parse(String(message.data)) as SignalEvent;
-      } catch {
-        event = null;
-      }
-      if (!event) return;
-      if (event.type === "incoming_call") {
-        const next = incomingFrom(event);
-        if (!next) return;
-        setIncoming(next);
-        setStatus("Incoming call");
-        playRingtone();
-        showNotification(next);
-      }
-      if (event.type === "knock") {
-        const fromUserId = event.fromUserId ?? "";
-        const fromName = event.fromName ?? "Someone";
-        // Every tap feels + sounds, with gentle pitch variation so a rhythm
-        // reads as musical rather than robotic.
-        playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
-        vibrateKnock();
-
-        // If we're already in the duet stage with this person, land their tap
-        // there (a blooming ripple) instead of popping the incoming card.
-        if (knockSessionRef.current?.userId === fromUserId) {
-          setKnockTheirPulse((n) => n + 1);
+        let event: SignalEvent | null = null;
+        try {
+          event = JSON.parse(String(message.data)) as SignalEvent;
+        } catch {
+          event = null;
+        }
+        if (!event) return;
+        if (event.type === "contacts_updated") {
+          void refreshContacts().catch(() => undefined);
           return;
         }
+        if (event.type === "incoming_call") {
+          const next = incomingFrom(event);
+          if (!next) return;
+          setIncoming(next);
+          setStatus("Incoming call");
+          playRingtone();
+          showNotification(next);
+        }
+        if (event.type === "knock") {
+          const fromUserId = event.fromUserId ?? "";
+          const fromName = event.fromName ?? "Someone";
+          // Every tap feels + sounds, with gentle pitch variation so a rhythm
+          // reads as musical rather than robotic.
+          playKnock(ensureAudio(), 0.9 + Math.random() * 0.2);
+          vibrateKnock();
 
-        setKnocking((cur) => ({
-          fromUserId,
-          fromName,
-          pulse: (cur?.fromUserId === fromUserId ? cur.pulse : 0) + 1,
-        }));
-        // Fire a system notification once per knock burst (a fresh burst starts
-        // after a >2s gap) so a knock reaches you even when the tab is in the
-        // background; the per-tap sound + vibration carry the rhythm.
-        const nowMs = Date.now();
-        if (nowMs - knockNotifyAt.current > 2000) {
-          knockNotifyAt.current = nowMs;
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            try {
-              new Notification(`${fromName} is tapping`, {
-                tag: "slide-knock",
-                renotify: true,
-                silent: false,
-              } as NotificationOptions);
-            } catch {
-              // Some browsers only allow notifications from a service worker.
+          // If we're already in the duet stage with this person, land their tap
+          // there (a blooming ripple) instead of popping the incoming card.
+          if (knockSessionRef.current?.userId === fromUserId) {
+            setKnockTheirPulse((n) => n + 1);
+            return;
+          }
+
+          setKnocking((cur) => ({
+            fromUserId,
+            fromName,
+            pulse: (cur?.fromUserId === fromUserId ? cur.pulse : 0) + 1,
+          }));
+          // Fire a system notification once per knock burst (a fresh burst starts
+          // after a >2s gap) so a knock reaches you even when the tab is in the
+          // background; the per-tap sound + vibration carry the rhythm.
+          const nowMs = Date.now();
+          if (nowMs - knockNotifyAt.current > 2000) {
+            knockNotifyAt.current = nowMs;
+            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+              try {
+                new Notification(`${fromName} is knocking`, {
+                  tag: "slide-knock",
+                  renotify: true,
+                  silent: false,
+                } as NotificationOptions);
+              } catch {
+                // Some browsers only allow notifications from a service worker.
+              }
             }
           }
+          if (knockClearTimer.current) window.clearTimeout(knockClearTimer.current);
+          knockClearTimer.current = window.setTimeout(() => setKnocking(null), 4000);
         }
-        if (knockClearTimer.current) window.clearTimeout(knockClearTimer.current);
-        knockClearTimer.current = window.setTimeout(() => setKnocking(null), 4000);
-      }
-      if (event.type === "call_ended" || event.type === "call_declined") {
-        const ringing = incomingRef.current;
-        const matchesRinging =
-          ringing &&
-          (ringing.callId === event.callId || ringing.callId === event.call?.id);
-        if (matchesRinging && !activeCall) {
-          recordRecent({
-            id: `${ringing!.callId}-missed`,
-            peerName: ringing!.fromName,
-            userId: ringing!.fromUserId,
-            direction: "incoming",
-            video: false,
-            startedAt: Date.now(),
-            durationSec: 0,
-            connected: false,
-          });
+        if (event.type === "call_ended" || event.type === "call_declined") {
+          const ringing = incomingRef.current;
+          const matchesRinging =
+            ringing &&
+            (ringing.callId === event.callId || ringing.callId === event.call?.id);
+          if (matchesRinging && !activeCallRef.current) {
+            recordRecent({
+              id: `${ringing!.callId}-missed`,
+              peerName: ringing!.fromName,
+              userId: ringing!.fromUserId,
+              direction: "incoming",
+              video: ringing.video,
+              startedAt: Date.now(),
+              durationSec: 0,
+              connected: false,
+            });
+          }
+          setIncoming((current) =>
+            current?.callId === event.callId || current?.callId === event.call?.id
+              ? null
+              : current,
+          );
+          const currentCall = activeCallRef.current;
+          if (currentCall?.callId === event.callId || currentCall?.callId === event.call?.id) {
+            endCall(false);
+          }
         }
-        setIncoming((current) =>
-          current?.callId === event.callId || current?.callId === event.call?.id
-            ? null
-            : current,
-        );
-        if (activeCall?.callId === event.callId || activeCall?.callId === event.call?.id) {
-          endCall(false);
-        }
-      }
       };
     };
 
@@ -723,10 +876,10 @@ export default function SlideWebApp() {
       signalingSocket.current = null;
     };
   }, [
-    activeCall?.callId,
     ensureAudio,
     ensureFreshToken,
     playRingtone,
+    refreshContacts,
     recordRecent,
     showNotification,
     tokens,
@@ -736,7 +889,7 @@ export default function SlideWebApp() {
     (toUserId: string) => {
       const sock = signalingSocket.current;
       if (!sock || sock.readyState !== WebSocket.OPEN) {
-        setStatus("Tap needs browser calls online");
+        setStatus("Knock needs browser calls online");
         return;
       }
       const now = Date.now();
@@ -910,6 +1063,7 @@ export default function SlideWebApp() {
         peerName?: string;
       },
       video: boolean,
+      ringStyle = "call",
     ) => {
       if (!entry.userId) {
         if (entry.phone) {
@@ -926,6 +1080,7 @@ export default function SlideWebApp() {
           onSlide: true,
         },
         video,
+        ringStyle,
       );
     },
     // startCall is stable across renders for our purposes
@@ -959,17 +1114,29 @@ export default function SlideWebApp() {
     stopRingtone();
     setStatus("Connecting media");
     setPeerConnected(false);
+    setRemoteVideoReady(false);
     setMuted(false);
     setCameraOff(false);
     everConnectedRef.current = false;
     callStartRef.current = Date.now();
     assertBrowserReachableSfu(session);
+    setCurrentActiveCall({
+      callId: session.call.id,
+      peerName,
+      direction,
+      video,
+      phone: meta.phone ?? null,
+      userId: meta.userId ?? null,
+    });
 
     // Remote media accumulates here as the other participant publishes tracks.
     const remote = new MediaStream();
     setRemoteStream(remote);
 
-    const refreshRemote = () => setRemoteStream(new MediaStream(remote.getTracks()));
+    const refreshRemote = () => {
+      setRemoteStream(new MediaStream(remote.getTracks()));
+      setRemoteVideoReady(remote.getVideoTracks().some((track) => track.readyState === "live"));
+    };
     const markConnected = () => {
       setStatus("Connected");
       setPeerConnected(true);
@@ -1012,11 +1179,21 @@ export default function SlideWebApp() {
       if (room.current === lkRoom) endCall(false);
     });
 
-    // Connect, then publish camera/mic. TCP fallback (port 7881) is built in,
-    // so this works even where UDP is blocked.
-    await lkRoom.connect(session.sfuUrl, session.joinToken);
-    await lkRoom.localParticipant.setMicrophoneEnabled(true);
-    await lkRoom.localParticipant.setCameraEnabled(video);
+    try {
+      // Connect, then publish camera/mic. TCP fallback (port 7881) is built in,
+      // so this works even where UDP is blocked.
+      await lkRoom.connect(session.sfuUrl, session.joinToken);
+      await lkRoom.localParticipant.setMicrophoneEnabled(true);
+      await lkRoom.localParticipant.setCameraEnabled(video);
+    } catch (error) {
+      if (room.current === lkRoom) room.current = null;
+      lkRoom.disconnect();
+      setLocalStream(null);
+      setRemoteStream(null);
+      setRemoteVideoReady(false);
+      setCurrentActiveCall(null);
+      throw error;
+    }
 
     // Mirror the locally published tracks into a stream for the self-preview.
     const localTracks: MediaStreamTrack[] = [];
@@ -1026,7 +1203,7 @@ export default function SlideWebApp() {
     });
     setLocalStream(new MediaStream(localTracks));
 
-    setActiveCall({
+    setCurrentActiveCall({
       callId: session.call.id,
       peerName,
       direction,
@@ -1036,7 +1213,11 @@ export default function SlideWebApp() {
     });
   };
 
-  const startCall = async (contact: ContactSyncResult, video: boolean) => {
+  const startCall = async (
+    contact: ContactSyncResult,
+    video: boolean,
+    ringStyle = "call",
+  ) => {
     if (!tokensRef.current || !contact.userId) return;
     if (contact.userId === user?.id) {
       setCallError("You can't call your own number.");
@@ -1055,6 +1236,8 @@ export default function SlideWebApp() {
         body: JSON.stringify({
           type: "one_to_one",
           participantUserIds: [contact.userId],
+          videoEnabled: video,
+          ringStyle,
         }),
       });
       await startMedia(
@@ -1074,7 +1257,7 @@ export default function SlideWebApp() {
     }
   };
 
-  const acceptIncoming = async (video: boolean) => {
+  const acceptIncoming = async () => {
     if (!tokensRef.current || !incoming) return;
     try {
       const call = incoming;
@@ -1083,7 +1266,7 @@ export default function SlideWebApp() {
         `/calls/${call.callId}/accept`,
         { method: "POST" },
       );
-      await startMedia(session, call.fromName, "incoming", video, {
+      await startMedia(session, call.fromName, "incoming", call.video, {
         userId: call.fromUserId,
       });
     } catch (error) {
@@ -1107,7 +1290,7 @@ export default function SlideWebApp() {
       peerName: call.fromName,
       userId: call.fromUserId,
       direction: "incoming",
-      video: false,
+      video: call.video,
       startedAt: Date.now(),
       durationSec: 0,
       connected: false,
@@ -1120,38 +1303,40 @@ export default function SlideWebApp() {
 
   const endCall = (notifyServer = true) => {
     stopRingtone();
+    const currentCall = activeCallRef.current;
     // Null the ref first so the room's Disconnected handler doesn't re-enter.
     const lkRoom = room.current;
     room.current = null;
     lkRoom?.disconnect();
     localStream?.getTracks().forEach((track) => track.stop());
     remoteStream?.getTracks().forEach((track) => track.stop());
-    if (activeCall) {
+    if (currentCall) {
       const connected = everConnectedRef.current;
       const startedAt = callStartRef.current ?? Date.now();
       recordRecent({
-        id: `${activeCall.callId}-${startedAt}`,
-        peerName: activeCall.peerName,
-        phone: activeCall.phone,
-        userId: activeCall.userId,
-        direction: activeCall.direction,
-        video: activeCall.video,
+        id: `${currentCall.callId}-${startedAt}`,
+        peerName: currentCall.peerName,
+        phone: currentCall.phone,
+        userId: currentCall.userId,
+        direction: currentCall.direction,
+        video: currentCall.video,
         startedAt,
         durationSec: connected ? Math.round((Date.now() - startedAt) / 1000) : 0,
         connected,
       });
     }
-    if (notifyServer && tokensRef.current && activeCall) {
-      void authedFetch(`/calls/${activeCall.callId}/leave`, {
+    if (notifyServer && tokensRef.current && currentCall) {
+      void authedFetch(`/calls/${currentCall.callId}/leave`, {
         method: "POST",
       }).catch(() => undefined);
     }
     callStartRef.current = null;
     everConnectedRef.current = false;
     setPeerConnected(false);
+    setRemoteVideoReady(false);
     setLocalStream(null);
     setRemoteStream(null);
-    setActiveCall(null);
+    setCurrentActiveCall(null);
     setStatus("Ready");
   };
 
@@ -1341,10 +1526,10 @@ export default function SlideWebApp() {
                       </button>
                     </div>
 
-                    {/* Tap pad: opens the realtime Tap surface. */}
+                    {/* Knock pad: opens the realtime Knock surface. */}
                     <div className="mt-6 flex flex-col items-center">
                       <button
-                        aria-label={`Tap ${lookup.contact.displayName || lookup.contact.phone}`}
+                        aria-label={`Knock ${lookup.contact.displayName || lookup.contact.phone}`}
                         onClick={() => {
                           if (!lookup.contact.userId) return;
                           openKnock(
@@ -1357,7 +1542,7 @@ export default function SlideWebApp() {
                         ✊
                       </button>
                       <p className="mt-3 text-[13px] text-text-secondary">
-                        Tap a rhythm. They feel every tap.
+                        Knock knock knock. They feel every knock.
                       </p>
                       <button
                         onClick={() => startCall(lookup.contact, dialVideo)}
@@ -1421,7 +1606,7 @@ export default function SlideWebApp() {
 	                            <button
 	                              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline text-[17px] text-text transition-colors hover:border-text/30"
 	                              onClick={() => openKnock(contact.userId, name)}
-	                              aria-label={`Tap ${name}`}
+	                              aria-label={`Knock ${name}`}
 	                            >
 	                              ✊
 	                            </button>
@@ -1467,47 +1652,63 @@ export default function SlideWebApp() {
                     {recents.slice(0, 6).map((call) => {
                       const missed = !call.connected;
                       return (
-                        <button
+                        <div
                           key={call.id}
-                          className="group flex items-center gap-3 rounded-[8px] px-2 py-2 text-left transition-colors hover:bg-bg-grouped"
-                          onClick={() => callContact(call, call.video)}
+                          className="group flex items-center gap-2 rounded-[8px] px-2 py-2 transition-colors hover:bg-bg-grouped"
                         >
-                          <span
-                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                              missed
-                                ? "bg-danger/10 text-danger"
-                                : "bg-bg-grouped text-text-secondary"
-                            }`}
+                          <button
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            onClick={() => callContact(call, false, "knock")}
+                            aria-label={`Knock ${call.peerName}`}
                           >
-                            {call.direction === "incoming" ? (
-                              <ArrowIncomingIcon className="h-4 w-4" />
-                            ) : (
-                              <ArrowOutgoingIcon className="h-4 w-4" />
-                            )}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className={`truncate text-[15px] ${
-                                missed ? "text-danger" : "text-text"
+                            <span
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                                missed
+                                  ? "bg-danger/10 text-danger"
+                                  : "bg-bg-grouped text-text-secondary"
                               }`}
                             >
-                              {call.peerName}
-                            </p>
-                            <p className="truncate text-[12px] text-text-secondary">
-                              {call.video ? "Video" : "Audio"} · {recentOutcome(call)}
-                            </p>
-                          </div>
+                              {call.direction === "incoming" ? (
+                                <ArrowIncomingIcon className="h-4 w-4" />
+                              ) : (
+                                <ArrowOutgoingIcon className="h-4 w-4" />
+                              )}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span
+                                className={`block truncate text-[15px] ${
+                                  missed ? "text-danger" : "text-text"
+                                }`}
+                              >
+                                {call.peerName}
+                              </span>
+                              <span className="block truncate text-[12px] text-text-secondary">
+                                {call.video ? "Video" : "Audio"} · {recentOutcome(call)}
+                              </span>
+                            </span>
+                          </button>
                           <span className="shrink-0 text-[12px] text-text-secondary">
                             {relativeTime(call.startedAt)}
                           </span>
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-secondary opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-hairline text-[15px] text-text transition-colors hover:border-text/30"
+                            onClick={() => callContact(call, false, "knock")}
+                            aria-label={`Knock ${call.peerName}`}
+                          >
+                            ✊
+                          </button>
+                          <button
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-secondary transition-colors hover:text-text"
+                            onClick={() => callContact(call, call.video)}
+                            aria-label={`Call ${call.peerName}`}
+                          >
                             {call.video ? (
                               <VideoIcon className="h-4 w-4" />
                             ) : (
                               <PhoneIcon className="h-4 w-4" />
                             )}
-                          </span>
-                        </button>
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1535,13 +1736,13 @@ export default function SlideWebApp() {
             autoPlay
             playsInline
             className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
-              activeCall.video && peerConnected && status !== "Call failed"
+              activeCall.video && remoteVideoReady && status !== "Call failed"
                 ? "opacity-100"
                 : "opacity-0"
             }`}
           />
 
-          {!(activeCall.video && peerConnected && status !== "Call failed") ? (
+          {!(activeCall.video && remoteVideoReady && status !== "Call failed") ? (
             <div className="absolute inset-0 grid place-items-center px-6">
               <div className="flex flex-col items-center text-center">
                 <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-[34px] font-light backdrop-blur-sm">
@@ -1551,8 +1752,10 @@ export default function SlideWebApp() {
                 <p className="mt-2 text-[15px] text-white/60">
                   {status === "Call failed"
                     ? "Call failed"
-                    : peerConnected
-                      ? formatDuration(elapsed)
+                    : activeCall.video && peerConnected && !remoteVideoReady
+                      ? "Waiting for video…"
+                      : peerConnected
+                        ? formatDuration(elapsed)
                       : activeCall.direction === "outgoing"
                         ? "Calling…"
                         : "Connecting…"}
@@ -1637,7 +1840,8 @@ export default function SlideWebApp() {
             setKnockSession(null);
             startCall(
               { phone: s.name, displayName: s.name, userId: s.userId, onSlide: true },
-              true,
+              false,
+              "knock",
             );
           }}
           onClose={() => setKnockSession(null)}
@@ -1672,7 +1876,13 @@ export default function SlideWebApp() {
               {initials(incoming.fromName)}
             </div>
             <h2 className="mt-5 text-[30px] font-light text-text">{incoming.fromName}</h2>
-            <p className="mt-1 text-[14px] text-text-secondary">Incoming browser call</p>
+            <p className="mt-1 text-[14px] text-text-secondary">
+              {incoming.ringStyle === "knock"
+                ? "is knocking"
+                : incoming.video
+                  ? "Incoming browser video call"
+                  : "Incoming browser call"}
+            </p>
             <div className="mt-8 flex items-end justify-center gap-6">
               <div className="flex flex-col items-center gap-2">
                 <button
@@ -1686,23 +1896,17 @@ export default function SlideWebApp() {
               </div>
               <div className="flex flex-col items-center gap-2">
                 <button
-                  className="flex h-16 w-16 items-center justify-center rounded-full border border-hairline text-text transition-colors hover:border-text/30"
-                  onClick={() => acceptIncoming(false)}
-                  aria-label="Accept audio"
-                >
-                  <PhoneIcon className="h-7 w-7" />
-                </button>
-                <span className="text-[12px] text-text-secondary">Audio</span>
-              </div>
-              <div className="flex flex-col items-center gap-2">
-                <button
                   className="flex h-16 w-16 items-center justify-center rounded-full bg-text text-white transition-transform hover:scale-105"
-                  onClick={() => acceptIncoming(true)}
-                  aria-label="Accept video"
+                  onClick={() => acceptIncoming()}
+                  aria-label="Accept call"
                 >
-                  <VideoIcon className="h-7 w-7" />
+                  {incoming.video ? (
+                    <VideoIcon className="h-7 w-7" />
+                  ) : (
+                    <PhoneIcon className="h-7 w-7" />
+                  )}
                 </button>
-                <span className="text-[12px] text-text-secondary">Video</span>
+                <span className="text-[12px] text-text-secondary">Accept</span>
               </div>
             </div>
           </div>

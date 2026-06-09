@@ -124,22 +124,18 @@ struct RecentsView: View {
                 EmptyStateView(message: "No calls yet", systemImage: "phone")
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    LazyVStack(spacing: Theme.Space.sm) {
                         ForEach(vm.calls) { call in
                             let user = vm.userFor(call: call)
-                            CallRow(name: vm.displayName(for: call),
-                                    subtitle: vm.subtitle(for: call),
-                                    isVideo: call.videoEnabled ?? true,
-                                    onKnock: {
-                                        appState.startKnockCall(to: user)
-                                    },
-                                    onCallBack: {
-                                        appState.startCall(to: user, video: call.videoEnabled ?? true)
-                                    })
-                            HairlineDivider(leadingInset: Theme.Space.lg + 44 + Theme.Space.md)
+                            RecentCallCard(name: vm.displayName(for: call),
+                                           subtitle: vm.subtitle(for: call),
+                                           isVideo: call.videoEnabled ?? true) {
+                                appState.startKnockCall(to: user, video: call.videoEnabled ?? true)
+                            }
                         }
                     }
-                    .padding(.top, Theme.Space.xs)
+                    .padding(.horizontal, Theme.Space.lg)
+                    .padding(.vertical, Theme.Space.md)
                 }
             }
         }
@@ -152,52 +148,81 @@ struct RecentsView: View {
     }
 }
 
-struct CallRow: View {
+struct RecentCallCard: View {
     let name: String
     let subtitle: (text: String, isMissed: Bool)
     var isVideo: Bool
-    let onKnock: () -> Void
-    let onCallBack: () -> Void
+    let onTapCall: () -> Void
 
     var body: some View {
-        HStack(spacing: Theme.Space.md) {
-            AvatarCircle(name: name, size: 44)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.text)
-                Text(subtitle.text)
-                    .font(Theme.Font.footnote)
-                    .foregroundStyle(subtitle.isMissed ? Theme.Color.danger
-                                                       : Theme.Color.textSecondary)
-            }
-            Spacer()
-            HStack(spacing: Theme.Space.sm) {
-                Button(action: onKnock) {
-                    Image(systemName: "hand.wave")
-                        .font(.system(size: 17, weight: .light))
-                        .foregroundStyle(Theme.Color.accent)
-                        .frame(width: 38, height: 38)
-                        .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
-                }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityLabel("Knock \(name)")
+        Button(action: onTapCall) {
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                HStack(alignment: .top, spacing: Theme.Space.md) {
+                    AvatarCircle(name: name, size: 48)
 
-                Button(action: onCallBack) {
-                    Image(systemName: isVideo ? "video" : "phone")
-                        .font(.system(size: 18, weight: .light))
-                        .foregroundStyle(Theme.Color.text)
-                        .frame(width: 38, height: 38)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(name)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.text)
+                            .lineLimit(1)
+                        Text(subtitle.text)
+                            .font(Theme.Font.footnote)
+                            .foregroundStyle(subtitle.isMissed ? Theme.Color.danger
+                                                               : Theme.Color.textSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: Theme.Space.sm)
+
+                    HStack(spacing: Theme.Space.xs) {
+                        Image(systemName: isVideo ? "video" : "phone")
+                            .font(.system(size: 13, weight: .light))
+                        Text(isVideo ? "Video" : "Audio")
+                            .font(Theme.Font.caption)
+                    }
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.horizontal, Theme.Space.sm)
+                    .frame(height: 28)
+                    .background(
+                        Capsule()
+                            .fill(Theme.Color.bgGrouped)
+                            .overlay(Capsule().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
+                    )
                 }
-                .buttonStyle(PressableButtonStyle())
-                .accessibilityLabel("Call back \(name)")
+
+                HStack(spacing: Theme.Space.sm) {
+                    Circle()
+                        .fill(Theme.Color.accent)
+                        .frame(width: 42, height: 42)
+                        .overlay(
+                            Text("tap")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(Theme.Color.onAccent)
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Tap to call")
+                            .font(Theme.Font.callout)
+                            .foregroundStyle(Theme.Color.text)
+                        Text("Repeats the last \(isVideo ? "video" : "audio") call")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+
+                    Spacer()
+                }
             }
+            .padding(Theme.Space.md)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Theme.Color.bg)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth)
+                    )
+            )
         }
-        .padding(.horizontal, Theme.Space.lg)
-        .padding(.vertical, Theme.Space.sm)
-        .contentShape(Rectangle())
-        // Recents are a lightweight "reach them again" surface: tapping the row
-        // knocks; the explicit phone/video icon starts the matching call.
-        .onTapGesture { onKnock() }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel("Tap to call \(name)")
     }
 }

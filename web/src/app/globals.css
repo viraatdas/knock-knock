@@ -98,6 +98,27 @@ body {
 .knock-core {
   animation: knock-breathe 3.4s ease-in-out infinite;
 }
+
+.knock-hit-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  opacity: 0;
+  animation: knock-core-hit 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes knock-core-hit {
+  0% {
+    transform: scale(0.82);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.62);
+    opacity: 0;
+  }
+}
+
 @keyframes knock-breathe {
   0%,
   100% {

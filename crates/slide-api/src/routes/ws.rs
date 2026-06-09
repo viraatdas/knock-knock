@@ -140,32 +140,20 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                         "pattern": v.get("pattern"),
                                     });
                                     let delivered = state_in.hub.publish(to, out).await;
-                                    // One push per burst (>4s gap = new burst),
-                                    // so an away target isn't buried in pushes.
+                                    // The tap rhythm is live-only. Closed-app
+                                    // knock rings are real call invitations
+                                    // created through POST /calls with
+                                    // ringStyle="knock", so they have a call id
+                                    // and can be reported through CallKit/Telecom.
                                     let fresh_burst = last_knock_push
                                         .map(|(t, at)| t != to || at.elapsed().as_secs() >= 4)
                                         .unwrap_or(true);
                                     if delivered == 0 && fresh_burst {
                                         last_knock_push = Some((to, std::time::Instant::now()));
-                                        // Target is offline: send a lightweight Tap
-                                        // notification to push providers that can
-                                        // display it without CallKit.
                                         tracing::info!(
                                             target = %to,
-                                            "knock target offline — sending push notification"
+                                            "live knock target offline — not sending non-call push"
                                         );
-                                        let payload = crate::push::IncomingPush {
-                                            kind: "knock".to_string(),
-                                            call_id: None,
-                                            call_type: None,
-                                            from_user_id: uid,
-                                            from_name: from_name_in.clone(),
-                                            knock: true,
-                                        };
-                                        state_in
-                                            .push
-                                            .notify_incoming(&state_in.db, to, &payload)
-                                            .await;
                                     }
                                 }
                             }

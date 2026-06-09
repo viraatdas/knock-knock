@@ -67,6 +67,8 @@ data class Call(
     val type: String = "one_to_one",   // one_to_one|group
     val createdBy: String? = null,
     val status: String = "ringing",    // ringing|active|ended|missed|declined
+    val videoEnabled: Boolean = true,
+    val ringStyle: String = "call",    // call|knock
     val startedAt: String? = null,
     val endedAt: String? = null,
     val createdAt: String? = null,
@@ -125,6 +127,8 @@ data class SyncContactsBody(val phones: List<String>, val names: List<String> = 
 data class CreateCallBody(
     val type: String = "one_to_one",
     val participantUserIds: List<String> = emptyList(),
+    val videoEnabled: Boolean = true,
+    val ringStyle: String = "call",
 )
 
 /** Shared response for POST /calls and POST /calls/:id/accept. */
@@ -158,7 +162,7 @@ data class ApiErrorBody(
 
 /**
  * Server → client: incoming_call, call_accepted, call_declined, call_ended,
- * participant_joined, participant_left, presence_update, knock.
+ * participant_joined, participant_left, presence_update, contacts_updated, knock.
  * Client → server: presence_ping, heartbeat, knock.
  *
  * Knock fields (a lightweight real-time presence ping):
@@ -173,6 +177,10 @@ data class SignalEnvelope(
     val userId: String? = null,
     val fromUserId: String? = null,
     val fromName: String? = null,
+    val phone: String? = null,
+    val videoEnabled: Boolean? = null,
+    val ringStyle: String? = null,
+    val knock: Boolean? = null,
     val call: Call? = null,
     val from: JsonElement? = null,
     // Knock relay fields.

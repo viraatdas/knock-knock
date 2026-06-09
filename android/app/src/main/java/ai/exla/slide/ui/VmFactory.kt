@@ -23,7 +23,7 @@ class VmFactory(private val container: AppContainer) : ViewModelProvider.Factory
         modelClass.isAssignableFrom(CallsViewModel::class.java) ->
             CallsViewModel(container.repository, container.signalingClient) as T
         modelClass.isAssignableFrom(ContactsViewModel::class.java) ->
-            ContactsViewModel(container.repository) as T
+            ContactsViewModel(container.repository, container.signalingClient) as T
         modelClass.isAssignableFrom(ProfileViewModel::class.java) ->
             ProfileViewModel(container.repository, container.tokenStore) as T
         modelClass.isAssignableFrom(InCallViewModel::class.java) ->

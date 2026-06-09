@@ -38,14 +38,12 @@ class CallActionReceiver : BroadcastReceiver() {
             }
 
             IncomingCallNotifier.ACTION_DECLINE -> {
-                if (!payload.isKnock) {
-                    val repo = (context.applicationContext as? SlideApp)?.container?.repository
-                    if (repo != null) {
-                        val pending = goAsync()
-                        scope.launch {
-                            runCatching { repo.declineCall(payload.callId) }
-                            pending.finish()
-                        }
+                val repo = (context.applicationContext as? SlideApp)?.container?.repository
+                if (repo != null) {
+                    val pending = goAsync()
+                    scope.launch {
+                        runCatching { repo.declineCall(payload.callId) }
+                        pending.finish()
                     }
                 }
             }

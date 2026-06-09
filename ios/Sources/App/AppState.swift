@@ -52,10 +52,12 @@ final class AppState: ObservableObject {
             // VoIP push → surface + (on answer) join the call. CallKit was
             // already told about the call inside PushService; here we mirror it
             // into app state using the same UUID so the answer path matches.
-            PushService.shared.onIncomingCall = { [weak self] callId, fromUserId, fromName, callType in
+            PushService.shared.onIncomingCall = { [weak self] callId, fromUserId, fromName, callType, videoEnabled, ringStyle in
                 Task { @MainActor in
                     self?.receivePushedCall(callId: callId, fromUserId: fromUserId,
-                                            fromName: fromName, type: callType)
+                                            fromName: fromName, type: callType,
+                                            videoEnabled: videoEnabled,
+                                            ringStyle: ringStyle)
                 }
             }
         }
@@ -216,7 +218,20 @@ final class AppState: ObservableObject {
                               isVideo: video,
                               status: .dialing)
         activeCall = call
-        Task { await placeCall(to: user, video: video, local: call) }
+        Task { await placeCall(to: user, video: video, ringStyle: "call", local: call) }
+    }
+
+    func startKnockCall(to user: User, video: Bool = false) {
+        KnockHaptics.shared.knock()
+        let call = ActiveCall(direction: .outgoing,
+                              remoteName: user.displayName ?? user.phone,
+                              remotePhone: user.phone,
+                              remoteUserId: user.id,
+                              isVideo: video,
+                              status: .dialing,
+                              isKnock: true)
+        activeCall = call
+        Task { await placeCall(to: user, video: video, ringStyle: "knock", local: call) }
     }
 
     /// Start a group call with several people selected up front. The backend
@@ -241,7 +256,9 @@ final class AppState: ObservableObject {
     private func placeGroupCall(to users: [User], video: Bool, local: ActiveCall) async {
         do {
             let session = try await api.createCall(type: .group,
-                                                   participantUserIds: users.map { $0.id })
+                                                   participantUserIds: users.map { $0.id },
+                                                   videoEnabled: video,
+                                                   ringStyle: "call")
             await MainActor.run {
                 local.session = session
                 local.callId = session.call.id
@@ -259,10 +276,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func placeCall(to user: User, video: Bool, local: ActiveCall) async {
+    private func placeCall(to user: User, video: Bool, ringStyle: String, local: ActiveCall) async {
         do {
             let session = try await api.createCall(type: .oneToOne,
-                                                   participantUserIds: [user.id])
+                                                   participantUserIds: [user.id],
+                                                   videoEnabled: video,
+                                                   ringStyle: ringStyle)
             await MainActor.run {
                 local.session = session
                 local.callId = session.call.id
@@ -289,24 +308,28 @@ final class AppState: ObservableObject {
     /// `incoming_call`. If the WebSocket later delivers the same `incoming_call`,
     /// it's deduped by callId so we don't double-ring.
     func receivePushedCall(callId: String, fromUserId: String?,
-                           fromName: String?, type: CallType) {
+                           fromName: String?, type: CallType,
+                           videoEnabled: Bool, ringStyle: String) {
         // Already showing this call (e.g. WS arrived first) — nothing to do.
         if let existing = activeCall, existing.callId == callId { return }
 
         let uuid = PushService.uuid(for: callId)
         let name = displayNameForIncomingCall(fromUserId: fromUserId, fromName: fromName)
+        let isKnock = ringStyle == "knock"
         let call = ActiveCall(direction: .incoming,
                               remoteName: name,
                               remotePhone: "",
                               remoteUserId: fromUserId,
-                              isVideo: type == .oneToOne ? true : true,
+                              isVideo: videoEnabled,
                               status: .ringing,
+                              isKnock: isKnock,
                               isGroup: type == .group,
                               uuid: uuid)
         call.callId = callId
         activeCall = call
         CallKitManager.shared.updateCall(uuid: uuid, handle: name,
-                                         displayName: name, hasVideo: call.isVideo)
+                                         displayName: callKitDisplayName(name, isKnock: isKnock),
+                                         hasVideo: call.isVideo)
         Task { await reconcileActiveRingingCall() }
         // CallKit ring was already started by PushService; no reportIncomingCall
         // here (that would double-report the same UUID).
@@ -406,7 +429,7 @@ final class AppState: ObservableObject {
         lastOutgoingKnockAt = nil
     }
 
-    /// Knock back at whoever is currently knocking us, then clear the banner.
+    /// Tap back at whoever is currently tapping us, then clear the banner.
     func knockBack() {
         guard let knock = incomingKnock, let userId = knock.fromUserId else { return }
         sendKnockTap(to: userId)
@@ -488,7 +511,7 @@ extension AppState: SignalingClientDelegate {
     nonisolated func signaling(_ client: SignalingClient, didReceive event: SignalingEvent) {
         Task { @MainActor in
             switch event {
-            case let .incomingCall(callId, fromUserId, fromName, type):
+            case let .incomingCall(callId, fromUserId, fromName, type, videoEnabled, ringStyle):
                 // If a VoIP push already surfaced this call (cold/background
                 // launch), it's already ringing via CallKit — don't double-ring.
                 if let existing = self.activeCall, existing.callId == callId { break }
@@ -496,12 +519,15 @@ extension AppState: SignalingClientDelegate {
                 // matches any VoIP push for the same call (same CallKit UUID).
                 let uuid = PushService.uuid(for: callId)
                 let name = self.displayNameForIncomingCall(fromUserId: fromUserId, fromName: fromName)
+                let isKnock = ringStyle == "knock"
                 let call = ActiveCall(direction: .incoming,
                                       remoteName: name,
                                       remotePhone: "",
                                       remoteUserId: fromUserId,
-                                      isVideo: type == .oneToOne ? true : true,
+                                      isVideo: videoEnabled,
                                       status: .ringing,
+                                      isKnock: isKnock,
+                                      isGroup: type == .group,
                                       uuid: uuid)
                 call.callId = callId
                 self.activeCall = call
@@ -509,7 +535,8 @@ extension AppState: SignalingClientDelegate {
                 // Ring natively via CallKit.
                 CallKitManager.shared.reportIncomingCall(
                     uuid: call.uuid, handle: name,
-                    displayName: name, hasVideo: call.isVideo)
+                    displayName: self.callKitDisplayName(name, isKnock: isKnock),
+                    hasVideo: call.isVideo)
             case let .callEnded(callId):
                 if self.activeCall?.callId == callId {
                     CallKitManager.shared.reportCallEnded(uuid: self.activeCall!.uuid)
@@ -524,6 +551,8 @@ extension AppState: SignalingClientDelegate {
                 if self.activeCall?.callId == callId { self.activeCall?.status = .connecting }
             case let .knock(fromUserId, fromName, seq, dt):
                 self.receiveKnock(fromUserId: fromUserId, fromName: fromName, seq: seq, dt: dt)
+            case .contactsUpdated(_, _):
+                await self.refreshContactCache()
             default:
                 break
             }
@@ -599,7 +628,12 @@ private extension AppState {
             call.memberNames = [name]
         }
         CallKitManager.shared.updateCall(uuid: call.uuid, handle: name,
-                                         displayName: name, hasVideo: call.isVideo)
+                                         displayName: callKitDisplayName(name, isKnock: call.isKnock),
+                                         hasVideo: call.isVideo)
+    }
+
+    func callKitDisplayName(_ name: String, isKnock: Bool) -> String {
+        isKnock ? "\(name) is tapping" : name
     }
 }
 

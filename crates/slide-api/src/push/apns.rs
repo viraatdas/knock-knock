@@ -107,6 +107,8 @@ impl Apns {
             "callType": payload.call_type,
             "fromUserId": payload.from_user_id,
             "fromName": payload.from_name,
+            "videoEnabled": payload.video_enabled,
+            "ringStyle": payload.ring_style,
             "knock": payload.knock,
         });
 

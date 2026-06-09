@@ -133,7 +133,7 @@ Calls:
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/calls` | `{ "type": "one_to_one"|"group", "participantUserIds": [] }` | `{ "call", "joinToken", "sfuUrl", "iceServers" }` |
+| POST | `/calls` | `{ "type": "one_to_one"|"group", "participantUserIds": [], "videoEnabled"?: true, "ringStyle"?: "call"|"knock" }` | `{ "call", "joinToken", "sfuUrl", "iceServers" }` |
 | POST | `/calls/:id/accept` | none | `{ "call", "joinToken", "sfuUrl", "iceServers" }` |
 | POST | `/calls/:id/decline` | none | `204` |
 | POST | `/calls/:id/leave` | none | `204` |
@@ -143,8 +143,17 @@ Realtime plane A, app signaling: `GET /v1/ws?token=<accessToken>`.
 
 Server to client events: `incoming_call`, `call_accepted`, `call_declined`,
 `call_ended`, `participant_joined`, `participant_left`, `presence_update`.
+`incoming_call` includes `callId`, `callType`, `fromUserId`, `fromName`,
+`videoEnabled`, `ringStyle`, `knock`, and `call`.
 
-Client to server events: `presence_ping`, `heartbeat`.
+Client to server events: `presence_ping`, `heartbeat`, `knock`.
+
+`ringStyle` defaults to `call`. `ringStyle: "knock"` is still a real call
+invitation: it creates a `calls` row, sends an `incoming_call` event/push with
+`knock: true`, and is answered through `/calls/:id/accept`. The WebSocket
+`knock` event is only the live tap rhythm for already-open apps; it must not be
+used as an offline push or CallKit/CallStyle substitute because it has no call
+id or join token.
 
 Models:
 
@@ -152,7 +161,9 @@ Models:
 User          { id, phone, displayName?, avatarUrl?, createdAt, lastSeenAt }
 Device        { id, userId, pushToken, platform, appVersion, updatedAt }
 Contact       { id, ownerUserId, contactUserId?, phone, displayName, avatarUrl? }
-Call          { id, roomId, sfuNodeId, type, createdBy, status, startedAt?, endedAt?, createdAt,
+Call          { id, roomId, sfuNodeId, type, createdBy, status, videoEnabled,
+                ringStyle,
+                startedAt?, endedAt?, createdAt,
                 participants: [{ userId, state, joinedAt?, leftAt? }] }
 IceServer     { urls: [], username?, credential? }
 ```

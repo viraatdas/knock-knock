@@ -61,17 +61,16 @@ class IncomingCallActivity : ComponentActivity() {
                     // Join the call through the existing accept path, then show
                     // the in-call UI. Audio knocks reuse the same call surface.
                     androidx.compose.runtime.LaunchedEffect(payload.callId) {
-                        vm.acceptCall(payload.callId, peer)
+                        vm.acceptCall(payload.callId, peer, payload.videoEnabled)
                     }
                     InCallScreen(vm = vm, onEnded = { finish() })
                 } else {
                     IncomingCallScreen(
                         peer = peer,
+                        videoEnabled = payload.videoEnabled,
+                        isKnock = payload.isKnock,
                         onAccept = { accepted = true },
-                        onDecline = {
-                            if (!payload.isKnock) vm.decline(payload.callId) { finish() }
-                            else finish()
-                        },
+                        onDecline = { vm.decline(payload.callId) { finish() } },
                     )
                 }
             }

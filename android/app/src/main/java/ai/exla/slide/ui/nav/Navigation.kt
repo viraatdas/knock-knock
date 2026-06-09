@@ -52,7 +52,7 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 @Composable
 fun MainShell(
     container: AppContainer,
-    onStartCall: (CallPeer) -> Unit,
+    onStartCall: (CallPeer, Boolean) -> Unit,
     onStartKnock: (CallPeer) -> Unit,
     onLoggedOut: () -> Unit,
 ) {
@@ -109,6 +109,7 @@ fun MainShell(
                         currentUserId = currentUserId,
                         onNewCall = { navController.navigate(Tab.Contacts.route) },
                         onCallBack = onStartCall,
+                        onKnock = onStartKnock,
                     )
                 }
                 composable(Tab.Contacts.route) {

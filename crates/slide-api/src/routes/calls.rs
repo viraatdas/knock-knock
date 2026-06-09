@@ -24,7 +24,7 @@ use crate::{auth::AuthUser, sfu_client, state::AppState};
 
 // ── Views ────────────────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ParticipantView {
     user_id: Uuid,
@@ -36,7 +36,7 @@ struct ParticipantView {
     avatar_url: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CallView {
     id: Uuid,
@@ -46,6 +46,8 @@ struct CallView {
     call_type: CallType,
     created_by: Uuid,
     status: String,
+    video_enabled: bool,
+    ring_style: String,
     started_at: Option<DateTime<Utc>>,
     ended_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
@@ -111,6 +113,8 @@ async fn load_call_view(state: &AppState, call_id: Uuid) -> AppResult<CallView> 
         call_type: call.call_type,
         created_by: call.created_by,
         status: call_status_str(&call.status),
+        video_enabled: call.video_enabled,
+        ring_style: call.ring_style,
         started_at: call.started_at,
         ended_at: call.ended_at,
         created_at: call.created_at,
@@ -162,6 +166,18 @@ pub struct CreateCallBody {
     #[serde(rename = "type")]
     pub call_type: CallType,
     pub participant_user_ids: Vec<Uuid>,
+    #[serde(default = "default_video_enabled")]
+    pub video_enabled: bool,
+    #[serde(default = "default_ring_style")]
+    pub ring_style: String,
+}
+
+fn default_video_enabled() -> bool {
+    true
+}
+
+fn default_ring_style() -> String {
+    "call".to_string()
 }
 
 pub async fn create_call(
@@ -169,6 +185,10 @@ pub async fn create_call(
     AuthUser(uid): AuthUser,
     Json(body): Json<CreateCallBody>,
 ) -> AppResult<Json<JoinResponse>> {
+    let ring_style = match body.ring_style.as_str() {
+        "call" | "knock" => body.ring_style.clone(),
+        _ => return Err(AppError::bad_request("ringStyle must be call or knock")),
+    };
     // Validate participants.
     let mut callees: Vec<Uuid> = body
         .participant_user_ids
@@ -200,14 +220,16 @@ pub async fn create_call(
     let alloc = sfu_client::allocate_room(&state, call_id);
 
     sqlx::query(
-        "INSERT INTO calls (id, room_id, sfu_node_id, type, created_by, status)
-         VALUES ($1, $2, $3, $4, $5, 'ringing')",
+        "INSERT INTO calls (id, room_id, sfu_node_id, type, created_by, status, video_enabled, ring_style)
+         VALUES ($1, $2, $3, $4, $5, 'ringing', $6, $7)",
     )
     .bind(call_id)
     .bind(&alloc.room_id)
     .bind(&alloc.sfu_node_id)
     .bind(body.call_type)
     .bind(uid)
+    .bind(body.video_enabled)
+    .bind(&ring_style)
     .execute(&state.db)
     .await?;
 
@@ -236,38 +258,6 @@ pub async fn create_call(
 
     let from_name = call_display_name(&state, uid).await?;
 
-    // Ring the callees over the signaling socket (push fallback when offline).
-    let event = json!({
-        "type": "incoming_call",
-        "callId": call_id,
-        "callType": view.call_type,
-        "fromUserId": uid,
-        "fromName": from_name,
-        "call": &view,
-    });
-    for c in &callees {
-        let delivered = state.hub.publish(*c, event.clone()).await;
-        if delivered == 0 {
-            // Callee has no live socket → fall back to a real push so a closed
-            // or backgrounded app still rings.
-            tracing::info!(callee = %c, "callee offline — sending push notification");
-            let push_payload = crate::push::IncomingPush {
-                kind: "incoming_call".to_string(),
-                call_id: Some(call_id),
-                call_type: serde_json::to_value(view.call_type)
-                    .ok()
-                    .and_then(|v| v.as_str().map(str::to_string)),
-                from_user_id: uid,
-                from_name: from_name.clone(),
-                knock: false,
-            };
-            state
-                .push
-                .notify_incoming(&state.db, *c, &push_payload)
-                .await;
-        }
-    }
-
     let (sfu_url, join_token) = sfu_client::media_join(
         &state,
         uid,
@@ -277,12 +267,86 @@ pub async fn create_call(
         &alloc.sfu_node_id,
     )?;
 
+    let ring_state = state.clone();
+    let ring_view = view.clone();
+    let ring_callees = callees.clone();
+    tokio::spawn(async move {
+        ring_callees_for_call(ring_state, ring_callees, uid, from_name, ring_view).await;
+    });
+
     Ok(Json(JoinResponse {
         call: view,
         join_token,
         sfu_url,
         ice_servers: ice,
     }))
+}
+
+async fn ring_callees_for_call(
+    state: AppState,
+    callees: Vec<Uuid>,
+    caller_id: Uuid,
+    from_name: String,
+    view: CallView,
+) {
+    let is_knock = view.ring_style == "knock";
+    let event = json!({
+        "type": "incoming_call",
+        "callId": view.id,
+        "callType": view.call_type,
+        "videoEnabled": view.video_enabled,
+        "ringStyle": &view.ring_style,
+        "knock": is_knock,
+        "fromUserId": caller_id,
+        "fromName": &from_name,
+        "call": &view,
+    });
+
+    for callee in &callees {
+        let delivered = state.hub.publish(*callee, event.clone()).await;
+        if delivered == 0 {
+            // Callee has no live socket, so fall back to a real push so a closed
+            // or backgrounded app still rings.
+            tracing::info!(callee = %callee, "callee offline - sending push notification");
+            let push_payload = crate::push::IncomingPush {
+                kind: "incoming_call".to_string(),
+                call_id: Some(view.id),
+                call_type: serde_json::to_value(view.call_type)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string)),
+                from_user_id: caller_id,
+                from_name: from_name.clone(),
+                video_enabled: view.video_enabled,
+                ring_style: view.ring_style.clone(),
+                knock: is_knock,
+            };
+            state
+                .push
+                .notify_incoming(&state.db, *callee, &push_payload)
+                .await;
+        }
+    }
+}
+
+fn spawn_call_closed_push(state: AppState, recipients: Vec<Uuid>, call_id: Uuid, actor_id: Uuid) {
+    tokio::spawn(async move {
+        let payload = crate::push::IncomingPush {
+            kind: "call_ended".to_string(),
+            call_id: Some(call_id),
+            call_type: None,
+            from_user_id: actor_id,
+            from_name: "Slide".to_string(),
+            video_enabled: true,
+            ring_style: "call".to_string(),
+            knock: false,
+        };
+        for recipient in recipients {
+            state
+                .push
+                .notify_incoming(&state.db, recipient, &payload)
+                .await;
+        }
+    });
 }
 
 // ── helpers to ensure the caller belongs to the call ──────────────────────────
@@ -437,6 +501,7 @@ pub async fn decline_call(
         state.hub.publish_many(&others, &event).await;
         let end = json!({ "type": "call_ended", "callId": call_id });
         state.hub.publish_many(&others, &end).await;
+        spawn_call_closed_push(state.clone(), others, call_id, uid);
         return Ok(StatusCode::NO_CONTENT);
     }
 
@@ -475,6 +540,7 @@ pub async fn decline_call(
     if ended {
         let end = json!({ "type": "call_ended", "callId": call_id });
         state.hub.publish_many(&others, &end).await;
+        spawn_call_closed_push(state.clone(), others, call_id, uid);
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -526,6 +592,7 @@ pub async fn leave_call(
             state.hub.publish_many(&others, &event).await;
             let end = json!({ "type": "call_ended", "callId": call_id });
             state.hub.publish_many(&others, &end).await;
+            spawn_call_closed_push(state.clone(), others, call_id, uid);
             return Ok(StatusCode::NO_CONTENT);
         }
 
@@ -561,6 +628,7 @@ pub async fn leave_call(
         state.hub.publish_many(&others, &event).await;
         let end = json!({ "type": "call_ended", "callId": call_id });
         state.hub.publish_many(&others, &end).await;
+        spawn_call_closed_push(state.clone(), others, call_id, uid);
         return Ok(StatusCode::NO_CONTENT);
     }
 
@@ -590,6 +658,7 @@ pub async fn leave_call(
             .await?;
         let end = json!({ "type": "call_ended", "callId": call_id });
         state.hub.publish_many(&others, &end).await;
+        spawn_call_closed_push(state.clone(), others, call_id, uid);
     }
 
     Ok(StatusCode::NO_CONTENT)

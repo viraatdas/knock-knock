@@ -44,6 +44,10 @@ pub struct IncomingPush {
     pub call_type: Option<String>,
     pub from_user_id: Uuid,
     pub from_name: String,
+    /// Whether accepting this call should publish camera immediately.
+    pub video_enabled: bool,
+    /// "call" for normal calls, "knock" for call-style knock invitations.
+    pub ring_style: String,
     /// True when this push is an offline knock escalated to a ringable call,
     /// so clients can label it differently.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -67,6 +71,11 @@ impl IncomingPush {
             Value::String(self.from_user_id.to_string()),
         );
         map.insert("fromName".into(), Value::String(self.from_name.clone()));
+        map.insert(
+            "videoEnabled".into(),
+            Value::String(self.video_enabled.to_string()),
+        );
+        map.insert("ringStyle".into(), Value::String(self.ring_style.clone()));
         if self.knock {
             map.insert("knock".into(), Value::String("true".into()));
         }
@@ -166,5 +175,85 @@ impl Push {
                 tracing::warn!(user = %user_id, kind = %sub.kind, error = %e, "push: send failed");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use uuid::Uuid;
+
+    use super::IncomingPush;
+
+    #[test]
+    fn call_style_knock_push_contains_call_contract_fields() {
+        let call_id = Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+        let from_user_id = Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+        let payload = IncomingPush {
+            kind: "incoming_call".to_string(),
+            call_id: Some(call_id),
+            call_type: Some("one_to_one".to_string()),
+            from_user_id,
+            from_name: "Taariv".to_string(),
+            video_enabled: false,
+            ring_style: "knock".to_string(),
+            knock: true,
+        };
+
+        assert_eq!(
+            payload.data_map(),
+            json!({
+                "type": "incoming_call",
+                "callId": call_id.to_string(),
+                "callType": "one_to_one",
+                "fromUserId": from_user_id.to_string(),
+                "fromName": "Taariv",
+                "videoEnabled": "false",
+                "ringStyle": "knock",
+                "knock": "true",
+            })
+        );
+    }
+
+    #[test]
+    fn normal_call_push_does_not_set_knock_flag() {
+        let from_user_id = Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+        let payload = IncomingPush {
+            kind: "incoming_call".to_string(),
+            call_id: None,
+            call_type: None,
+            from_user_id,
+            from_name: "Nikita".to_string(),
+            video_enabled: true,
+            ring_style: "call".to_string(),
+            knock: false,
+        };
+
+        let data = payload.data_map();
+        assert_eq!(data["type"], "incoming_call");
+        assert_eq!(data["videoEnabled"], "true");
+        assert_eq!(data["ringStyle"], "call");
+        assert!(data.get("knock").is_none());
+    }
+
+    #[test]
+    fn call_ended_push_keeps_terminal_event_type() {
+        let call_id = Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap();
+        let from_user_id = Uuid::parse_str("22222222-2222-4222-8222-222222222222").unwrap();
+        let payload = IncomingPush {
+            kind: "call_ended".to_string(),
+            call_id: Some(call_id),
+            call_type: None,
+            from_user_id,
+            from_name: "Slide".to_string(),
+            video_enabled: true,
+            ring_style: "call".to_string(),
+            knock: false,
+        };
+
+        let data = payload.data_map();
+        assert_eq!(data["type"], "call_ended");
+        assert_eq!(data["callId"], call_id.to_string());
+        assert!(data.get("knock").is_none());
     }
 }

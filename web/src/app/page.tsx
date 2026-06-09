@@ -21,7 +21,7 @@ const features = [
   {
     icon: WaveformIcon,
     title: "Knock before you call.",
-    body: "Send a quick tap when you want someone's attention, then slide into audio or video when they are ready. It feels closer to getting a friend than scheduling a meeting.",
+    body: "Send a quick knock when you want someone's attention, then slide into audio or video when they are ready. It feels closer to getting a friend than scheduling a meeting.",
   },
   {
     icon: PhoneIcon,
@@ -31,11 +31,11 @@ const features = [
   {
     icon: PeopleIcon,
     title: "Bring everyone into the room.",
-    body: "Group calls stay simple: tap the people you want, start the moment, and let them slide in without a calendar invite or a link to hunt down.",
+    body: "Group calls stay simple: pick the people you want, start the moment, and let them slide in without a calendar invite or a link to hunt down.",
   },
   {
     icon: ShareIcon,
-    title: "Share your screen in a tap.",
+    title: "Share your screen fast.",
     body: "Walk through a recipe, a slide, a bug. What you see, they see, instantly.",
   },
   {

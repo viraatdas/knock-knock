@@ -1,6 +1,7 @@
 package ai.exla.slide.ui.calls
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.CallMade
-import androidx.compose.material.icons.outlined.CallReceived
+import androidx.compose.material.icons.automirrored.outlined.CallMade
+import androidx.compose.material.icons.automirrored.outlined.CallReceived
+import androidx.compose.material.icons.outlined.Dialpad
 import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,7 +48,8 @@ fun CallsScreen(
     vm: CallsViewModel,
     currentUserId: String?,
     onNewCall: () -> Unit,
-    onCallBack: (CallPeer) -> Unit,
+    onCallBack: (CallPeer, Boolean) -> Unit,
+    onKnock: (CallPeer) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
 
@@ -71,7 +76,7 @@ fun CallsScreen(
                 modifier = Modifier.size(44.dp).quietClickable(onNewCall),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Outlined.Add, "New call", tint = SlideColors.Ink, modifier = Modifier.size(26.dp))
+                Icon(Icons.Outlined.Dialpad, "Open callpad", tint = SlideColors.Ink, modifier = Modifier.size(25.dp))
             }
         }
 
@@ -82,7 +87,12 @@ fun CallsScreen(
                 EmptyState("No calls yet", Modifier.fillMaxSize())
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(state.calls, key = { it.id }) { call ->
-                    CallRow(call, currentUserId) { onCallBack(it) }
+                    CallRow(
+                        call = call,
+                        currentUserId = currentUserId,
+                        onCallBack = onCallBack,
+                        onKnock = onKnock,
+                    )
                     Hairline(startInset = 56.dp)
                 }
             }
@@ -91,7 +101,12 @@ fun CallsScreen(
 }
 
 @Composable
-private fun CallRow(call: Call, currentUserId: String?, onCallBack: (CallPeer) -> Unit) {
+private fun CallRow(
+    call: Call,
+    currentUserId: String?,
+    onCallBack: (CallPeer, Boolean) -> Unit,
+    onKnock: (CallPeer) -> Unit,
+) {
     val other = otherParticipant(call, currentUserId)
     val display = displayNameFor(call, currentUserId)
     val peer = CallPeer(
@@ -121,7 +136,7 @@ private fun CallRow(call: Call, currentUserId: String?, onCallBack: (CallPeer) -
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
-            .quietClickable { onCallBack(peer) },
+            .quietClickable { onKnock(peer) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AvatarCircle(name = display, size = 40.dp)
@@ -131,7 +146,11 @@ private fun CallRow(call: Call, currentUserId: String?, onCallBack: (CallPeer) -
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (incoming) Icons.Outlined.CallReceived else Icons.Outlined.CallMade,
+                    imageVector = if (incoming) {
+                        Icons.AutoMirrored.Outlined.CallReceived
+                    } else {
+                        Icons.AutoMirrored.Outlined.CallMade
+                    },
                     contentDescription = null,
                     tint = subtitleColor,
                     modifier = Modifier.size(14.dp),
@@ -140,12 +159,33 @@ private fun CallRow(call: Call, currentUserId: String?, onCallBack: (CallPeer) -
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = subtitleColor)
             }
         }
-        Icon(
-            Icons.Outlined.Phone,
-            contentDescription = "Call back",
-            tint = SlideColors.Ink,
-            modifier = Modifier.size(22.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .border(1.dp, SlideColors.Hairline, CircleShape)
+                    .quietClickable { onKnock(peer) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("✊", fontSize = 17.sp)
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .quietClickable { onCallBack(peer, call.videoEnabled) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    if (call.videoEnabled) Icons.Outlined.Videocam else Icons.Outlined.Phone,
+                    contentDescription = if (call.videoEnabled) "Video call back" else "Call back",
+                    tint = SlideColors.Ink,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A big circular ✊ target. Pressing it starts a call-style knock invitation so
+/// A big circular tap target. Pressing it starts a call-style tap invitation so
 /// the other phone rings through CallKit/Telecom even when the app is closed.
 ///
 /// Brand: pure white background, thin near-black type, generous whitespace, one
@@ -40,7 +40,7 @@ struct KnockPad: View {
 
             tapTarget
 
-            Text("Knock to ring them with a slide-to-pick-up.")
+            Text("Tap until they pick up.")
                 .font(Theme.Font.footnote)
                 .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
@@ -74,23 +74,27 @@ struct KnockPad: View {
                 .fill(Theme.Color.accent)
                 .frame(width: 200, height: 200)
                 .overlay(
-                    Image(systemName: "hand.wave.fill")
-                        .font(.system(size: 76))
+                    Text("tap")
+                        .font(.system(size: 48, weight: .medium))
                         .foregroundStyle(Theme.Color.onAccent)
                 )
                 .scaleEffect(pressScale)
         }
         .contentShape(Circle())
-        .accessibilityLabel("Knock")
-        .accessibilityHint("Starts a knock call")
+        .accessibilityLabel("Tap")
+        .accessibilityHint("Starts a tap call")
         .onTapGesture { tap() }
     }
 
     private func tap() {
-        guard !user.id.isEmpty, !didStart else { return }
-        didStart = true
+        guard !user.id.isEmpty else { return }
         tapCount += 1
-        appState.startKnockCall(to: user)
+        if didStart {
+            appState.sendKnockTap(to: user.id)
+        } else {
+            didStart = true
+            appState.startKnockCall(to: user)
+        }
 
         // Quick squish-and-release; toggle the ring to retrigger its animation.
         withAnimation(.easeOut(duration: 0.08)) { pressScale = 0.92 }

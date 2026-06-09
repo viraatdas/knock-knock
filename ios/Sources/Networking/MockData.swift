@@ -61,6 +61,8 @@ enum MockData {
         let call = Call(id: "mock_\(UUID().uuidString.prefix(6))",
                         roomId: "room_mock", sfuNodeId: "node_mock",
                         type: .oneToOne, createdBy: me.id, status: .active,
+                        videoEnabled: video,
+                        ringStyle: "call",
                         startedAt: Date(), endedAt: nil, createdAt: Date(),
                         participants: [
                             CallParticipant(userId: me.id, state: .joined, joinedAt: Date(), leftAt: nil),
@@ -75,6 +77,8 @@ enum MockData {
     static func incomingSession(callId: String, video: Bool) -> CallSession {
         let call = Call(id: callId, roomId: "room_mock", sfuNodeId: "node_mock",
                         type: .oneToOne, createdBy: "u_other", status: .active,
+                        videoEnabled: video,
+                        ringStyle: "call",
                         startedAt: Date(), endedAt: nil, createdAt: Date(), participants: [])
         return CallSession(call: call, joinToken: "mock-token",
                            sfuUrl: "wss://sfu.example/mock",
@@ -98,6 +102,8 @@ enum MockData {
                     type: .oneToOne,
                     createdBy: createdByMe ? me.id : userId,
                     status: status,
+                    videoEnabled: true,
+                    ringStyle: "call",
                     startedAt: status == .missed || status == .declined ? nil : start,
                     endedAt: duration > 0 ? start.addingTimeInterval(duration) : nil,
                     createdAt: start,

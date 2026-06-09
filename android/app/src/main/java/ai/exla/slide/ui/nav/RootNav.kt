@@ -48,8 +48,19 @@ import kotlinx.serialization.json.jsonPrimitive
 private sealed interface RootScreen {
     data object Auth : RootScreen
     data object Main : RootScreen
-    data class Incoming(val callId: String, val peer: CallPeer) : RootScreen
-    data class InCall(val peer: CallPeer, val incomingCallId: String? = null) : RootScreen
+    data class Incoming(
+        val callId: String,
+        val peer: CallPeer,
+        val videoEnabled: Boolean,
+        val ringStyle: String = "call",
+    ) : RootScreen
+    data class InCall(
+        val peer: CallPeer,
+        val incomingCallId: String? = null,
+        val videoEnabled: Boolean = true,
+        val ringStyle: String = "call",
+        val activeCallId: String? = incomingCallId,
+    ) : RootScreen
     data class Knock(val peer: CallPeer) : RootScreen
 }
 
@@ -97,15 +108,22 @@ fun SlideAppRoot(container: AppContainer) {
             when (event.type) {
                 "incoming_call" -> {
                     val incoming = event.toIncomingScreen() ?: return@collect
+                    val displayName = incoming.peer.displayName ?: incoming.peer.phone ?: "Slide"
+                    val telecomName = if (incoming.ringStyle == "knock") {
+                        "$displayName is knocking"
+                    } else {
+                        displayName
+                    }
                     TelecomManagerHelper.addIncomingCall(
                         context,
-                        incoming.peer.displayName ?: incoming.peer.phone ?: "Slide",
+                        telecomName,
                         incoming.callId,
                     )
                     screen = incoming
                 }
                 "call_ended", "call_declined" -> {
                     val eventCallId = event.callId ?: event.call?.id
+                    if (eventCallId == null) return@collect
                     when (val current = screen) {
                         is RootScreen.Incoming ->
                             if (current.callId == eventCallId) {
@@ -114,7 +132,7 @@ fun SlideAppRoot(container: AppContainer) {
                                 screen = RootScreen.Main
                             }
                         is RootScreen.InCall ->
-                            if (current.incomingCallId == eventCallId) {
+                            if (current.activeCallId == eventCallId || current.incomingCallId == eventCallId) {
                                 IncomingCallNotifier.dismiss(context)
                                 SlideConnectionService.endActiveConnectionFromRemote()
                                 screen = RootScreen.Main
@@ -136,7 +154,9 @@ fun SlideAppRoot(container: AppContainer) {
         RootScreen.Main -> {
             MainShell(
                 container = container,
-                onStartCall = { peer -> screen = RootScreen.InCall(peer) },
+                onStartCall = { peer, videoEnabled ->
+                    screen = RootScreen.InCall(peer, videoEnabled = videoEnabled)
+                },
                 onStartKnock = { peer -> screen = RootScreen.Knock(peer) },
                 onLoggedOut = {
                     container.signalingClient.disconnect()
@@ -156,7 +176,14 @@ fun SlideAppRoot(container: AppContainer) {
 
             DisposableEffect(current.callId) {
                 TelecomBridge.onAnswer = {
-                    scope.launch { screen = RootScreen.InCall(current.peer, current.callId) }
+                    scope.launch {
+                        screen = RootScreen.InCall(
+                            current.peer,
+                            current.callId,
+                            videoEnabled = current.videoEnabled,
+                            ringStyle = current.ringStyle,
+                        )
+                    }
                 }
                 TelecomBridge.onReject = { declineIncoming(updateTelecom = false) }
                 TelecomBridge.onDisconnect = { declineIncoming(updateTelecom = false) }
@@ -169,9 +196,16 @@ fun SlideAppRoot(container: AppContainer) {
 
             IncomingCallScreen(
                 peer = current.peer,
+                videoEnabled = current.videoEnabled,
+                isKnock = current.ringStyle == "knock",
                 onAccept = {
                     SlideConnectionService.answerActiveConnection()
-                    screen = RootScreen.InCall(current.peer, current.callId)
+                    screen = RootScreen.InCall(
+                        current.peer,
+                        current.callId,
+                        videoEnabled = current.videoEnabled,
+                        ringStyle = current.ringStyle,
+                    )
                 },
                 onDecline = { declineIncoming(updateTelecom = true) },
             )
@@ -179,12 +213,19 @@ fun SlideAppRoot(container: AppContainer) {
 
         is RootScreen.InCall -> {
             val vm: InCallViewModel = viewModel(factory = factory)
-            LaunchedEffect(current.peer.userId, current.incomingCallId) {
+            val callState by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(callState.callId) {
+                val id = callState.callId
+                if (id != null && current.activeCallId != id) {
+                    screen = current.copy(activeCallId = id)
+                }
+            }
+            LaunchedEffect(current.peer.userId, current.incomingCallId, current.videoEnabled, current.ringStyle) {
                 if (current.incomingCallId != null) {
-                    vm.acceptCall(current.incomingCallId, current.peer)
+                    vm.acceptCall(current.incomingCallId, current.peer, current.videoEnabled)
                 } else {
                     // Mock service renders immediately; real impl performs POST /calls.
-                    vm.placeCall(current.peer)
+                    vm.placeCall(current.peer, current.videoEnabled, current.ringStyle)
                 }
             }
             DisposableEffect(current.incomingCallId) {
@@ -204,7 +245,13 @@ fun SlideAppRoot(container: AppContainer) {
         is RootScreen.Knock -> {
             KnockPad(
                 peer = current.peer,
-                vm = knockVm,
+                onKnock = {
+                    screen = RootScreen.InCall(
+                        current.peer,
+                        videoEnabled = false,
+                        ringStyle = "knock",
+                    )
+                },
                 onDone = { screen = RootScreen.Main },
             )
         }
@@ -220,7 +267,7 @@ fun SlideAppRoot(container: AppContainer) {
                 onCall = {
                     val peer = incomingKnock?.toPeer()
                     knockVm.dismissIncoming()
-                    if (peer != null) screen = RootScreen.InCall(peer)
+                    if (peer != null) screen = RootScreen.InCall(peer, videoEnabled = false)
                 },
                 onDismiss = { knockVm.dismissIncoming() },
             )
@@ -257,6 +304,8 @@ private fun SignalEnvelope.toIncomingScreen(): RootScreen.Incoming? {
             ?.takeIf { it.isNotBlank() }
         ?: "Slide"
     val phone = (from as? JsonObject)?.get("phone")?.jsonPrimitive?.contentOrNull
+    val incomingVideoEnabled = videoEnabled ?: call?.videoEnabled ?: true
+    val incomingRingStyle = ringStyle ?: call?.ringStyle ?: if (knock == true) "knock" else "call"
     return RootScreen.Incoming(
         callId = id,
         peer = CallPeer(
@@ -264,6 +313,8 @@ private fun SignalEnvelope.toIncomingScreen(): RootScreen.Incoming? {
             displayName = name,
             phone = phone,
         ),
+        videoEnabled = incomingVideoEnabled,
+        ringStyle = incomingRingStyle,
     )
 }
 

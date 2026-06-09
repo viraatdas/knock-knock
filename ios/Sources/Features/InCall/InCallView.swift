@@ -28,7 +28,7 @@ struct InCallView: View {
                     vm.service.makeRemoteVideoView()
                         .ignoresSafeArea()
                 } else if isVideoCall {
-                    Theme.Color.text.ignoresSafeArea() // connecting video
+                    videoWaitingBackground
                 } else {
                     audioOnlyBackground
                 }
@@ -51,6 +51,7 @@ struct InCallView: View {
         }
         .background(isVideoCall ? Theme.Color.text : Theme.Color.bg)
         .onAppear {
+            KnockHaptics.shared.prepare()
             vm.start()
             scheduleHide()
         }
@@ -72,12 +73,71 @@ struct InCallView: View {
                     .foregroundStyle(Theme.Color.textSecondary)
                     .monospacedDigit()
             }
+            if showsWaitingTapTarget {
+                WaitingTapButton(onDarkBackground: false) {
+                    sendWaitingTap()
+                }
+                .padding(.top, Theme.Space.md)
+
+                Text("Tap until they pick up")
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
             Spacer()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.bg)
         .ignoresSafeArea()
+    }
+
+    private var videoWaitingBackground: some View {
+        VStack(spacing: Theme.Space.lg) {
+            Spacer()
+            AvatarCircle(name: call.remoteName,
+                         size: 128,
+                         background: Color.white.opacity(0.12),
+                         foreground: .white)
+            VStack(spacing: Theme.Space.xs) {
+                Text(call.remoteName)
+                    .font(Theme.Font.title)
+                    .foregroundStyle(.white)
+                Text(videoWaitingText)
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .monospacedDigit()
+            }
+            if showsWaitingTapTarget {
+                WaitingTapButton(onDarkBackground: true) {
+                    sendWaitingTap()
+                }
+                .padding(.top, Theme.Space.md)
+
+                Text("Tap until they pick up")
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(Color.white.opacity(0.7))
+            }
+            Spacer()
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.text)
+        .ignoresSafeArea()
+    }
+
+    private var videoWaitingText: String {
+        if vm.connectionState == .connected { return "Waiting for video" }
+        return vm.statusText
+    }
+
+    private var showsWaitingTapTarget: Bool {
+        guard call.isKnock, call.direction == .outgoing else { return false }
+        switch vm.connectionState {
+        case .connected, .ended, .failed(_):
+            return false
+        case .idle, .connecting, .reconnecting:
+            return true
+        }
     }
 
     // MARK: Group grid
@@ -249,6 +309,75 @@ struct InCallView: View {
     private func endCall() {
         vm.end()
         appState.endActiveCall()
+    }
+
+    private func sendWaitingTap() {
+        guard let userId = call.remoteUserId, !userId.isEmpty else {
+            KnockHaptics.shared.knock()
+            revealChrome()
+            return
+        }
+        appState.sendKnockTap(to: userId)
+        revealChrome()
+    }
+}
+
+private struct WaitingTapButton: View {
+    let onDarkBackground: Bool
+    let action: () -> Void
+
+    @State private var pressScale: CGFloat = 1.0
+    @State private var ringPulse = false
+
+    var body: some View {
+        Button {
+            action()
+            withAnimation(.easeOut(duration: 0.08)) { pressScale = 0.92 }
+            withAnimation(.easeOut(duration: 0.22).delay(0.08)) { pressScale = 1.0 }
+            ringPulse = false
+            withAnimation(.easeOut(duration: 0.45)) { ringPulse = true }
+        } label: {
+            ZStack {
+                Circle()
+                    .stroke(ringColor.opacity(ringPulse ? 0 : 0.36),
+                            lineWidth: Theme.hairlineWidth)
+                    .frame(width: 148, height: 148)
+                    .scaleEffect(ringPulse ? 1.28 : 1.0)
+
+                Circle()
+                    .fill(fillColor)
+                    .frame(width: 148, height: 148)
+                    .overlay(
+                        Circle()
+                            .stroke(strokeColor, lineWidth: Theme.hairlineWidth)
+                    )
+                    .overlay(
+                        Text("tap")
+                            .font(.system(size: 34, weight: .medium))
+                            .foregroundStyle(textColor)
+                    )
+                    .scaleEffect(pressScale)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tap")
+        .accessibilityHint("Sends another tap while waiting for pickup")
+    }
+
+    private var fillColor: Color {
+        onDarkBackground ? Theme.Color.bg : Theme.Color.accent
+    }
+
+    private var textColor: Color {
+        onDarkBackground ? Theme.Color.accent : Theme.Color.onAccent
+    }
+
+    private var ringColor: Color {
+        onDarkBackground ? Color.white : Theme.Color.accent
+    }
+
+    private var strokeColor: Color {
+        onDarkBackground ? Color.white.opacity(0.18) : Theme.Color.hairline
     }
 }
 

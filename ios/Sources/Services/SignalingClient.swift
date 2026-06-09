@@ -3,13 +3,15 @@ import Foundation
 // MARK: - Signaling events (server -> client)
 
 enum SignalingEvent {
-    case incomingCall(callId: String, fromUserId: String?, fromName: String?, type: CallType)
+    case incomingCall(callId: String, fromUserId: String?, fromName: String?,
+                      type: CallType, videoEnabled: Bool, ringStyle: String)
     case callAccepted(callId: String, byUserId: String?)
     case callDeclined(callId: String, byUserId: String?)
     case callEnded(callId: String)
     case participantJoined(callId: String, userId: String)
     case participantLeft(callId: String, userId: String)
     case presenceUpdate(userId: String, online: Bool)
+    case contactsUpdated(userId: String?, phone: String?)
     /// A lightweight presence ping — one event per received tap.
     case knock(fromUserId: String?, fromName: String?, seq: Int?, dt: Int?)
     case unknown(type: String)
@@ -126,12 +128,20 @@ final class SignalingClient: NSObject, @unchecked Sendable {
             let call = obj["call"] as? [String: Any]
             let from = obj["from"] as? [String: Any]
             let callType = CallType(rawValue: typeStr ?? "one_to_one") ?? .oneToOne
+            let videoEnabled = boolValue(obj["videoEnabled"])
+                ?? boolValue(call?["videoEnabled"])
+                ?? true
+            let ringStyle = (obj["ringStyle"] as? String)
+                ?? (call?["ringStyle"] as? String)
+                ?? ((boolValue(obj["knock"]) ?? false) ? "knock" : "call")
             return .incomingCall(
                 callId: (obj["callId"] as? String) ?? (obj["id"] as? String) ?? (call?["id"] as? String) ?? "",
                 fromUserId: obj["fromUserId"] as? String ?? (obj["from"] as? String) ?? (from?["id"] as? String),
                 fromName: obj["fromName"] as? String ?? obj["fromDisplayName"] as? String
                     ?? (from?["displayName"] as? String) ?? (from?["phone"] as? String),
-                type: callType)
+                type: callType,
+                videoEnabled: videoEnabled,
+                ringStyle: ringStyle)
         case "call_accepted":
             return .callAccepted(callId: callIdOf(obj), byUserId: obj["byUserId"] as? String)
         case "call_declined":
@@ -145,6 +155,9 @@ final class SignalingClient: NSObject, @unchecked Sendable {
         case "presence_update":
             return .presenceUpdate(userId: obj["userId"] as? String ?? "",
                                    online: obj["online"] as? Bool ?? false)
+        case "contacts_updated":
+            return .contactsUpdated(userId: obj["userId"] as? String,
+                                    phone: obj["phone"] as? String)
         case "knock":
             return .knock(fromUserId: obj["fromUserId"] as? String,
                           fromName: obj["fromName"] as? String,
@@ -167,6 +180,21 @@ final class SignalingClient: NSObject, @unchecked Sendable {
         case let d as Double: return Int(d)
         case let n as NSNumber: return n.intValue
         default: return nil
+        }
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool? {
+        switch value {
+        case let b as Bool:
+            return b
+        case let s as String:
+            if s.caseInsensitiveCompare("true") == .orderedSame { return true }
+            if s.caseInsensitiveCompare("false") == .orderedSame { return false }
+            return nil
+        case let n as NSNumber:
+            return n.boolValue
+        default:
+            return nil
         }
     }
 

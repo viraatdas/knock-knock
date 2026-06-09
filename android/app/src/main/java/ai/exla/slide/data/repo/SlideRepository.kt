@@ -98,8 +98,19 @@ class SlideRepository(
     suspend fun getCalls(): Result<List<Call>> = io { api.getCalls().calls }
 
     /** One-to-one call: a single participant user id. */
-    suspend fun createCall(peerUserId: String): Result<CallSession> = io {
-        api.createCall(CreateCallBody(type = "one_to_one", participantUserIds = listOf(peerUserId)))
+    suspend fun createCall(
+        peerUserId: String,
+        videoEnabled: Boolean = true,
+        ringStyle: String = "call",
+    ): Result<CallSession> = io {
+        api.createCall(
+            CreateCallBody(
+                type = "one_to_one",
+                participantUserIds = listOf(peerUserId),
+                videoEnabled = videoEnabled,
+                ringStyle = ringStyle,
+            )
+        )
     }
 
     suspend fun acceptCall(callId: String): Result<CallSession> = io { api.acceptCall(callId) }

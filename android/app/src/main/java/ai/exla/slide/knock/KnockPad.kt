@@ -2,7 +2,10 @@ package ai.exla.slide.knock
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,16 +15,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.clickable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -33,22 +37,24 @@ import ai.exla.slide.ui.theme.SlideColors
 import kotlinx.coroutines.launch
 
 /**
- * Full-surface knock pad: a large circular ✊ tap target. Each tap relays a knock
- * to [peer] and plays local sound + haptic so the sender feels their own rhythm.
+ * Full-surface knock pad: a large circular ✊ target. Pressing it starts a real
+ * call-style knock so the other phone can ring through the OS call UI.
  * Quiet & precise: white ground, thin ink type, the pad is the one bold element.
  */
 @Composable
 fun KnockPad(
     peer: CallPeer,
-    vm: KnockViewModel,
+    onKnock: () -> Unit,
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
     val effects = remember { KnockEffects(context) }
     val scope = rememberCoroutineScope()
     val scale = remember { Animatable(1f) }
+    val ringScale = remember { Animatable(1f) }
+    val ringAlpha = remember { Animatable(0f) }
+    var didStart by remember { mutableStateOf(false) }
 
-    LaunchedEffect(peer.userId) { vm.startPattern() }
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose { effects.release() }
     }
@@ -64,7 +70,7 @@ fun KnockPad(
     ) {
         Spacer(Modifier.height(72.dp))
         Text(
-            text = "Knocking",
+            text = "Knock knock knock",
             style = MaterialTheme.typography.labelLarge,
             color = SlideColors.InkSecondary,
         )
@@ -80,29 +86,51 @@ fun KnockPad(
 
         val interaction = remember { MutableInteractionSource() }
         Box(
-            modifier = Modifier
-                .size(220.dp)
-                .scale(scale.value)
-                .background(SlideColors.Ink, CircleShape)
-                .clickable(
-                    interactionSource = interaction,
-                    indication = null,
-                ) {
-                    vm.tap(peer.userId)
-                    effects.play()
-                    scope.launch {
-                        scale.snapTo(0.92f)
-                        scale.animateTo(1f, tween(durationMillis = 180))
-                    }
-                },
+            modifier = Modifier.size(248.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "✊", fontSize = 88.sp, color = SlideColors.Bg)
+            Box(
+                modifier = Modifier
+                    .size(220.dp)
+                    .scale(ringScale.value)
+                    .alpha(ringAlpha.value)
+                    .border(BorderStroke(1.dp, SlideColors.Ink), CircleShape),
+            )
+            Box(
+                modifier = Modifier
+                    .size(220.dp)
+                    .scale(scale.value)
+                    .background(SlideColors.Ink, CircleShape)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                    ) {
+                        if (didStart) return@clickable
+                        didStart = true
+                        effects.play()
+                        onKnock()
+                        scope.launch {
+                            scale.snapTo(0.92f)
+                            scale.animateTo(1f, tween(durationMillis = 180))
+                        }
+                        scope.launch {
+                            ringScale.snapTo(0.96f)
+                            ringAlpha.snapTo(0.45f)
+                            ringScale.animateTo(1.34f, tween(durationMillis = 460))
+                        }
+                        scope.launch {
+                            ringAlpha.animateTo(0f, tween(durationMillis = 460))
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "✊", fontSize = 88.sp, color = SlideColors.Bg)
+            }
         }
 
         Spacer(Modifier.height(24.dp))
         Text(
-            text = "Tap a rhythm. They feel each knock.",
+            text = "Knock to ring them with a slide-to-pick-up.",
             style = MaterialTheme.typography.bodyMedium,
             color = SlideColors.InkSecondary,
             textAlign = TextAlign.Center,

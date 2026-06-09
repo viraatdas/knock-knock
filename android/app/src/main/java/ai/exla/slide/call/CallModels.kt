@@ -29,6 +29,7 @@ data class CallUiState(
     val usingFrontCamera: Boolean = true,
     val remoteVideoActive: Boolean = false,
     val isIncoming: Boolean = false,
+    val ringStyle: String = "call",
     /** Audio-only → centered avatar layout on white. */
     val audioOnly: Boolean = false,
 )
@@ -38,4 +39,6 @@ data class StartCallRequest(
     val session: CallSession,
     val peer: CallPeer,
     val isIncoming: Boolean,
+    val videoEnabled: Boolean = true,
+    val ringStyle: String = session.call.ringStyle,
 )

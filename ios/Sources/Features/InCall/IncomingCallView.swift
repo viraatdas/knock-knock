@@ -66,7 +66,7 @@ struct IncomingCallView: View {
     }
 
     private var subtitle: String {
-        if call.isKnock { return "is knocking" }
+        if call.isKnock { return "is tapping" }
         return call.isVideo ? "Incoming video call" : "Incoming call"
     }
 }

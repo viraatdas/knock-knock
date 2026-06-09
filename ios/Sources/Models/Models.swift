@@ -80,6 +80,8 @@ struct Call: Codable, Identifiable, Hashable {
     let type: CallType
     let createdBy: String
     var status: CallStatus
+    var videoEnabled: Bool?
+    var ringStyle: String?
     var startedAt: Date?
     var endedAt: Date?
     var createdAt: Date?
