@@ -106,7 +106,7 @@ pub async fn new_peer_connection(
     se.set_ip_filter(Box::new(|ip: std::net::IpAddr| match ip {
         std::net::IpAddr::V4(v4) => {
             let o = v4.octets();
-            !v4.is_loopback() && !(o[0] == 172 && o[1] == 17)
+            !(v4.is_loopback() || o[0] == 172 && o[1] == 17)
         }
         std::net::IpAddr::V6(_) => false,
     }));
@@ -200,7 +200,7 @@ pub async fn renegotiate(peer: &Arc<Peer>) -> Result<()> {
 /// Handle a client's initial offer: set remote, attach existing tracks, answer.
 pub async fn handle_client_offer(
     peer: &Arc<Peer>,
-    room: &Arc<Room>,
+    _room: &Arc<Room>,
     sdp: String,
 ) -> Result<String> {
     let _guard = peer.neg_lock.lock().await;
