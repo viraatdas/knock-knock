@@ -97,7 +97,7 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $showAbout) {
             AboutSheet()
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
         }
     }
 
@@ -251,6 +251,29 @@ private struct AboutSheet: View {
 
             Spacer()
 
+            // Open source: the whole app lives on GitHub — stars and issues welcome.
+            Button {
+                if let url = URL(string: "https://github.com/viraatdas/knock-knock") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                HStack(spacing: Theme.Space.xs) {
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("Knock Knock is open source")
+                        .font(Theme.Font.buttonSmall)
+                }
+                .foregroundStyle(Theme.Color.text)
+                .padding(.horizontal, Theme.Space.md)
+                .frame(height: 40)
+                .overlay(Capsule().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
+            }
+            .buttonStyle(PressableButtonStyle())
+
+            Text("Found a bug? File an issue on GitHub.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textSecondary)
+
             VStack(spacing: Theme.Space.xxs) {
                 Text("Knock Knock \(Config.appVersion)")
                     .font(Theme.Font.caption)
@@ -259,6 +282,7 @@ private struct AboutSheet: View {
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
+            .padding(.top, Theme.Space.md)
             .padding(.bottom, Theme.Space.xl)
         }
         .frame(maxWidth: .infinity)

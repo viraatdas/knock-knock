@@ -825,6 +825,19 @@ platform :ios do
   end
 
   desc "Cancel any in-flight Beta App Review submissions so a newer build can be submitted."
+  desc "Expire a TestFlight build (frees its beta-review slot). Set SLIDE_EXPIRE_BUILD."
+  lane :tf_expire do
+    app = asc_connect
+    ver = ENV["SLIDE_EXPIRE_BUILD"] || UI.user_error!("set SLIDE_EXPIRE_BUILD")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 10)
+                                        .find { |b| b.version.to_s == ver.to_s }
+    UI.user_error!("build #{ver} not found") unless build
+    code, _body = asc_raw(:patch, "v1/builds/#{build.id}", {
+      data: { type: "builds", id: build.id, attributes: { expired: true } } })
+    UI.user_error!("expire failed #{code}") unless (200..299).include?(code)
+    UI.success "Expired build #{ver}."
+  end
+
   lane :tf_beta_cancel do
     app = asc_connect
     # Walk recent builds; for each, fetch its betaAppReviewSubmission and delete

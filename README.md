@@ -1,13 +1,22 @@
-# Slide
+# Knock Knock
 
-**For the friends who never call.** The cleanest, fastest cross-platform video
-caller — phone-number-only signup, white background, thin black type.
+**Video calls you'll actually want to make.** Don't ring people — *knock*.
+Your taps travel in real time, the other phone feels your knocking rhythm,
+and nobody knows who's at the door until they answer. Phone-number-only
+signup, warm eggshell-and-espresso design, no ads, no tracking.
 
+Knock Knock is **open source**. Found a bug or have an idea?
+[File an issue](https://github.com/viraatdas/knock-knock/issues) — PRs welcome.
+
+- **Get it:** "Knock Knock - Video Chat" on the iOS App Store (TestFlight for
+  the latest builds).
 - **Clients:** native iOS (SwiftUI) + Android (Kotlin/Compose), CallKit /
   ConnectionService, native WebRTC.
-- **Media:** raw WebRTC through our own SFU (`webrtc-rs`) + coturn (STUN/TURN).
+- **Media:** WebRTC through a self-hosted LiveKit SFU + coturn (STUN/TURN).
 - **Backend:** Rust (axum + sqlx + tokio), Postgres, Redis.
-- **v1 scope:** 1:1 + group calls with screen share.
+- **Scope today:** 1:1 + group video/audio calls, knock-style ringing.
+- **History note:** the project was born as "Slide" — internal crate names and
+  the `app.exla.slide` bundle id keep that prefix.
 
 ## Repository layout
 
@@ -54,6 +63,6 @@ maintainer details live in `AGENTS.md`.
 
 ## Design
 
-Pure white `#FFFFFF`, near-black `#0A0A0A` thin text, gray `#6B7280`, hairline
-`#ECECEC`, red `#E5484D` for destructive actions only. Same system on every
-surface.
+Warm eggshell `#FAF6EF` backgrounds, espresso `#5A4632` actions, dark-brown
+`#2A211B` thin text, taupe `#8A7C6D` secondary, hairline `#E6DCCB`, terracotta
+`#D4694F` for end-call/destructive only. Same system on every surface.
