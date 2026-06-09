@@ -270,9 +270,17 @@ private struct AboutSheet: View {
             }
             .buttonStyle(PressableButtonStyle())
 
-            Text("Found a bug? File an issue on GitHub.")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.Color.textSecondary)
+            Button {
+                if let url = URL(string: "https://github.com/viraatdas/knock-knock/issues/new") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("Found a bug? File an issue →")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .underline()
+            }
+            .buttonStyle(PressableButtonStyle())
 
             VStack(spacing: Theme.Space.xxs) {
                 Text("Knock Knock \(Config.appVersion)")

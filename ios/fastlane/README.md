@@ -223,13 +223,23 @@ Submit the latest build for TestFlight Beta App Review (needed for EXTERNAL test
 
 Report each recent build's beta-review state + assign the newest VALID build to the Friends group.
 
+### ios tf_expire
+
+```sh
+[bundle exec] fastlane ios tf_expire
+```
+
+Cancel any in-flight Beta App Review submissions so a newer build can be submitted.
+
+Expire a TestFlight build (frees its beta-review slot). Set SLIDE_EXPIRE_BUILD.
+
 ### ios tf_beta_cancel
 
 ```sh
 [bundle exec] fastlane ios tf_beta_cancel
 ```
 
-Cancel any in-flight Beta App Review submissions so a newer build can be submitted.
+
 
 ### ios tf_public_link
 
