@@ -35,5 +35,6 @@ struct MainTabView: View {
                 .tag(Tab.profile)
         }
         .tint(Theme.Color.accent)
+        .onChange(of: selection) { _, _ in Haptics.select() }
     }
 }

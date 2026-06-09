@@ -9,9 +9,15 @@ final class InCallViewModel: ObservableObject {
     @Published var isVideoEnabled: Bool
     @Published var hasRemoteVideo = false
     @Published var remoteParticipants: [RemoteParticipant] = []
+    /// True once the other person has actually joined the room. Until then the
+    /// call is still "ringing" from the user's perspective, even though we're
+    /// already connected to the media server ourselves.
+    @Published var remoteJoined = false
 
     let service: CallService
     let isGroup: Bool
+    let isKnock: Bool
+    let isOutgoing: Bool
     private let memberNames: [String]
     private weak var call: ActiveCall?
     private var timer: Timer?
@@ -22,6 +28,8 @@ final class InCallViewModel: ObservableObject {
         self.call = call
         self.isVideoEnabled = call.isVideo
         self.isGroup = call.isGroup
+        self.isKnock = call.isKnock
+        self.isOutgoing = call.direction == .outgoing
         self.memberNames = call.memberNames
         self.service = CallServiceFactory.make()
         // Seed the mock roster so the simulator renders a real group grid.
@@ -56,7 +64,12 @@ final class InCallViewModel: ObservableObject {
         case .idle, .connecting: return "Connecting…"
         case .reconnecting: return "Reconnecting…"
         case .failed: return "Call failed"
-        case .connected: return timerText
+        case .connected:
+            // We're in the room, but the call hasn't "started" until the other
+            // person joins — show ringing, not a ticking timer.
+            if remoteJoined { return timerText }
+            if isOutgoing { return isKnock ? "Knocking…" : "Ringing…" }
+            return "Connecting…"
         case .ended: return "Call ended"
         }
     }
@@ -100,9 +113,13 @@ final class InCallViewModel: ObservableObject {
 
     fileprivate func handleStateChange(_ state: CallConnectionState) {
         connectionState = state
-        if state == .connected, startedAt == nil {
-            startedAt = Date()
-            startTimer()
+        switch state {
+        case .failed:
+            Haptics.error()
+        case .ended:
+            if remoteJoined { SoundEffects.ended() }
+        default:
+            break
         }
     }
 
@@ -112,6 +129,17 @@ final class InCallViewModel: ObservableObject {
 
     fileprivate func participantsChanged(_ participants: [RemoteParticipant]) {
         remoteParticipants = participants
+        // First remote participant = the moment the call truly begins: start
+        // the timer and celebrate with a haptic + a tiny chime.
+        if !participants.isEmpty, !remoteJoined {
+            remoteJoined = true
+            Haptics.success()
+            SoundEffects.connected()
+            if startedAt == nil {
+                startedAt = Date()
+                startTimer()
+            }
+        }
     }
 
     private func startTimer() {

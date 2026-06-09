@@ -454,6 +454,14 @@ final class AppState: ObservableObject {
     func receiveKnock(fromUserId: String?, fromName: String?, seq: Int?, dt: Int?) {
         KnockHaptics.shared.knock()
 
+        // If the tap comes from the person whose call is on screen right now,
+        // drive that call's UI (avatar thump on the ringing screen) instead of
+        // stacking a banner underneath the full-screen cover.
+        if let call = activeCall, let fromUserId, call.remoteUserId == fromUserId {
+            call.knockPulse += 1
+            return
+        }
+
         if let existing = incomingKnock, existing.fromUserId == fromUserId {
             existing.pulse += 1
             existing.lastName = fromName ?? existing.lastName
@@ -544,6 +552,7 @@ extension AppState: SignalingClientDelegate {
                 }
             case let .callDeclined(callId, _):
                 if self.activeCall?.callId == callId {
+                    Haptics.warning()   // they declined — make the dismissal felt
                     CallKitManager.shared.reportCallEnded(uuid: self.activeCall!.uuid, reason: .remoteEnded)
                     self.activeCall = nil
                 }

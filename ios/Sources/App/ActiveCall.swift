@@ -29,6 +29,10 @@ final class ActiveCall: ObservableObject, Identifiable {
     @Published var callId: String?
     @Published var session: CallSession?
 
+    /// Increments for every knock tap received from the remote party while this
+    /// call is on screen — the ringing UI observes it to thump per tap.
+    @Published var knockPulse: Int = 0
+
     init(direction: Direction, remoteName: String, remotePhone: String,
          remoteUserId: String?, isVideo: Bool, status: Status,
          isKnock: Bool = false,

@@ -103,8 +103,10 @@ struct CodeEntryView: View {
         focused = false
         Task {
             if let (user, isNew) = await vm.verify() {
+                Haptics.success()
                 onVerified(user, isNew)
             } else {
+                Haptics.error()
                 vm.code = ""
                 focused = true
             }

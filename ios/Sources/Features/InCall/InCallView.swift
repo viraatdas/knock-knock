@@ -6,6 +6,8 @@ struct InCallView: View {
     @StateObject private var vm: InCallViewModel
 
     @State private var chromeVisible = true
+    @State private var waitingTapCount = 0
+    @State private var remotePunch: CGFloat = 1.0
     @State private var thumbOffset: CGSize = .zero
     @State private var thumbAccumulated: CGSize = CGSize(width: 0, height: 0)
     @State private var hideTask: Task<Void, Never>?
@@ -49,6 +51,9 @@ struct InCallView: View {
             .contentShape(Rectangle())
             .onTapGesture { revealChrome() }
         }
+        // Crossfade ringing → live call instead of hard-swapping surfaces.
+        .animation(Theme.Motion.standard, value: vm.remoteJoined)
+        .animation(Theme.Motion.standard, value: vm.hasRemoteVideo)
         .background(isVideoCall ? Theme.Color.text : Theme.Color.bg)
         .onAppear {
             KnockHaptics.shared.prepare()
@@ -64,6 +69,8 @@ struct InCallView: View {
         VStack(spacing: Theme.Space.lg) {
             Spacer()
             AvatarCircle(name: call.remoteName, size: 128)
+                .scaleEffect(remotePunch)
+                .onChange(of: call.knockPulse) { _, _ in punchRemoteAvatar() }
             VStack(spacing: Theme.Space.xs) {
                 Text(call.remoteName)
                     .font(Theme.Font.title)
@@ -79,9 +86,7 @@ struct InCallView: View {
                 }
                 .padding(.top, Theme.Space.md)
 
-                Text("Tap until they pick up")
-                    .font(Theme.Font.footnote)
-                    .foregroundStyle(Theme.Color.textSecondary)
+                waitingCaption(color: Theme.Color.textSecondary)
             }
             Spacer()
             Spacer()
@@ -98,6 +103,8 @@ struct InCallView: View {
                          size: 128,
                          background: Color.white.opacity(0.12),
                          foreground: .white)
+                .scaleEffect(remotePunch)
+                .onChange(of: call.knockPulse) { _, _ in punchRemoteAvatar() }
             VStack(spacing: Theme.Space.xs) {
                 Text(call.remoteName)
                     .font(Theme.Font.title)
@@ -113,9 +120,7 @@ struct InCallView: View {
                 }
                 .padding(.top, Theme.Space.md)
 
-                Text("Tap until they pick up")
-                    .font(Theme.Font.footnote)
-                    .foregroundStyle(Color.white.opacity(0.7))
+                waitingCaption(color: Color.white.opacity(0.7))
             }
             Spacer()
             Spacer()
@@ -125,17 +130,30 @@ struct InCallView: View {
         .ignoresSafeArea()
     }
 
+    /// "Tap until they pick up" until the first tap, then a live knock counter.
+    private func waitingCaption(color: Color) -> some View {
+        Text(waitingTapCount == 0
+             ? "Tap until they pick up"
+             : "\(waitingTapCount + 1) knocks — they can feel every one")
+            .font(Theme.Font.footnote)
+            .foregroundStyle(color)
+            .contentTransition(.numericText())
+            .animation(Theme.Motion.fast, value: waitingTapCount)
+    }
+
     private var videoWaitingText: String {
-        if vm.connectionState == .connected { return "Waiting for video" }
+        if vm.remoteJoined { return "Waiting for video" }
         return vm.statusText
     }
 
+    /// Keep the tap pad up until the other person actually joins the room —
+    /// being connected to the media server ourselves doesn't mean they picked up.
     private var showsWaitingTapTarget: Bool {
-        guard call.isKnock, call.direction == .outgoing else { return false }
+        guard call.isKnock, call.direction == .outgoing, !vm.remoteJoined else { return false }
         switch vm.connectionState {
-        case .connected, .ended, .failed(_):
+        case .ended, .failed(_):
             return false
-        case .idle, .connecting, .reconnecting:
+        case .idle, .connecting, .reconnecting, .connected:
             return true
         }
     }
@@ -311,7 +329,14 @@ struct InCallView: View {
         appState.endActiveCall()
     }
 
+    /// They tapped back while we wait — bounce their avatar in answer.
+    private func punchRemoteAvatar() {
+        withAnimation(.spring(response: 0.16, dampingFraction: 0.5)) { remotePunch = 1.08 }
+        withAnimation(.easeOut(duration: 0.28).delay(0.12)) { remotePunch = 1.0 }
+    }
+
     private func sendWaitingTap() {
+        waitingTapCount += 1
         guard let userId = call.remoteUserId, !userId.isEmpty else {
             KnockHaptics.shared.knock()
             revealChrome()
@@ -328,6 +353,7 @@ private struct WaitingTapButton: View {
 
     @State private var pressScale: CGFloat = 1.0
     @State private var ringPulse = false
+    @State private var breathing = false
 
     var body: some View {
         Button {
@@ -338,6 +364,13 @@ private struct WaitingTapButton: View {
             withAnimation(.easeOut(duration: 0.45)) { ringPulse = true }
         } label: {
             ZStack {
+                // Idle breathing ring — a standing invitation to keep tapping.
+                Circle()
+                    .stroke(ringColor.opacity(breathing ? 0.06 : 0.25),
+                            lineWidth: Theme.hairlineWidth)
+                    .frame(width: 148, height: 148)
+                    .scaleEffect(breathing ? 1.16 : 1.02)
+
                 Circle()
                     .stroke(ringColor.opacity(ringPulse ? 0 : 0.36),
                             lineWidth: Theme.hairlineWidth)
@@ -362,6 +395,11 @@ private struct WaitingTapButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Tap")
         .accessibilityHint("Sends another tap while waiting for pickup")
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                breathing = true
+            }
+        }
     }
 
     private var fillColor: Color {

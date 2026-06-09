@@ -4,22 +4,40 @@ struct IncomingCallView: View {
     @EnvironmentObject private var appState: AppState
     @ObservedObject var call: ActiveCall
     @State private var pulse = false
+    @State private var knockPunch: CGFloat = 1.0
+    @State private var knockRing = false
 
     var body: some View {
         VStack(spacing: Theme.Space.lg) {
             Spacer()
 
-            // Large avatar with a gentle pulse (scale 1.0 -> 1.04).
+            // Large avatar with a gentle pulse (scale 1.0 -> 1.04). Each
+            // received knock tap punches the avatar and fires a ripple, so the
+            // callee literally sees the caller's knocking rhythm.
             ZStack {
+                Circle()
+                    .stroke(Theme.Color.accent.opacity(knockRing ? 0 : 0.45),
+                            lineWidth: 2)
+                    .frame(width: 148, height: 148)
+                    .scaleEffect(knockRing ? 1.45 : 1.0)
+
                 Circle()
                     .stroke(Theme.Color.hairline, lineWidth: 1)
                     .frame(width: 168, height: 168)
                     .scaleEffect(pulse ? 1.12 : 1.0)
                     .opacity(pulse ? 0 : 0.8)
+                    .animation(Theme.Motion.pulse, value: pulse)
                 AvatarCircle(name: call.remoteName, size: 132)
-                    .scaleEffect(pulse ? 1.04 : 1.0)
+                    .scaleEffect((pulse ? 1.04 : 1.0) * knockPunch)
+                    .animation(Theme.Motion.pulse, value: pulse)
             }
-            .animation(Theme.Motion.pulse, value: pulse)
+            .onChange(of: call.knockPulse) { _, _ in
+                // Haptic + sound already played in AppState.receiveKnock.
+                knockRing = false
+                withAnimation(.easeOut(duration: 0.5)) { knockRing = true }
+                withAnimation(.spring(response: 0.16, dampingFraction: 0.5)) { knockPunch = 1.09 }
+                withAnimation(.easeOut(duration: 0.28).delay(0.12)) { knockPunch = 1.0 }
+            }
 
             VStack(spacing: Theme.Space.xs) {
                 Text(call.remoteName)
@@ -28,6 +46,8 @@ struct IncomingCallView: View {
                 Text(subtitle)
                     .font(Theme.Font.callout)
                     .foregroundStyle(Theme.Color.textSecondary)
+                    .contentTransition(.numericText())
+                    .animation(Theme.Motion.fast, value: call.knockPulse)
             }
 
             Spacer()
@@ -66,7 +86,10 @@ struct IncomingCallView: View {
     }
 
     private var subtitle: String {
-        if call.isKnock { return "is tapping" }
+        if call.isKnock {
+            // Count the taps as they land so the urgency is legible, not just felt.
+            return call.knockPulse <= 1 ? "is tapping" : "tapped \(call.knockPulse) times"
+        }
         return call.isVideo ? "Incoming video call" : "Incoming call"
     }
 }
@@ -77,6 +100,7 @@ private struct SlideToAnswerControl: View {
 
     @State private var dragOffset: CGFloat = 0
     @State private var completed = false
+    @State private var pastThreshold = false
 
     private let height: CGFloat = 68
     private let knobSize: CGFloat = 60
@@ -113,9 +137,17 @@ private struct SlideToAnswerControl: View {
                             .onChanged { value in
                                 guard !completed else { return }
                                 dragOffset = min(max(0, value.translation.width), maxOffset)
+                                // Click when crossing (or backing out of) the
+                                // commit threshold so the answer point is felt.
+                                let past = dragOffset >= maxOffset * 0.72
+                                if past != pastThreshold {
+                                    pastThreshold = past
+                                    Haptics.select()
+                                }
                             }
                             .onEnded { _ in
                                 guard !completed else { return }
+                                pastThreshold = false
                                 if dragOffset >= maxOffset * 0.72 {
                                     completed = true
                                     withAnimation(Theme.Motion.standard) {
