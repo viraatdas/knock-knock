@@ -99,7 +99,7 @@ Auth:
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/auth/request-otp` | `{ "phone": "+14155550123" }` | `202`, and in dev also `{ "devCode": "123456" }` |
+| POST | `/auth/request-otp` | `{ "phone": "+14155550123" }` | `{ "status": "sent" }`; with `EXPOSE_DEV_OTP=true` in console-only dev, also `{ "devCode": "123456" }` |
 | POST | `/auth/verify-otp` | `{ "phone", "code" }` | `{ "accessToken", "refreshToken", "isNewUser", "user" }` |
 | POST | `/auth/refresh` | `{ "refreshToken" }` | `{ "accessToken", "refreshToken" }` |
 | POST | `/auth/logout` | `{ "refreshToken" }` | `204` |

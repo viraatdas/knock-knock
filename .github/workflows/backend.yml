@@ -63,6 +63,7 @@ jobs:
         run: |
           set -a; source .env.example; set +a
           export SMS_PROVIDER=console
+          export EXPOSE_DEV_OTP=true
           ./target/release/slide-api &
           for i in $(seq 1 30); do curl -fsS http://localhost:8080/v1/health && break || sleep 1; done
           ./scripts/smoke.sh

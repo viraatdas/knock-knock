@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the Slide API against a running instance.
 # Usage: BASE=http://localhost:8080/v1 ./scripts/smoke.sh
-# Exercises the full phone-only auth + contacts + call-create flow using the
-# dev OTP returned by /auth/request-otp when SMS_PROVIDER=console.
+# Exercises the full phone-only auth + contacts + call-create flow using the dev
+# OTP returned by /auth/request-otp when EXPOSE_DEV_OTP=true.
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:8080/v1}"
@@ -18,7 +18,14 @@ login() { # $1 = phone -> echoes "accessToken refreshToken userId"
   local phone="$1"
   local code
   code=$(curl -fsS -X POST "$BASE/auth/request-otp" \
-    -H 'content-type: application/json' -d "{\"phone\":\"$phone\"}" | jqr "['devCode']")
+    -H 'content-type: application/json' -d "{\"phone\":\"$phone\"}" |
+    python3 -c 'import json,sys
+data=json.load(sys.stdin)
+code=data.get("devCode")
+if not code:
+    sys.stderr.write("request-otp did not return devCode; start the API with SMS_PROVIDER=console EXPOSE_DEV_OTP=true\n")
+    sys.exit(1)
+print(code)')
   local resp
   resp=$(curl -fsS -X POST "$BASE/auth/verify-otp" \
     -H 'content-type: application/json' -d "{\"phone\":\"$phone\",\"code\":\"$code\"}")

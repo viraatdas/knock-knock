@@ -1,6 +1,6 @@
 // Proves the API -> SFU join-token handshake against both live local services.
 //   node scripts/sfu-handshake.mjs
-// 1) phone-OTP login two users via the API,
+// 1) phone-OTP login two users via the API (requires EXPOSE_DEV_OTP=true),
 // 2) create a call -> receive { sfuUrl, joinToken, iceServers },
 // 3) open the SFU media WebSocket with the join token -> expect UPGRADE,
 //    send a `ping` -> expect a `pong`,
@@ -23,6 +23,9 @@ async function login(phone) {
       body: JSON.stringify({ phone }),
     }),
   );
+  if (!otp.devCode) {
+    fail("request-otp did not return devCode; start the API with SMS_PROVIDER=console EXPOSE_DEV_OTP=true");
+  }
   const v = await jget(
     await fetch(`${API}/auth/verify-otp`, {
       method: "POST",
