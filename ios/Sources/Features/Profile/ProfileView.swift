@@ -4,6 +4,8 @@ import PhotosUI
 struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showEdit = false
+    @State private var showPrivacy = false
+    @State private var showAbout = false
 
     private var user: User { appState.currentUser ?? MockData.me }
 
@@ -44,11 +46,11 @@ struct ProfileView: View {
                 // Minimal settings list with hairline dividers.
                 VStack(spacing: 0) {
                     HairlineDivider()
-                    SettingsRow(icon: "bell", title: "Notifications") {}
+                    SettingsRow(icon: "bell", title: "Notifications") { openNotificationSettings() }
                     HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
-                    SettingsRow(icon: "lock", title: "Privacy") {}
+                    SettingsRow(icon: "lock", title: "Privacy") { showPrivacy = true }
                     HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
-                    SettingsRow(icon: "info.circle", title: "About") {}
+                    SettingsRow(icon: "info.circle", title: "About") { showAbout = true }
                     HairlineDivider()
                 }
                 .padding(.top, Theme.Space.md)
@@ -71,7 +73,7 @@ struct ProfileView: View {
                 .buttonStyle(PressableButtonStyle())
                 .padding(.top, Theme.Space.xl)
 
-                Text("Slide \(Config.appVersion)")
+                Text("Knock Knock \(Config.appVersion)")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Color.textSecondary)
                     .padding(.top, Theme.Space.lg)
@@ -81,6 +83,137 @@ struct ProfileView: View {
         .sheet(isPresented: $showEdit) {
             EditProfileSheet()
                 .environmentObject(appState)
+        }
+        .sheet(isPresented: $showPrivacy) {
+            PrivacySheet()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutSheet()
+                .presentationDetents([.medium])
+        }
+    }
+
+    /// Deep-link straight to this app's notification settings.
+    private func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+}
+
+// MARK: - Privacy
+
+private struct PrivacySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            Text("Privacy")
+                .font(Theme.Font.title)
+                .foregroundStyle(Theme.Color.text)
+                .padding(.top, Theme.Space.xl)
+
+            VStack(alignment: .leading, spacing: Theme.Space.md) {
+                privacyPoint(icon: "phone",
+                             title: "Your number is your account",
+                             detail: "We use your phone number to sign you in and let friends find you. No usernames, no passwords, no email.")
+                privacyPoint(icon: "person.2",
+                             title: "Contacts stay yours",
+                             detail: "Contacts are matched only to show you who's already on Knock Knock. They're never sold or used for ads.")
+                privacyPoint(icon: "lock",
+                             title: "Calls are encrypted in transit",
+                             detail: "Audio and video travel over encrypted WebRTC (DTLS-SRTP). We don't record calls.")
+                privacyPoint(icon: "eye.slash",
+                             title: "No ads, no tracking",
+                             detail: "There are no third-party trackers and we don't track you across other apps.")
+            }
+
+            Spacer()
+
+            PrimaryButton(title: "Manage permissions in Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .padding(.bottom, Theme.Space.lg)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.Color.bg)
+    }
+
+    private func privacyPoint(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Space.md) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .light))
+                .foregroundStyle(Theme.Color.accent)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(Theme.Color.text)
+                Text(detail)
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+// MARK: - About
+
+private struct AboutSheet: View {
+    /// The joke plays out line by line, with a knock per line.
+    @State private var jokeStep = 0
+    private let joke = ["Knock knock.", "Who's there?", "Your people."]
+
+    var body: some View {
+        VStack(spacing: Theme.Space.lg) {
+            Wordmark(size: 34)
+                .padding(.top, Theme.Space.xxl)
+
+            Text("Video calls you'll actually want to make.")
+                .font(Theme.Font.callout)
+                .foregroundStyle(Theme.Color.textSecondary)
+                .multilineTextAlignment(.center)
+
+            VStack(spacing: Theme.Space.xs) {
+                ForEach(0..<jokeStep, id: \.self) { i in
+                    Text(joke[i])
+                        .font(i == 2 ? Theme.Font.title3 : Theme.Font.callout)
+                        .foregroundStyle(i == 2 ? Theme.Color.accent : Theme.Color.text)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .frame(minHeight: 88)
+            .padding(.top, Theme.Space.md)
+
+            Spacer()
+
+            VStack(spacing: Theme.Space.xxs) {
+                Text("Knock Knock \(Config.appVersion)")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                Text("© 2026 Viraat Das")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+            .padding(.bottom, Theme.Space.xl)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.Color.bg)
+        .onAppear { playJoke() }
+    }
+
+    private func playJoke() {
+        jokeStep = 0
+        Task { @MainActor in
+            for step in 1...joke.count {
+                try? await Task.sleep(nanoseconds: step == 1 ? 400_000_000 : 900_000_000)
+                if step == 1 || step == 3 { KnockHaptics.shared.knock() }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { jokeStep = step }
+            }
         }
     }
 }

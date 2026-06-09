@@ -16,7 +16,20 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
 
     /// The LiveKit room. Held for the lifetime of the call; the SwiftUI video
     /// views observe it (and its participants) for track updates.
-    let room = Room()
+    ///
+    /// Audio tuning: full voice processing (echo cancellation + noise
+    /// suppression + auto gain) and DTX off — DTX stops sending packets during
+    /// silence, which can make quiet speech sound gated/choppy on flaky links.
+    /// Continuous Opus at a steady bitrate sounds noticeably smoother.
+    let room = Room(roomOptions: RoomOptions(
+        defaultAudioCaptureOptions: AudioCaptureOptions(
+            echoCancellation: true,
+            autoGainControl: true,
+            noiseSuppression: true,
+            highpassFilter: true),
+        defaultAudioPublishOptions: AudioPublishOptions(dtx: false),
+        adaptiveStream: true,
+        dynacast: true))
 
     private(set) var connectionState: CallConnectionState = .idle {
         didSet { DispatchQueue.main.async { self.delegate?.callService(self, didChange: self.connectionState) } }

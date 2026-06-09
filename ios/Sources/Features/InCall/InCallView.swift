@@ -242,19 +242,25 @@ struct InCallView: View {
             Spacer()
 
             // Bottom row of thin circular buttons.
-            HStack(spacing: Theme.Space.lg) {
+            HStack(spacing: Theme.Space.md) {
                 CircleActionButton(
                     systemImage: vm.isMuted ? "mic.slash" : "mic",
-                    diameter: 60,
+                    diameter: 56,
                     filled: vm.isMuted,
                     tint: chromeText,
                     strokeColor: chromeStroke,
                     background: .clear) { vm.toggleMute(); revealChrome() }
 
+                // Audio output: shows current route (earpiece/speaker/AirPods),
+                // taps open the system picker.
+                AudioRouteButton(diameter: 56,
+                                 tint: chromeText,
+                                 strokeColor: chromeStroke)
+
                 if call.isVideo {
                     CircleActionButton(
                         systemImage: vm.isVideoEnabled ? "video" : "video.slash",
-                        diameter: 60,
+                        diameter: 56,
                         filled: !vm.isVideoEnabled,
                         tint: chromeText,
                         strokeColor: chromeStroke,
@@ -262,7 +268,7 @@ struct InCallView: View {
 
                     CircleActionButton(
                         systemImage: "arrow.triangle.2.circlepath.camera",
-                        diameter: 60,
+                        diameter: 56,
                         filled: false,
                         tint: chromeText,
                         strokeColor: chromeStroke,
@@ -272,7 +278,7 @@ struct InCallView: View {
                 // Red end call.
                 CircleActionButton(
                     systemImage: "phone.down",
-                    diameter: 60,
+                    diameter: 56,
                     filled: true,
                     tint: Theme.Color.danger,
                     background: .clear) { endCall() }
