@@ -34,9 +34,40 @@ final class RecentsViewModel: ObservableObject {
         }
     }
 
+    /// One card per person: keep only the most recent call for each other-party,
+    /// so calling the same person repeatedly shows a single tile (FaceTime-style).
+    /// `calls` is already newest-first from the API.
+    var dedupedCalls: [Call] {
+        var seen = Set<String>()
+        var out: [Call] = []
+        for call in calls {
+            let key = otherParticipant(for: call)?.userId ?? call.id
+            if seen.insert(key).inserted { out.append(call) }
+        }
+        return out
+    }
+
     func displayName(for call: Call) -> String {
-        guard let other = otherParticipant(for: call) else { return "Slide" }
+        guard let other = otherParticipant(for: call) else { return "Knock Knock" }
         return displayName(for: other)
+    }
+
+    /// Compact relative date for the grid card, e.g. "6/2/26".
+    func dateLabel(for call: Call) -> String {
+        let when = call.startedAt ?? call.createdAt
+        guard let when else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = "M/d/yy"
+        return f.string(from: when)
+    }
+
+    /// Direction arrow + Video/Audio, e.g. "↗ Video" (outgoing) / "↙ Video".
+    func directionLabel(for call: Call) -> String {
+        let meId = currentUserId ?? MockData.me.id
+        let outgoing = call.createdBy == meId
+        let arrow = outgoing ? "↗" : "↙"
+        let kind = (call.videoEnabled ?? true) ? "Video" : "Audio"
+        return "\(arrow) \(kind)"
     }
 
     func subtitle(for call: Call) -> (text: String, isMissed: Bool) {
@@ -124,17 +155,24 @@ struct RecentsView: View {
                 EmptyStateView(message: "No calls yet", systemImage: "phone")
             } else {
                 ScrollView {
-                    LazyVStack(spacing: Theme.Space.sm) {
-                        ForEach(vm.calls) { call in
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Space.md),
+                                        GridItem(.flexible(), spacing: Theme.Space.md)],
+                              spacing: Theme.Space.md) {
+                        ForEach(vm.dedupedCalls) { call in
                             let user = vm.userFor(call: call)
-                            RecentCallCard(name: vm.displayName(for: call),
-                                           subtitle: vm.subtitle(for: call),
-                                           isVideo: call.videoEnabled ?? true) {
+                            RecentGridCard(
+                                name: vm.displayName(for: call),
+                                photoURL: user.avatarUrl.flatMap(URL.init(string:)),
+                                direction: vm.directionLabel(for: call),
+                                date: vm.dateLabel(for: call),
+                                isVideo: call.videoEnabled ?? true,
+                                isMissed: vm.subtitle(for: call).isMissed
+                            ) {
                                 appState.startKnockCall(to: user, video: call.videoEnabled ?? true)
                             }
                         }
                     }
-                    .padding(.horizontal, Theme.Space.lg)
+                    .padding(.horizontal, Theme.Space.md)
                     .padding(.vertical, Theme.Space.md)
                 }
             }
@@ -148,81 +186,81 @@ struct RecentsView: View {
     }
 }
 
-struct RecentCallCard: View {
+/// FaceTime-style grid tile: a tall rounded card filled with the person's photo
+/// (or a warm initials backdrop), name top-left, direction + date bottom-left,
+/// and a video glyph in the bottom-right. The whole card taps to call.
+struct RecentGridCard: View {
     let name: String
-    let subtitle: (text: String, isMissed: Bool)
+    let photoURL: URL?
+    let direction: String
+    let date: String
     var isVideo: Bool
+    var isMissed: Bool
     let onTapCall: () -> Void
 
     var body: some View {
         Button(action: onTapCall) {
-            VStack(alignment: .leading, spacing: Theme.Space.md) {
-                HStack(alignment: .top, spacing: Theme.Space.md) {
-                    AvatarCircle(name: name, size: 48)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(name)
-                            .font(Theme.Font.body)
-                            .foregroundStyle(Theme.Color.text)
-                            .lineLimit(1)
-                        Text(subtitle.text)
-                            .font(Theme.Font.footnote)
-                            .foregroundStyle(subtitle.isMissed ? Theme.Color.danger
-                                                               : Theme.Color.textSecondary)
-                            .lineLimit(1)
+            ZStack {
+                // Photo fill, or a warm tinted backdrop with big initials.
+                if let photoURL {
+                    AsyncImage(url: photoURL) { img in
+                        img.resizable().scaledToFill()
+                    } placeholder: {
+                        initialsBackdrop
                     }
-
-                    Spacer(minLength: Theme.Space.sm)
-
-                    HStack(spacing: Theme.Space.xs) {
-                        Image(systemName: isVideo ? "video" : "phone")
-                            .font(.system(size: 13, weight: .light))
-                        Text(isVideo ? "Video" : "Audio")
-                            .font(Theme.Font.caption)
-                    }
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .padding(.horizontal, Theme.Space.sm)
-                    .frame(height: 28)
-                    .background(
-                        Capsule()
-                            .fill(Theme.Color.bgGrouped)
-                            .overlay(Capsule().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
-                    )
+                } else {
+                    initialsBackdrop
                 }
 
-                HStack(spacing: Theme.Space.sm) {
-                    Circle()
-                        .fill(Theme.Color.accent)
-                        .frame(width: 42, height: 42)
-                        .overlay(
-                            Text("tap")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Theme.Color.onAccent)
-                        )
+                // Bottom scrim so text is legible over any photo.
+                LinearGradient(
+                    colors: [.clear, .clear, Theme.Color.text.opacity(0.55)],
+                    startPoint: .top, endPoint: .bottom)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Tap to call")
-                            .font(Theme.Font.callout)
-                            .foregroundStyle(Theme.Color.text)
-                        Text("Repeats the last \(isVideo ? "video" : "audio") call")
-                            .font(Theme.Font.caption)
-                            .foregroundStyle(Theme.Color.textSecondary)
-                    }
-
+                VStack(alignment: .leading) {
+                    Text(name)
+                        .font(Theme.Font.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     Spacer()
+                    HStack(alignment: .bottom) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(direction)
+                                .foregroundStyle(isMissed ? Theme.Color.danger : .white)
+                            Text(date)
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                        .font(Theme.Font.caption)
+                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+
+                        Spacer()
+
+                        // Corner video glyph (visual affordance, not a label).
+                        Image(systemName: isVideo ? "video.fill" : "phone.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(Theme.Color.text.opacity(0.35)))
+                    }
                 }
+                .padding(Theme.Space.md)
             }
-            .padding(Theme.Space.md)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Theme.Color.bg)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth)
-                    )
+            .frame(height: 220)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
+                    .stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth)
             )
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel("Tap to call \(name)")
+        .accessibilityLabel("Call \(name)")
+    }
+
+    private var initialsBackdrop: some View {
+        ZStack {
+            Theme.Color.bgGrouped
+            AvatarCircle(name: name, size: 96)
+        }
     }
 }
