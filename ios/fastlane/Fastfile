@@ -620,6 +620,21 @@ platform :ios do
     UI.user_error!("age rating: gave up after 20 attempts") unless ok
   end
 
+  desc "Show every name field ASC has (app record + app_info localizations) so we know what TestFlight reads."
+  lane :asc_names do
+    app = asc_connect
+    UI.header "app record name: #{app.name.inspect}"
+    info = app.fetch_edit_app_info rescue nil
+    (info&.get_app_info_localizations || []).each do |l|
+      UI.message "  app_info[#{l.locale}] name=#{l.name.inspect} subtitle=#{l.subtitle.inspect}"
+    end
+    # Live (approved) app info too
+    live = app.fetch_live_app_info rescue nil
+    (live&.get_app_info_localizations || []).each do |l|
+      UI.message "  LIVE app_info[#{l.locale}] name=#{l.name.inspect}"
+    end
+  end
+
   desc "Set name/subtitle on the editable App Info localization (bypass deliver)."
   lane :asc_text do
     app = asc_connect
