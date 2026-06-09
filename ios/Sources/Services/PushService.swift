@@ -79,7 +79,11 @@ extension PushService: PKPushRegistryDelegate {
         let hasVideo = Self.boolValue(dict["videoEnabled"]) ?? true
         let ringStyle = (dict["ringStyle"] as? String)
             ?? ((Self.boolValue(dict["knock"]) ?? false) ? "knock" : "call")
-        let displayName = ringStyle == "knock" ? "\(fromName) is tapping" : fromName
+        // Knocks ring anonymously — the whole point is "knock knock, who's
+        // there?": you find out by answering. Normal calls show the name.
+        let isKnock = ringStyle == "knock"
+        let displayName = isKnock ? "Knock knock…" : fromName
+        let handle = isKnock ? "Knock Knock" : fromName
 
         // CRITICAL: report an incoming call to CallKit synchronously on every
         // VoIP push, before returning, or iOS will kill the app. We mint a
@@ -87,7 +91,7 @@ extension PushService: PKPushRegistryDelegate {
         // match this CallKit call to the server-side call.
         let uuid = Self.uuid(for: callId)
         CallKitManager.shared.reportIncomingCall(
-            uuid: uuid, handle: fromName, displayName: displayName,
+            uuid: uuid, handle: handle, displayName: displayName,
             hasVideo: hasVideo) { _ in completion() }
 
         // Hand off to the app layer so answering actually joins the call.

@@ -60,6 +60,7 @@ struct AudioRouteButton: View {
     var diameter: CGFloat = 60
     var tint: Color = Theme.Color.text
     var strokeColor: Color = Theme.Color.hairline
+    var filledIconColor: Color = Theme.Color.onAccent
 
     var body: some View {
         ZStack {
@@ -71,7 +72,7 @@ struct AudioRouteButton: View {
                 )
             Image(systemName: monitor.icon)
                 .font(.system(size: diameter * 0.30, weight: .light))
-                .foregroundStyle(monitor.isSpeaker ? Theme.Color.onAccent : tint)
+                .foregroundStyle(monitor.isSpeaker ? filledIconColor : tint)
                 .animation(Theme.Motion.fast, value: monitor.icon)
         }
         .frame(width: diameter, height: diameter)

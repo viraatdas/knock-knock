@@ -9,7 +9,7 @@ struct InCallView: View {
     @State private var waitingTapCount = 0
     @State private var remotePunch: CGFloat = 1.0
     @State private var thumbOffset: CGSize = .zero
-    @State private var thumbAccumulated: CGSize = CGSize(width: 0, height: 0)
+    @State private var thumbCornerIndex = 0   // 0 = top-trailing
     @State private var hideTask: Task<Void, Never>?
 
     init(call: ActiveCall) {
@@ -17,7 +17,9 @@ struct InCallView: View {
         _vm = StateObject(wrappedValue: InCallViewModel(call: call))
     }
 
-    private var isVideoCall: Bool { vm.isVideoEnabled && call.isVideo }
+    /// A video *call* — independent of whether our own camera is currently on,
+    /// so muting your camera never blanks the other person's feed.
+    private var isVideoCall: Bool { call.isVideo }
 
     var body: some View {
         GeometryReader { geo in
@@ -35,12 +37,14 @@ struct InCallView: View {
                     audioOnlyBackground
                 }
 
-                // Local self-view thumbnail (draggable, rounded) — 1:1 only; the
-                // group grid shows everyone including a self tile.
-                if isVideoCall && !vm.isGroup {
+                // Local self-view thumbnail (draggable, snaps to corners) —
+                // 1:1 only; the group grid shows everyone including a self tile.
+                // Hidden while your camera is off.
+                if isVideoCall && vm.isVideoEnabled && !vm.isGroup {
                     localThumbnail
                         .position(thumbPosition(in: geo))
                         .gesture(dragGesture(in: geo))
+                        .transition(.scale.combined(with: .opacity))
                 }
 
                 // Chrome (fades after a few seconds; tap to reveal).
@@ -113,6 +117,12 @@ struct InCallView: View {
                     .font(Theme.Font.callout)
                     .foregroundStyle(Color.white.opacity(0.7))
                     .monospacedDigit()
+                if vm.remoteJoined {
+                    Text("Their camera is off")
+                        .font(Theme.Font.footnote)
+                        .foregroundStyle(Color.white.opacity(0.45))
+                        .padding(.top, 2)
+                }
             }
             if showsWaitingTapTarget {
                 WaitingTapButton(onDarkBackground: true) {
@@ -142,8 +152,9 @@ struct InCallView: View {
     }
 
     private var videoWaitingText: String {
-        if vm.remoteJoined { return "Waiting for video" }
-        return vm.statusText
+        // Once they've joined, statusText is the live timer; before that it's
+        // Knocking…/Ringing…/Connecting….
+        vm.statusText
     }
 
     /// Keep the tap pad up until the other person actually joins the room —
@@ -201,21 +212,48 @@ struct InCallView: View {
                 RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
                     .stroke(Color.white.opacity(0.5), lineWidth: 1)
             )
+            .shadow(color: Color.black.opacity(0.25), radius: 10, y: 4)
+            // Double-tap your own tile to flip the camera.
+            .onTapGesture(count: 2) {
+                Haptics.select()
+                vm.flipCamera()
+            }
+    }
+
+    /// The four snap anchors for the self-view, inset from the edges and clear
+    /// of the top status text / bottom controls.
+    private func thumbAnchors(in geo: GeometryProxy) -> [CGPoint] {
+        let xL: CGFloat = 16 + 54, xR = geo.size.width - 16 - 54
+        let yT: CGFloat = 140, yB = geo.size.height - 200
+        return [CGPoint(x: xR, y: yT), CGPoint(x: xL, y: yT),
+                CGPoint(x: xR, y: yB), CGPoint(x: xL, y: yB)]
     }
 
     private func thumbPosition(in geo: GeometryProxy) -> CGPoint {
-        let base = CGPoint(x: geo.size.width - 80, y: 140)
+        let base = thumbAnchors(in: geo)[thumbCornerIndex]
         return CGPoint(x: base.x + thumbOffset.width, y: base.y + thumbOffset.height)
     }
 
     private func dragGesture(in geo: GeometryProxy) -> some Gesture {
         DragGesture()
             .onChanged { value in
-                thumbOffset = CGSize(width: thumbAccumulated.width + value.translation.width,
-                                     height: thumbAccumulated.height + value.translation.height)
+                thumbOffset = value.translation
             }
-            .onEnded { _ in
-                thumbAccumulated = thumbOffset
+            .onEnded { value in
+                // Snap to whichever corner is nearest the release point.
+                let base = thumbAnchors(in: geo)[thumbCornerIndex]
+                let end = CGPoint(x: base.x + value.predictedEndTranslation.width,
+                                  y: base.y + value.predictedEndTranslation.height)
+                let anchors = thumbAnchors(in: geo)
+                let nearest = anchors.indices.min(by: {
+                    hypot(anchors[$0].x - end.x, anchors[$0].y - end.y) <
+                    hypot(anchors[$1].x - end.x, anchors[$1].y - end.y)
+                }) ?? 0
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    thumbCornerIndex = nearest
+                    thumbOffset = .zero
+                }
+                Haptics.gentle()
             }
     }
 
@@ -249,13 +287,15 @@ struct InCallView: View {
                     filled: vm.isMuted,
                     tint: chromeText,
                     strokeColor: chromeStroke,
-                    background: .clear) { vm.toggleMute(); revealChrome() }
+                    background: .clear,
+                    filledIconColor: filledIconColor) { vm.toggleMute(); revealChrome() }
 
                 // Audio output: shows current route (earpiece/speaker/AirPods),
                 // taps open the system picker.
                 AudioRouteButton(diameter: 56,
                                  tint: chromeText,
-                                 strokeColor: chromeStroke)
+                                 strokeColor: chromeStroke,
+                                 filledIconColor: filledIconColor)
 
                 if call.isVideo {
                     CircleActionButton(
@@ -264,7 +304,8 @@ struct InCallView: View {
                         filled: !vm.isVideoEnabled,
                         tint: chromeText,
                         strokeColor: chromeStroke,
-                        background: .clear) { vm.toggleVideo(); revealChrome() }
+                        background: .clear,
+                        filledIconColor: filledIconColor) { vm.toggleVideo(); revealChrome() }
 
                     CircleActionButton(
                         systemImage: "arrow.triangle.2.circlepath.camera",
@@ -295,6 +336,8 @@ struct InCallView: View {
     private var chromeText: Color { onVideo ? .white : Theme.Color.text }
     private var chromeSubtext: Color { onVideo ? Color.white.opacity(0.7) : Theme.Color.textSecondary }
     private var chromeStroke: Color { onVideo ? Color.white.opacity(0.4) : Theme.Color.hairline }
+    /// Dark icon on white-filled buttons over video; cream on brown elsewhere.
+    private var filledIconColor: Color { onVideo ? Theme.Color.text : Theme.Color.onAccent }
 
     private var topScrim: some View {
         Group {

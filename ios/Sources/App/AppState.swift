@@ -106,9 +106,19 @@ final class AppState: ObservableObject {
                                   remotePhone: "+14155550114",
                                   remoteUserId: "u_daniel",
                                   isVideo: true,
-                                  status: .ringing)
+                                  status: .ringing,
+                                  isKnock: args.contains("-knock"))
             demo.callId = "demo_incoming"
             activeCall = demo
+            // Simulate the knocker's rhythm so the door rattles in screenshots.
+            if demo.isKnock {
+                Task { @MainActor in
+                    while self.activeCall === demo {
+                        try? await Task.sleep(nanoseconds: 1_400_000_000)
+                        demo.knockPulse += 1
+                    }
+                }
+            }
             return
         }
 
@@ -327,7 +337,7 @@ final class AppState: ObservableObject {
                               uuid: uuid)
         call.callId = callId
         activeCall = call
-        CallKitManager.shared.updateCall(uuid: uuid, handle: name,
+        CallKitManager.shared.updateCall(uuid: uuid, handle: callKitHandle(name, isKnock: isKnock),
                                          displayName: callKitDisplayName(name, isKnock: isKnock),
                                          hasVideo: call.isVideo)
         Task { await reconcileActiveRingingCall() }
@@ -355,6 +365,12 @@ final class AppState: ObservableObject {
         Haptics.strong()   // decisive: answer
         if !fromCallKit {
             CallKitManager.shared.answerCall(uuid: call.uuid)
+        }
+        // The door opens: reveal who was knocking.
+        if call.isKnock {
+            CallKitManager.shared.updateCall(uuid: call.uuid, handle: call.remoteName,
+                                             displayName: call.remoteName,
+                                             hasVideo: call.isVideo)
         }
         call.status = .connecting
         Task {
@@ -542,7 +558,7 @@ extension AppState: SignalingClientDelegate {
                 Haptics.warning()   // attention: incoming call
                 // Ring natively via CallKit.
                 CallKitManager.shared.reportIncomingCall(
-                    uuid: call.uuid, handle: name,
+                    uuid: call.uuid, handle: self.callKitHandle(name, isKnock: isKnock),
                     displayName: self.callKitDisplayName(name, isKnock: isKnock),
                     hasVideo: call.isVideo)
             case let .callEnded(callId):
@@ -636,13 +652,21 @@ private extension AppState {
         if !call.isGroup {
             call.memberNames = [name]
         }
+        // While a knock is still ringing, CallKit stays anonymous; the name is
+        // revealed there on answer (acceptIncoming).
+        if call.isKnock && call.status == .ringing { return }
         CallKitManager.shared.updateCall(uuid: call.uuid, handle: name,
-                                         displayName: callKitDisplayName(name, isKnock: call.isKnock),
+                                         displayName: name,
                                          hasVideo: call.isVideo)
     }
 
+    /// Knocks are anonymous until answered — "knock knock, who's there?".
     func callKitDisplayName(_ name: String, isKnock: Bool) -> String {
-        isKnock ? "\(name) is tapping" : name
+        isKnock ? "Knock knock…" : name
+    }
+
+    func callKitHandle(_ name: String, isKnock: Bool) -> String {
+        isKnock ? "Knock Knock" : name
     }
 }
 

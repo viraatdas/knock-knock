@@ -4,6 +4,7 @@ import PhotosUI
 struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showEdit = false
+    @State private var showKnockSound = false
     @State private var showPrivacy = false
     @State private var showAbout = false
 
@@ -48,6 +49,8 @@ struct ProfileView: View {
                     HairlineDivider()
                     SettingsRow(icon: "bell", title: "Notifications") { openNotificationSettings() }
                     HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
+                    SettingsRow(icon: "hand.tap", title: "Knock sound") { showKnockSound = true }
+                    HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
                     SettingsRow(icon: "lock", title: "Privacy") { showPrivacy = true }
                     HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
                     SettingsRow(icon: "info.circle", title: "About") { showAbout = true }
@@ -84,6 +87,10 @@ struct ProfileView: View {
             EditProfileSheet()
                 .environmentObject(appState)
         }
+        .sheet(isPresented: $showKnockSound) {
+            KnockSoundSheet()
+                .presentationDetents([.medium])
+        }
         .sheet(isPresented: $showPrivacy) {
             PrivacySheet()
                 .presentationDetents([.medium, .large])
@@ -98,6 +105,59 @@ struct ProfileView: View {
     private func openNotificationSettings() {
         guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
         UIApplication.shared.open(url)
+    }
+}
+
+// MARK: - Knock sound
+
+/// Pick what knocks sound (and feel) like. Tapping a row previews it live.
+private struct KnockSoundSheet: View {
+    @State private var selection = KnockSound.current
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.lg) {
+            VStack(alignment: .leading, spacing: Theme.Space.xxs) {
+                Text("Knock sound")
+                    .font(Theme.Font.title)
+                    .foregroundStyle(Theme.Color.text)
+                Text("What your door is made of. Tap one to try it.")
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+            .padding(.top, Theme.Space.xl)
+
+            VStack(spacing: 0) {
+                HairlineDivider()
+                ForEach(KnockSound.allCases, id: \.self) { sound in
+                    Button {
+                        selection = sound
+                        KnockSound.current = sound
+                        KnockHaptics.shared.knock()   // live preview
+                    } label: {
+                        HStack {
+                            Text(sound.title)
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.text)
+                            Spacer()
+                            if selection == sound {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(Theme.Color.accent)
+                            }
+                        }
+                        .padding(.vertical, Theme.Space.md)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    HairlineDivider()
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.Color.bg)
     }
 }
 

@@ -217,6 +217,9 @@ struct CircleActionButton: View {
     var tint: Color = Theme.Color.text
     var strokeColor: Color = Theme.Color.hairline
     var background: Color = Theme.Color.bg
+    /// Icon color when `filled` — must contrast with `tint` (e.g. dark icon on
+    /// a white-filled button over video chrome).
+    var filledIconColor: Color = Theme.Color.onAccent
     let action: () -> Void
 
     var body: some View {
@@ -230,7 +233,7 @@ struct CircleActionButton: View {
                     )
                 Image(systemName: systemImage)
                     .font(.system(size: diameter * 0.34, weight: .light))
-                    .foregroundStyle(filled ? Theme.Color.onAccent : tint)
+                    .foregroundStyle(filled ? filledIconColor : tint)
             }
             .frame(width: diameter, height: diameter)
         }

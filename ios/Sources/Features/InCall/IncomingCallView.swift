@@ -8,6 +8,16 @@ struct IncomingCallView: View {
     @State private var knockRing = false
 
     var body: some View {
+        if call.isKnock {
+            KnockDoorAnswerView(call: call,
+                                onAnswer: { accept() },
+                                onDecline: { decline() })
+        } else {
+            classicBody
+        }
+    }
+
+    private var classicBody: some View {
         VStack(spacing: Theme.Space.lg) {
             Spacer()
 
@@ -86,11 +96,150 @@ struct IncomingCallView: View {
     }
 
     private var subtitle: String {
-        if call.isKnock {
-            // Count the taps as they land so the urgency is legible, not just felt.
-            return call.knockPulse <= 1 ? "is tapping" : "tapped \(call.knockPulse) times"
+        call.isVideo ? "Incoming video call" : "Incoming call"
+    }
+}
+
+// MARK: - Knock door ("knock knock, who's there?")
+
+/// The anonymous knock screen: a door, no name. The knocker's taps physically
+/// rattle the door; you answer by knocking back twice — the door opens and you
+/// find out who it is. Decline quietly leaves them on the porch.
+private struct KnockDoorAnswerView: View {
+    @ObservedObject var call: ActiveCall
+    let onAnswer: () -> Void
+    let onDecline: () -> Void
+
+    /// Taps the callee has landed toward the two needed to answer.
+    @State private var answerTaps = 0
+    @State private var resetTask: Task<Void, Never>?
+    /// Door physics.
+    @State private var doorShake: Double = 0       // degrees, their knocks
+    @State private var doorPunch: CGFloat = 1.0    // scale, your knocks
+    @State private var glow = false                // warm light under the door
+
+    var body: some View {
+        VStack(spacing: Theme.Space.lg) {
+            Spacer()
+
+            VStack(spacing: Theme.Space.xs) {
+                Text("Knock knock.")
+                    .font(Theme.Font.largeTitle)
+                    .foregroundStyle(Theme.Color.text)
+                Text(subtitle)
+                    .font(Theme.Font.callout)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .contentTransition(.numericText())
+                    .animation(Theme.Motion.fast, value: call.knockPulse)
+            }
+
+            Spacer()
+
+            door
+                .rotationEffect(.degrees(doorShake), anchor: .bottom)
+                .scaleEffect(doorPunch)
+                .onTapGesture { tapDoor() }
+                .onChange(of: call.knockPulse) { _, _ in theirKnock() }
+
+            Text(answerTaps == 0 ? "Knock twice to answer" : "Once more…")
+                .font(Theme.Font.footnote)
+                .foregroundStyle(answerTaps == 0 ? Theme.Color.textSecondary : Theme.Color.accent)
+                .animation(Theme.Motion.fast, value: answerTaps)
+
+            Spacer()
+
+            VStack(spacing: Theme.Space.sm) {
+                CircleActionButton(systemImage: "phone.down",
+                                   diameter: 68,
+                                   filled: true,
+                                   tint: Theme.Color.danger) { onDecline() }
+                Text("Not now").uppercaseLabel()
+            }
+            .padding(.bottom, Theme.Space.xxl)
         }
-        return call.isVideo ? "Incoming video call" : "Incoming call"
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.bg)
+        .onAppear { KnockHaptics.shared.prepare() }
+        .onDisappear { resetTask?.cancel() }
+    }
+
+    private var subtitle: String {
+        call.knockPulse <= 1 ? "Someone's at your door"
+                             : "Knocked \(call.knockPulse) times"
+    }
+
+    /// A warm, simple door: espresso slab, two inset panels, a brass-ish
+    /// knocker, and light spilling out underneath as the knocking goes on.
+    private var door: some View {
+        ZStack(alignment: .bottom) {
+            // Light under the door — brightens while they keep knocking.
+            Ellipse()
+                .fill(Theme.Color.danger.opacity(glow ? 0.35 : 0.12))
+                .frame(width: 190, height: 26)
+                .blur(radius: 12)
+                .offset(y: 14)
+                .animation(.easeOut(duration: 0.6), value: glow)
+
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.Color.accent)
+                .frame(width: 176, height: 264)
+                .overlay(
+                    VStack(spacing: Theme.Space.sm) {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Theme.Color.onAccent.opacity(0.22), lineWidth: 1.5)
+                            .frame(width: 116, height: 86)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Theme.Color.onAccent.opacity(0.22), lineWidth: 1.5)
+                            .frame(width: 116, height: 86)
+                    }
+                )
+                .overlay(alignment: .trailing) {
+                    // Handle.
+                    Circle()
+                        .fill(Theme.Color.onAccent.opacity(0.85))
+                        .frame(width: 10, height: 10)
+                        .padding(.trailing, 14)
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Theme.Color.text.opacity(0.25), lineWidth: 1)
+                )
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .accessibilityLabel("Door")
+        .accessibilityHint("Knock twice to answer the call")
+    }
+
+    /// Their knock arrived: rattle the door and brighten the light.
+    /// (Haptic + sound already played in AppState.receiveKnock.)
+    private func theirKnock() {
+        glow = true
+        withAnimation(.spring(response: 0.10, dampingFraction: 0.35)) { doorShake = 1.6 }
+        withAnimation(.spring(response: 0.30, dampingFraction: 0.55).delay(0.10)) { doorShake = 0 }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            glow = false
+        }
+    }
+
+    /// Your knock: thump the door; two within 1.5s opens it.
+    private func tapDoor() {
+        KnockHaptics.shared.knock()
+        withAnimation(.spring(response: 0.14, dampingFraction: 0.5)) { doorPunch = 0.96 }
+        withAnimation(.easeOut(duration: 0.22).delay(0.10)) { doorPunch = 1.0 }
+
+        answerTaps += 1
+        if answerTaps >= 2 {
+            resetTask?.cancel()
+            onAnswer()
+            return
+        }
+        resetTask?.cancel()
+        resetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            answerTaps = 0
+        }
     }
 }
 

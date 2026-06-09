@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AVFoundation
 
 #if canImport(LiveKit)
 import LiveKit
@@ -21,12 +22,20 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
     /// suppression + auto gain) and DTX off — DTX stops sending packets during
     /// silence, which can make quiet speech sound gated/choppy on flaky links.
     /// Continuous Opus at a steady bitrate sounds noticeably smoother.
+    /// Video tuning: capture 720p@30 from the front camera and publish with
+    /// simulcast so the SFU can serve each receiver the best layer for their
+    /// link instead of one compromise stream.
     let room = Room(roomOptions: RoomOptions(
+        defaultCameraCaptureOptions: CameraCaptureOptions(
+            position: .front,
+            dimensions: .h720_169,
+            fps: 30),
         defaultAudioCaptureOptions: AudioCaptureOptions(
             echoCancellation: true,
             autoGainControl: true,
             noiseSuppression: true,
             highpassFilter: true),
+        defaultVideoPublishOptions: VideoPublishOptions(simulcast: true),
         defaultAudioPublishOptions: AudioPublishOptions(dtx: false),
         adaptiveStream: true,
         dynacast: true))
@@ -59,6 +68,12 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
                 try await self.room.localParticipant.setMicrophone(enabled: true)
                 if videoEnabled {
                     try await self.room.localParticipant.setCamera(enabled: true)
+                    // Video calls belong on speakerphone unless the user is
+                    // already on headphones/Bluetooth.
+                    let session = AVAudioSession.sharedInstance()
+                    if session.currentRoute.outputs.first?.portType == .builtInReceiver {
+                        try? session.overrideOutputAudioPort(.speaker)
+                    }
                 }
             } catch {
                 self.connectionState = .failed("Couldn't connect")

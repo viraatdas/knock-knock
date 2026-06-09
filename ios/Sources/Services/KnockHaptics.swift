@@ -12,13 +12,40 @@ import AudioToolbox
 ///
 /// Safe to call from anywhere: every method is a no-op when the device has no
 /// haptic engine (e.g. the simulator) and the engine is created lazily.
+/// What a knock sounds like — the user picks their own "door material" in
+/// Profile. All system-provided short percussive sounds, no bundled assets.
+enum KnockSound: String, CaseIterable {
+    case wood, glass, soft
+
+    var title: String {
+        switch self {
+        case .wood: return "Wood"
+        case .glass: return "Glass"
+        case .soft: return "Soft"
+        }
+    }
+
+    var soundID: SystemSoundID {
+        switch self {
+        case .wood: return 1306   // Tock — classic knuckle on wood
+        case .glass: return 1057  // Tink — bright, like a ring on glass
+        case .soft: return 1104   // muted tap
+        }
+    }
+
+    static var current: KnockSound {
+        get {
+            KnockSound(rawValue: UserDefaults.standard.string(forKey: "knockSound") ?? "") ?? .wood
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "knockSound")
+        }
+    }
+}
+
 @MainActor
 final class KnockHaptics {
     static let shared = KnockHaptics()
-
-    /// 1306 is the Tock sound (short, percussive, system-provided). Falls back
-    /// gracefully if unavailable.
-    private let tockSoundID: SystemSoundID = 1306
 
     private var engine: CHHapticEngine?
     private let supportsHaptics = CHHapticEngine.capabilitiesForHardware().supportsHaptics
@@ -31,10 +58,11 @@ final class KnockHaptics {
         ensureEngine()
     }
 
-    /// Fire one knock: a sharp haptic transient + a short tock. Call this once
-    /// per tap — both when the caller taps the pad and when a knock is received.
+    /// Fire one knock: a sharp haptic transient + the user's chosen knock
+    /// sound. Call this once per tap — both when the caller taps the pad and
+    /// when a knock is received.
     func knock() {
-        AudioServicesPlaySystemSound(tockSoundID)
+        AudioServicesPlaySystemSound(KnockSound.current.soundID)
         playTransient()
     }
 
