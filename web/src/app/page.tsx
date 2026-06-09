@@ -14,34 +14,36 @@ import {
 
 const features = [
   {
-    icon: VideoIcon,
-    title: "Made for spontaneous calls.",
-    body: "Call someone by phone number, skip meeting links, and answer wherever you are. Slide keeps the setup light so the call feels quick, casual, and actually fun.",
+    icon: WaveformIcon,
+    title: "Knock, don\u2019t ring.",
+    body: "Tap, and their phone knocks \u2014 your actual rhythm, tap for tap, in real time. Keep knocking until they pick up. It feels like knuckles on wood, not a ringtone.",
   },
   {
-    icon: WaveformIcon,
-    title: "Knock before you call.",
-    body: "Send a quick knock when you want someone's attention, then slide into audio or video when they are ready. It feels closer to getting a friend than scheduling a meeting.",
+    icon: VideoIcon,
+    title: "Knock knock. Who\u2019s there?",
+    body: "Knocks ring anonymously: no name, no photo, just a door. They answer by knocking back twice \u2014 and only then find out it\u2019s you. Answering a call hasn\u2019t felt like this before.",
   },
   {
     icon: PhoneIcon,
-    title: "Works on any device.",
-    body: "iPhone, iPad, Android, or the web. Slide routes your call to whatever you're on, and keeps it there when you switch.",
+    title: "Your number is your account.",
+    body: "No usernames, no passwords, no email. Sign in with your phone number, find the friends already on Knock Knock, and call them in two taps.",
   },
   {
     icon: PeopleIcon,
     title: "Bring everyone into the room.",
-    body: "Group calls stay simple: pick the people you want, start the moment, and let them slide in without a calendar invite or a link to hunt down.",
+    body: "Group calls stay simple: pick the people you want and start the moment. No calendar invite, no link to hunt down.",
   },
   {
     icon: ShareIcon,
-    title: "Share your screen fast.",
-    body: "Walk through a recipe, a slide, a bug. What you see, they see, instantly.",
+    title: "Made to feel good.",
+    body: "Warm eggshell and espresso instead of clinical white. Haptics on every knock, a chime when your person arrives, a soft tock when the door closes.",
   },
   {
     icon: CodeIcon,
     title: "Open source.",
-    body: "Slide is fully open source. Anyone can read the code, audit how calls and contacts are handled, and verify there's nothing hidden. Private by default, provable by design.",
+    body: "The whole app \u2014 iOS, backend, this site \u2014 is on GitHub. Read the code, audit how calls and contacts are handled, file issues, send PRs. Private by default, provable by design.",
+    href: "https://github.com/viraatdas/knock-knock",
+    linkLabel: "github.com/viraatdas/knock-knock",
   },
 ];
 
@@ -59,7 +61,7 @@ export default function Home() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/slide-logo.svg"
-                  alt="Slide"
+                  alt="Knock Knock"
                   width={72}
                   height={72}
                   className="mb-6 h-16 w-16 rounded-2xl border border-hairline shadow-sm sm:h-[72px] sm:w-[72px]"
@@ -68,28 +70,27 @@ export default function Home() {
 
               <Reveal delay={40}>
                 <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
-                  Video calling should be fun
+                  Don&apos;t ring. Knock.
                 </p>
               </Reveal>
 
               <Reveal delay={60}>
-                <h1 className="mt-5 text-[64px] font-light leading-[0.95] tracking-wordmark text-text sm:text-[88px] lg:text-[104px]">
-                  Slide
+                <h1 className="mt-5 text-[56px] font-light leading-[0.95] tracking-wordmark text-text sm:text-[76px] lg:text-[88px]">
+                  Knock Knock
                 </h1>
               </Reveal>
 
               <Reveal delay={120}>
                 <p className="mt-6 max-w-md text-[22px] font-light leading-snug text-text sm:text-[26px]">
-                  Video calls that feel light, spontaneous, and actually fun.
-                  On any device.
+                  Video calls you&apos;ll actually want to make.
                 </p>
               </Reveal>
 
               <Reveal delay={180}>
                 <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-                  Call someone by phone number, answer from the browser or your
-                  phone, and stay in the moment. No feeds, no clutter, no
-                  awkward setup.
+                  Tap, and their phone knocks with your rhythm. They knock back
+                  twice to open the door. No feeds, no links, no ads — just
+                  your people.
                 </p>
               </Reveal>
 
@@ -135,6 +136,14 @@ export default function Home() {
                     <p className="mt-3 text-[16px] font-light leading-relaxed text-text-secondary">
                       {f.body}
                     </p>
+                    {"href" in f && f.href ? (
+                      <a
+                        href={f.href}
+                        className="mt-4 inline-block text-[14px] font-normal text-accent underline decoration-hairline underline-offset-4 transition-colors duration-150 ease-out hover:decoration-accent"
+                      >
+                        {f.linkLabel}
+                      </a>
+                    ) : null}
                   </div>
                 </Reveal>
               );
@@ -147,13 +156,13 @@ export default function Home() {
           <div className="mx-auto max-w-5xl px-6 py-28 text-center">
             <Reveal>
               <h2 className="mx-auto max-w-2xl text-[36px] font-light leading-tight tracking-tight text-text sm:text-[48px]">
-                Video calling should feel
-                <br className="hidden sm:block" /> spontaneous again.
+                Go knock on
+                <br className="hidden sm:block" /> someone&apos;s door.
               </h2>
             </Reveal>
             <Reveal delay={80}>
               <p className="mx-auto mt-4 max-w-md text-[15px] font-light text-text-secondary">
-                Slide is coming to iOS and Android. Be among the first.
+                Free on the App Store today. Android is on the way.
               </p>
             </Reveal>
             <Reveal delay={140}>

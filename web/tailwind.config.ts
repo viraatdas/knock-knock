@@ -7,13 +7,13 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: "#FFFFFF",
-        "bg-grouped": "#FAFAFA",
-        text: "#0A0A0A",
-        "text-secondary": "#6B7280",
-        hairline: "#ECECEC",
-        accent: "#0A0A0A",
-        danger: "#E5484D",
+        bg: "#FAF6EF",
+        "bg-grouped": "#F2ECE1",
+        text: "#2A211B",
+        "text-secondary": "#8A7C6D",
+        hairline: "#E6DCCB",
+        accent: "#5A4632",
+        danger: "#D4694F",
       },
       fontFamily: {
         sans: [

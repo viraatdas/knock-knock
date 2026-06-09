@@ -4,7 +4,7 @@ import { LegalShell, Section } from "@/components/Legal";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How Slide collects, uses, and protects your information. Phone number as identity, hashed contact matching, and a commitment to never sell your data.",
+    "How Knock Knock collects, uses, and protects your information. Phone number as identity, hashed contact matching, and a commitment to never sell your data.",
 };
 
 export default function PrivacyPage() {
@@ -12,20 +12,20 @@ export default function PrivacyPage() {
     <LegalShell title="Privacy Policy" updated="May 28, 2026">
       <Section heading="Overview">
         <p>
-          Slide is a phone-only video calling app. We built it to be quiet,
+          Knock Knock is a phone-only video calling app. We built it to be quiet,
           fast, and private. This policy explains what we collect, why, and the
           choices you have. We collect as little as we can while still letting
           you reach the people you care about.
         </p>
         <p>
-          By using Slide, you agree to the practices described here. If you do
+          By using Knock Knock, you agree to the practices described here. If you do
           not agree, please do not use the app.
         </p>
       </Section>
 
       <Section heading="Your phone number is your identity">
         <p>
-          Slide uses your mobile phone number as your account identifier. There
+          Knock Knock uses your mobile phone number as your account identifier. There
           are no passwords, usernames, or email addresses required to sign in.
           When you register, we send a one-time verification code by SMS to
           confirm you control the number.
@@ -38,22 +38,22 @@ export default function PrivacyPage() {
 
       <Section heading="Contacts and hashed matching">
         <p>
-          To help you find friends already on Slide, the app can check your
+          To help you find friends already on Knock Knock, the app can check your
           device contacts against our service. Before any phone number leaves
           your device, it is transformed into an irreversible cryptographic hash.
           We compare hashes, not raw numbers, so we never receive a readable copy
           of your address book.
         </p>
         <p>
-          Hashes for numbers that are not Slide users are not retained in a form
+          Hashes for numbers that are not Knock Knock users are not retained in a form
           tied to you. You can decline contact access at any time and still use
-          Slide by dialing numbers directly.
+          Knock Knock by dialing numbers directly.
         </p>
       </Section>
 
       <Section heading="Calls and content">
         <p>
-          Slide transmits your audio, video, and screen-share streams between
+          Knock Knock transmits your audio, video, and screen-share streams between
           participants to connect your calls. We do not record the contents of
           your calls, and we do not store your audio or video after a call ends.
         </p>
@@ -78,12 +78,12 @@ export default function PrivacyPage() {
         <p>
           We use the information above to: verify your number and create your
           account; connect and route your calls; match you with contacts who use
-          Slide; keep the service secure and prevent fraud or spam; and diagnose
+          Knock Knock; keep the service secure and prevent fraud or spam; and diagnose
           and improve performance.
         </p>
         <p>
           We do not use your information to build advertising profiles, and we do
-          not show third-party ads in Slide.
+          not show third-party ads in Knock Knock.
         </p>
       </Section>
 
@@ -128,7 +128,7 @@ export default function PrivacyPage() {
 
       <Section heading="Children">
         <p>
-          Slide is not directed to children under 13 (or the minimum age in your
+          Knock Knock is not directed to children under 13 (or the minimum age in your
           country), and we do not knowingly collect information from them.
         </p>
       </Section>

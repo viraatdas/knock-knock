@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function Nav() {
   return (
-    <header className="sticky top-0 z-40 border-b border-hairline bg-white/80 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-hairline bg-bg/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
         <Link
           href="/"
@@ -10,7 +10,7 @@ export default function Nav() {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/slide-logo.svg" alt="" width={28} height={28} className="h-7 w-7 rounded-lg border border-hairline" />
-          Slide
+          Knock Knock
         </Link>
         <a
           href="#get"

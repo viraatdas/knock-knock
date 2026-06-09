@@ -10,10 +10,10 @@ export default function Footer() {
             href="/"
             className="text-lg font-light tracking-wordmark text-text"
           >
-            Slide
+            Knock Knock
           </Link>
           <p className="text-[13px] font-light text-text-secondary">
-            video calling that feels fun again
+            video calls you&apos;ll actually want to make
           </p>
         </div>
 
@@ -30,8 +30,14 @@ export default function Footer() {
           >
             Terms
           </Link>
+          <a
+            href="https://github.com/viraatdas/knock-knock"
+            className="transition-colors duration-150 ease-out hover:text-text"
+          >
+            GitHub
+          </a>
           <span className="text-text-secondary/70">
-            © {year} Slide
+            © {year} Knock Knock
           </span>
         </nav>
       </div>

@@ -14,26 +14,26 @@ const siteUrl = "https://slide.viraat.dev";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Slide: video calling that feels fun again",
-    template: "%s · Slide",
+    default: "Knock Knock: video calls you'll actually want to make",
+    template: "%s · Knock Knock",
   },
   description:
-    "Slide is the phone-number video calling app for iOS, Android, and the web. Sign in with your number, verify by code, and make video calling actually fun.",
+    "Knock Knock is the open-source video calling app where you knock instead of ring: your taps travel in real time and nobody knows who's at the door until they answer. Phone-number signup, no ads, no tracking.",
   keywords: [
     "video calling",
     "fun video calling",
     "phone number signup",
     "group video",
     "screen share",
-    "Slide app",
+    "Knock Knock app",
   ],
-  authors: [{ name: "Slide" }],
+  authors: [{ name: "Knock Knock" }],
   openGraph: {
-    title: "Slide: video calling that feels fun again",
+    title: "Knock Knock: video calls you'll actually want to make",
     description:
-      "Phone-number video calls for iOS, Android, and the web.",
+      "Knock, don't ring. Open-source video calls with real-time taps.",
     url: siteUrl,
-    siteName: "Slide",
+    siteName: "Knock Knock",
     type: "website",
     locale: "en_US",
     images: [
@@ -41,15 +41,15 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Slide: video calling that feels fun again",
+        alt: "Knock Knock: video calls you'll actually want to make",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Slide: video calling that feels fun again",
+    title: "Knock Knock: video calls you'll actually want to make",
     description:
-      "Phone-number video calls for iOS, Android, and the web.",
+      "Knock, don't ring. Open-source video calls with real-time taps.",
     images: ["/og.png"],
   },
   icons: {
@@ -62,7 +62,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#FFFFFF",
+  themeColor: "#FAF6EF",
   width: "device-width",
   initialScale: 1,
 };

@@ -52,7 +52,7 @@ export default function PhoneMockup() {
             {/* status row */}
             <div className="flex items-center justify-between text-[10px] font-light text-text-secondary">
               <span>9:41</span>
-              <span className="tracking-label">slide</span>
+              <span className="tracking-label">knock knock</span>
             </div>
 
             {/* header */}

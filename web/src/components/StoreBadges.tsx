@@ -37,9 +37,9 @@ export default function StoreBadges() {
         line2="Web"
       />
       <Badge
-        href="#"
+        href="https://apps.apple.com/us/app/knock-knock-video-chat/id6774902208"
         icon={<AppleIcon />}
-        line1="Coming to the"
+        line1="Download on the"
         line2="App Store"
       />
       <Badge
