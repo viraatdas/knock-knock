@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // TestFlight/App Store build the token is production; .unknown lets
         // Firebase auto-detect the environment.
         Auth.auth().setAPNSToken(deviceToken, type: .unknown)
+        // Unblocks FirebaseAuthService.sendCode, which waits briefly for this
+        // so verification runs silently instead of via the reCAPTCHA page.
+        Task { @MainActor in FirebaseAuthService.apnsTokenReady = true }
         #endif
     }
 
