@@ -23,6 +23,10 @@ final class PushService: NSObject, @unchecked Sendable {
     /// the user is authenticated even if the token arrived before sign-in.
     private(set) var voipToken: String?
 
+    /// Standard APNs token (hex) from didRegisterForRemoteNotifications —
+    /// registered with the backend for alert pushes once signed in.
+    var standardTokenHex: String?
+
     /// Invoked when a VoIP push arrives. AppState wires this up to surface the
     /// call and join it on answer. Parameters mirror the push payload.
     var onIncomingCall: ((_ callId: String, _ fromUserId: String?,

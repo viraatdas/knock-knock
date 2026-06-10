@@ -123,6 +123,18 @@ actor APIClient {
         return try decode(Device.self, from: data)
     }
 
+    /// Register the standard APNs token so the backend can send alert pushes
+    /// (knock taps while backgrounded, missed knocks). Distinct from the VoIP
+    /// token, which only rings calls.
+    func registerStandardPushToken(_ token: String) async throws {
+        _ = try await send(path: "/push/register", method: "POST", body: [
+            "pushToken": token,
+            "kind": "apns",
+            "platform": "ios",
+            "appVersion": Config.appVersion
+        ])
+    }
+
     /// Register the PushKit VoIP token so the backend can wake the app with a
     /// VoIP push for incoming calls/knocks. Requires a valid Bearer access
     /// token (call after sign-in once the token is available).

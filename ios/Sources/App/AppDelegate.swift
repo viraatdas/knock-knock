@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 
 #if canImport(FirebaseAuth)
 import FirebaseAuth
@@ -36,6 +37,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // falls back to a reCAPTCHA web page (which was erroring). VoIP/PushKit
         // tokens are separate and do NOT satisfy Firebase, so this is required.
         application.registerForRemoteNotifications()
+        // Foreground alert pushes are suppressed — the live WS already drives
+        // in-app banners/haptics; system banners would double up.
+        UNUserNotificationCenter.current().delegate = self
         return true
     }
 
@@ -50,6 +54,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // so verification runs silently instead of via the reCAPTCHA page.
         Task { @MainActor in FirebaseAuthService.apnsTokenReady = true }
         #endif
+        // Also register with our backend (kind "apns") so it can send alert
+        // pushes: knock taps while backgrounded, missed knocks.
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        PushService.shared.standardTokenHex = hex
+        if TokenStore.shared.isAuthenticated {
+            Task { try? await APIClient.shared.registerStandardPushToken(hex) }
+        }
     }
 
     func application(_ application: UIApplication,
@@ -75,10 +86,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL,
-                     options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+                     options _: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         #if canImport(FirebaseAuth)
         if Auth.auth().canHandle(url) { return true }
         #endif
         return false
+    }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([])
     }
 }

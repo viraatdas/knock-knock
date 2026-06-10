@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UserNotifications
 
 /// Top-level app phases.
 enum AppPhase: Equatable {
@@ -135,6 +136,7 @@ final class AppState: ObservableObject {
             signaling.connect()
             Task { await registerDeviceIfPossible() }
             Task { await refreshContactCache() }
+            requestNotificationPermissionIfNeeded()
         } catch APIError.unauthorized, APIError.notAuthenticated {
             logoutLocally()
         } catch {
@@ -156,6 +158,7 @@ final class AppState: ObservableObject {
         signaling.connect()
         Task { await registerDeviceIfPossible() }
         Task { await refreshContactCache() }
+        requestNotificationPermissionIfNeeded()
     }
 
     func didCompleteName(user: User) {
@@ -203,7 +206,28 @@ final class AppState: ObservableObject {
         await reconcileActiveRingingCall()
     }
 
+    /// One-time notification permission ask, after the user is signed in and
+    /// settled — alert pushes carry knocks while the app is backgrounded and
+    /// missed-knock notices, so this matters to the core loop.
+    private func requestNotificationPermissionIfNeeded() {
+        let key = "askedNotificationPermission"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound, .badge])
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
     private func registerDeviceIfPossible() async {
+        // Standard APNs token → backend alert pushes (knocks while
+        // backgrounded, missed knocks). Re-sent here in case it arrived
+        // before sign-in.
+        if let hex = PushService.shared.standardTokenHex {
+            _ = try? await api.registerStandardPushToken(hex)
+        }
         // Prefer the real PushKit VoIP token if it has already arrived. If the
         // token shows up later, PushService registers it on `didUpdate`.
         if let voip = PushService.shared.voipToken {
