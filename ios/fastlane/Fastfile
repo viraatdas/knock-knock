@@ -825,6 +825,28 @@ platform :ios do
   end
 
   desc "Cancel any in-flight Beta App Review submissions so a newer build can be submitted."
+  desc "Set the newest build's TestFlight 'What to Test' notes. Set TF_WHATS_NEW."
+  lane :tf_whats_new do
+    app = asc_connect
+    text = ENV["TF_WHATS_NEW"] || UI.user_error!("set TF_WHATS_NEW")
+    build = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-version", limit: 1).first
+    UI.user_error!("no build") unless build
+    code, body = asc_raw(:get, "v1/builds/#{build.id}/betaBuildLocalizations")
+    loc = (body["data"] || []).find { |l| l.dig("attributes","locale") == "en-US" } || (body["data"] || []).first
+    if loc
+      c,_ = asc_raw(:patch, "v1/betaBuildLocalizations/#{loc['id']}",
+        { data: { type: "betaBuildLocalizations", id: loc["id"], attributes: { whatsNew: text } } })
+      UI.user_error!("whatsNew PATCH #{c}") unless (200..299).include?(c)
+    else
+      c,b = asc_raw(:post, "v1/betaBuildLocalizations",
+        { data: { type: "betaBuildLocalizations",
+                  attributes: { locale: "en-US", whatsNew: text },
+                  relationships: { build: { data: { type: "builds", id: build.id } } } } })
+      UI.user_error!("whatsNew POST #{c}: #{b.inspect[0,120]}") unless (200..299).include?(c)
+    end
+    UI.success "What to Test set on build #{build.version}."
+  end
+
   desc "Expire a TestFlight build (frees its beta-review slot). Set SLIDE_EXPIRE_BUILD."
   lane :tf_expire do
     app = asc_connect
