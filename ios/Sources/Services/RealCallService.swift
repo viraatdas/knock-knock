@@ -100,11 +100,21 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
     }
 
     func flipCamera() {
+        // Set an explicit target instead of LiveKit's toggle — the toggle
+        // derives "current" from device state and throws .unspecified during
+        // capture (re)starts, which made flip a silent no-op.
+        let target: AVCaptureDevice.Position = isUsingFrontCamera ? .back : .front
         isUsingFrontCamera.toggle()
-        Task {
-            guard let track = room.localParticipant.firstCameraVideoTrack as? LocalVideoTrack,
+        Task { [weak self] in
+            guard let self,
+                  let track = self.room.localParticipant.firstCameraVideoTrack as? LocalVideoTrack,
                   let capturer = track.capturer as? CameraCapturer else { return }
-            _ = try? await capturer.switchCameraPosition()
+            do {
+                try await capturer.set(cameraPosition: target)
+            } catch {
+                // Capture restart failed — revert so the next tap retries.
+                self.isUsingFrontCamera = (target != .front)
+            }
         }
     }
 
@@ -225,7 +235,9 @@ private struct LiveKitLocalVideoView: View {
     @ObservedObject var participant: LocalParticipant
     var body: some View {
         if let track = participant.firstCameraVideoTrack {
-            SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .mirror)
+            // .auto mirrors the front camera only — a mirrored back camera
+            // reads backwards.
+            SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: .auto)
         } else {
             Color.black
         }

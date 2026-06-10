@@ -92,9 +92,14 @@ final class AppState: ObservableObject {
                                       remotePhone: "+14155550111",
                                       remoteUserId: "u_amelia",
                                       isVideo: !args.contains("-audio"),
-                                      status: .connecting)
-                demo.session = MockData.callSession(for: MockData.userForContact(MockData.contacts[0]),
-                                                    video: !args.contains("-audio"))
+                                      status: .connecting,
+                                      isKnock: args.contains("-knock"))
+                // Knock demo: leave the session unset so nobody "answers" and
+                // the knock stage stays up for screenshots.
+                if !demo.isKnock {
+                    demo.session = MockData.callSession(for: MockData.userForContact(MockData.contacts[0]),
+                                                        video: !args.contains("-audio"))
+                }
                 activeCall = demo
             }
             return

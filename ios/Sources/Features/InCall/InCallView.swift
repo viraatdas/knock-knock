@@ -31,10 +31,12 @@ struct InCallView: View {
                 } else if vm.hasRemoteVideo {
                     vm.service.makeRemoteVideoView()
                         .ignoresSafeArea()
+                } else if showsWaitingTapTarget {
+                    knockStage(compact: geo.size.height < 500)
                 } else if isVideoCall {
-                    videoWaitingBackground
+                    videoWaitingBackground(compact: geo.size.height < 500)
                 } else {
-                    audioOnlyBackground
+                    audioOnlyBackground(compact: geo.size.height < 500)
                 }
 
                 // Local self-view thumbnail (draggable, snaps to corners) —
@@ -47,10 +49,13 @@ struct InCallView: View {
                         .transition(.scale.combined(with: .opacity))
                 }
 
-                // Chrome (fades after a few seconds; tap to reveal).
-                chrome
-                    .opacity(chromeVisible ? 1 : 0)
-                    .animation(Theme.Motion.standard, value: chromeVisible)
+                // Chrome (fades after a few seconds; tap to reveal). Hidden on
+                // the knock stage, which has its own single Stop control.
+                if !showsWaitingTapTarget {
+                    chrome(compact: geo.size.height < 500)
+                        .opacity(chromeVisible ? 1 : 0)
+                        .animation(Theme.Motion.standard, value: chromeVisible)
+                }
 
                 if isFailed {
                     failedOverlay
@@ -80,12 +85,52 @@ struct InCallView: View {
         .onDisappear { hideTask?.cancel() }
     }
 
+    // MARK: Knock stage — keep tapping until they pick up.
+
+    /// Starting a knock doesn't feel like "a call started": you stay on a
+    /// tapping surface. The room is joined underneath, so the moment they
+    /// answer this swaps into the live call.
+    private func knockStage(compact: Bool) -> some View {
+        VStack(spacing: compact ? Theme.Space.sm : Theme.Space.xl) {
+            Spacer().frame(height: compact ? 0 : Theme.Space.lg)
+
+            VStack(spacing: Theme.Space.xs) {
+                Text("Knock knock knock")
+                    .uppercaseLabel()
+                Text(call.remoteName)
+                    .font(compact ? Theme.Font.title2 : Theme.Font.title)
+                    .foregroundStyle(Theme.Color.text)
+                    .multilineTextAlignment(.center)
+                Text(call.endMessage ?? vm.statusText)
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+            }
+
+            Spacer()
+
+            WaitingTapButton(onDarkBackground: false,
+                             diameter: compact ? 120 : 200) {
+                sendWaitingTap()
+            }
+
+            waitingCaption(color: Theme.Color.textSecondary)
+
+            Spacer()
+
+            TextLinkButton(title: "Stop knocking") { endCall() }
+                .padding(.bottom, compact ? Theme.Space.sm : Theme.Space.xl)
+        }
+        .padding(.horizontal, Theme.Space.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.Color.bg.ignoresSafeArea())
+    }
+
     // MARK: Audio-only background — centered avatar on white.
 
-    private var audioOnlyBackground: some View {
-        VStack(spacing: Theme.Space.lg) {
+    private func audioOnlyBackground(compact: Bool) -> some View {
+        VStack(spacing: compact ? Theme.Space.sm : Theme.Space.lg) {
             Spacer()
-            AvatarCircle(name: call.remoteName, size: 128)
+            AvatarCircle(name: call.remoteName, size: compact ? 84 : 128)
                 .scaleEffect(remotePunch)
                 .onChange(of: call.knockPulse) { _, _ in punchRemoteAvatar() }
             VStack(spacing: Theme.Space.xs) {
@@ -98,26 +143,27 @@ struct InCallView: View {
                     .monospacedDigit()
             }
             if showsWaitingTapTarget {
-                WaitingTapButton(onDarkBackground: false) {
+                WaitingTapButton(onDarkBackground: false,
+                                 diameter: compact ? 104 : 148) {
                     sendWaitingTap()
                 }
-                .padding(.top, Theme.Space.md)
+                .padding(.top, compact ? 0 : Theme.Space.md)
 
                 waitingCaption(color: Theme.Color.textSecondary)
             }
             Spacer()
-            Spacer()
+            if !compact { Spacer() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.bg)
         .ignoresSafeArea()
     }
 
-    private var videoWaitingBackground: some View {
-        VStack(spacing: Theme.Space.lg) {
+    private func videoWaitingBackground(compact: Bool) -> some View {
+        VStack(spacing: compact ? Theme.Space.sm : Theme.Space.lg) {
             Spacer()
             AvatarCircle(name: call.remoteName,
-                         size: 128,
+                         size: compact ? 84 : 128,
                          background: Color.white.opacity(0.12),
                          foreground: .white)
                 .scaleEffect(remotePunch)
@@ -138,15 +184,16 @@ struct InCallView: View {
                 }
             }
             if showsWaitingTapTarget {
-                WaitingTapButton(onDarkBackground: true) {
+                WaitingTapButton(onDarkBackground: true,
+                                 diameter: compact ? 104 : 148) {
                     sendWaitingTap()
                 }
-                .padding(.top, Theme.Space.md)
+                .padding(.top, compact ? 0 : Theme.Space.md)
 
                 waitingCaption(color: Color.white.opacity(0.7))
             }
             Spacer()
-            Spacer()
+            if !compact { Spacer() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.text)
@@ -274,9 +321,11 @@ struct InCallView: View {
 
     // MARK: Chrome (top name/timer + bottom controls)
 
-    private var chrome: some View {
+    private func chrome(compact: Bool) -> some View {
         VStack {
-            // Top: callee name + timer in thin white (or black on white for audio).
+            // Top: name + timer — only when video/group covers the centered
+            // info (audio 1:1 already shows it mid-screen; doubling reads odd).
+            if onVideo || vm.isGroup {
             VStack(spacing: 4) {
                 Text(vm.isGroup ? "Group call" : call.remoteName)
                     .font(Theme.Font.title3)
@@ -301,9 +350,10 @@ struct InCallView: View {
                     .padding(.top, 2)
                 }
             }
-            .padding(.top, Theme.Space.xxl)
+            .padding(.top, compact ? Theme.Space.sm : Theme.Space.xxl)
             .frame(maxWidth: .infinity)
             .background(topScrim)
+            }
 
             Spacer()
 
@@ -354,7 +404,7 @@ struct InCallView: View {
                     tint: Theme.Color.danger,
                     background: .clear) { endCall() }
             }
-            .padding(.bottom, Theme.Space.xxl)
+            .padding(.bottom, compact ? Theme.Space.md : Theme.Space.xxl)
             .frame(maxWidth: .infinity)
             .background(bottomScrim)
         }
@@ -463,6 +513,7 @@ struct InCallView: View {
 
 private struct WaitingTapButton: View {
     let onDarkBackground: Bool
+    var diameter: CGFloat = 148
     let action: () -> Void
 
     @State private var pressScale: CGFloat = 1.0
@@ -482,25 +533,25 @@ private struct WaitingTapButton: View {
                 Circle()
                     .stroke(ringColor.opacity(breathing ? 0.06 : 0.25),
                             lineWidth: Theme.hairlineWidth)
-                    .frame(width: 148, height: 148)
+                    .frame(width: diameter, height: diameter)
                     .scaleEffect(breathing ? 1.16 : 1.02)
 
                 Circle()
                     .stroke(ringColor.opacity(ringPulse ? 0 : 0.36),
                             lineWidth: Theme.hairlineWidth)
-                    .frame(width: 148, height: 148)
+                    .frame(width: diameter, height: diameter)
                     .scaleEffect(ringPulse ? 1.28 : 1.0)
 
                 Circle()
                     .fill(fillColor)
-                    .frame(width: 148, height: 148)
+                    .frame(width: diameter, height: diameter)
                     .overlay(
                         Circle()
                             .stroke(strokeColor, lineWidth: Theme.hairlineWidth)
                     )
                     .overlay(
                         Text("tap")
-                            .font(.system(size: 34, weight: .medium))
+                            .font(.system(size: diameter * 0.23, weight: .medium))
                             .foregroundStyle(textColor)
                     )
                     .scaleEffect(pressScale)
