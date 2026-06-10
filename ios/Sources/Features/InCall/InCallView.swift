@@ -200,15 +200,10 @@ struct InCallView: View {
         .ignoresSafeArea()
     }
 
-    /// "Tap until they pick up" until the first tap, then a live knock counter.
     private func waitingCaption(color: Color) -> some View {
-        Text(waitingTapCount == 0
-             ? "Tap until they pick up"
-             : "\(waitingTapCount + 1) knocks — they can feel every one")
+        Text("Tap until they pick up")
             .font(Theme.Font.footnote)
             .foregroundStyle(color)
-            .contentTransition(.numericText())
-            .animation(Theme.Motion.fast, value: waitingTapCount)
     }
 
     private var videoWaitingText: String {
@@ -275,7 +270,21 @@ struct InCallView: View {
                     .stroke(Color.white.opacity(0.5), lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.25), radius: 10, y: 4)
-            // Double-tap your own tile to flip the camera.
+            // Flip belongs on your own view: corner button + double-tap.
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    Haptics.select()
+                    vm.flipCamera()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.black.opacity(0.45), in: Circle())
+                }
+                .buttonStyle(PressableButtonStyle())
+                .padding(6)
+            }
             .onTapGesture(count: 2) {
                 Haptics.select()
                 vm.flipCamera()
@@ -386,15 +395,6 @@ struct InCallView: View {
                         background: .clear,
                         filledIconColor: filledIconColor) { vm.toggleVideo(); revealChrome() }
 
-                if vm.isVideoEnabled {
-                    CircleActionButton(
-                        systemImage: "arrow.triangle.2.circlepath.camera",
-                        diameter: 56,
-                        filled: false,
-                        tint: chromeText,
-                        strokeColor: chromeStroke,
-                        background: .clear) { vm.flipCamera(); revealChrome() }
-                }
 
                 // Red end call.
                 CircleActionButton(
