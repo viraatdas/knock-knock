@@ -17,9 +17,9 @@ struct InCallView: View {
         _vm = StateObject(wrappedValue: InCallViewModel(call: call))
     }
 
-    /// A video *call* — independent of whether our own camera is currently on,
-    /// so muting your camera never blanks the other person's feed.
-    private var isVideoCall: Bool { call.isVideo }
+    /// Treated as a video call when it was placed as one, OR when either side
+    /// turned a camera on mid-call — audio calls can upgrade to video live.
+    private var isVideoCall: Bool { call.isVideo || vm.isVideoEnabled || vm.hasRemoteVideo }
 
     var body: some View {
         GeometryReader { geo in
@@ -28,7 +28,7 @@ struct InCallView: View {
                 if vm.isGroup {
                     groupGrid(in: geo)
                         .ignoresSafeArea()
-                } else if isVideoCall && vm.hasRemoteVideo {
+                } else if vm.hasRemoteVideo {
                     vm.service.makeRemoteVideoView()
                         .ignoresSafeArea()
                 } else if isVideoCall {
@@ -40,7 +40,7 @@ struct InCallView: View {
                 // Local self-view thumbnail (draggable, snaps to corners) —
                 // 1:1 only; the group grid shows everyone including a self tile.
                 // Hidden while your camera is off.
-                if isVideoCall && vm.isVideoEnabled && !vm.isGroup {
+                if vm.isVideoEnabled && !vm.isGroup {
                     localThumbnail
                         .position(thumbPosition(in: geo))
                         .gesture(dragGesture(in: geo))
@@ -297,8 +297,9 @@ struct InCallView: View {
                                  strokeColor: chromeStroke,
                                  filledIconColor: filledIconColor)
 
-                if call.isVideo {
-                    CircleActionButton(
+                // Camera works in every call — turning it on upgrades an
+                // audio call to video for both sides.
+                CircleActionButton(
                         systemImage: vm.isVideoEnabled ? "video" : "video.slash",
                         diameter: 56,
                         filled: !vm.isVideoEnabled,
@@ -307,6 +308,7 @@ struct InCallView: View {
                         background: .clear,
                         filledIconColor: filledIconColor) { vm.toggleVideo(); revealChrome() }
 
+                if vm.isVideoEnabled {
                     CircleActionButton(
                         systemImage: "arrow.triangle.2.circlepath.camera",
                         diameter: 56,

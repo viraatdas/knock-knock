@@ -12,6 +12,12 @@ struct KnockPad: View {
     /// Who we're knocking. Needs a stable user-id to relay over the WS.
     let user: User
 
+    /// When true (default) the first tap starts a knock CALL so the other
+    /// phone rings through CallKit. When false (tap-back from the banner),
+    /// taps are pure taps — playful back-and-forth, never a call. The banner's
+    /// separate "Call" button is the escalation path.
+    var startsCall: Bool = true
+
     /// Drives the press-down scale + pulse-ring animation per tap.
     @State private var pressScale: CGFloat = 1.0
     @State private var ringPulse: Bool = false
@@ -40,7 +46,7 @@ struct KnockPad: View {
 
             tapTarget
 
-            Text("Tap until they pick up.")
+            Text(startsCall ? "Tap until they pick up." : "They feel every tap — tap away.")
                 .font(Theme.Font.footnote)
                 .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
@@ -89,11 +95,11 @@ struct KnockPad: View {
     private func tap() {
         guard !user.id.isEmpty else { return }
         tapCount += 1
-        if didStart {
-            appState.sendKnockTap(to: user.id)
-        } else {
+        if startsCall && !didStart {
             didStart = true
             appState.startKnockCall(to: user)
+        } else {
+            appState.sendKnockTap(to: user.id)
         }
 
         // Quick squish-and-release; toggle the ring to retrigger its animation.

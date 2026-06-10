@@ -90,7 +90,7 @@ struct IncomingKnockBanner: View {
             withAnimation(.easeOut(duration: 0.22).delay(0.10)) { scale = 1.0 }
         }
         .fullScreenCover(item: $knockStageUser) { user in
-            KnockPad(user: user)
+            KnockPad(user: user, startsCall: false)
                 .environmentObject(appState)
         }
     }

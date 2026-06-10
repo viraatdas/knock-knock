@@ -68,12 +68,7 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
                 try await self.room.localParticipant.setMicrophone(enabled: true)
                 if videoEnabled {
                     try await self.room.localParticipant.setCamera(enabled: true)
-                    // Video calls belong on speakerphone unless the user is
-                    // already on headphones/Bluetooth.
-                    let session = AVAudioSession.sharedInstance()
-                    if session.currentRoute.outputs.first?.portType == .builtInReceiver {
-                        try? session.overrideOutputAudioPort(.speaker)
-                    }
+                    Self.preferSpeakerIfOnEarpiece()
                 }
             } catch {
                 self.connectionState = .failed("Couldn't connect")
@@ -90,7 +85,18 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
 
     func setVideoEnabled(_ enabled: Bool) {
         isVideoEnabled = enabled
-        Task { try? await room.localParticipant.setCamera(enabled: enabled) }
+        Task {
+            try? await room.localParticipant.setCamera(enabled: enabled)
+            if enabled { Self.preferSpeakerIfOnEarpiece() }
+        }
+    }
+
+    /// Video belongs on speakerphone — but never yank audio off headphones/BT.
+    static func preferSpeakerIfOnEarpiece() {
+        let session = AVAudioSession.sharedInstance()
+        if session.currentRoute.outputs.first?.portType == .builtInReceiver {
+            try? session.overrideOutputAudioPort(.speaker)
+        }
     }
 
     func flipCamera() {
