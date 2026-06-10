@@ -233,17 +233,19 @@ final class AppState: ObservableObject {
         if let hex = PushService.shared.standardTokenHex {
             _ = try? await api.registerStandardPushToken(hex)
         }
-        // Prefer the real PushKit VoIP token if it has already arrived. If the
-        // token shows up later, PushService registers it on `didUpdate`.
+        // PushKit tokens land moments after launch — wait briefly instead of
+        // racing ahead (the old placeholder write masked real failures).
+        for _ in 0..<16 where PushService.shared.voipToken == nil {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
         if let voip = PushService.shared.voipToken {
             _ = try? await api.registerPushToken(voip)
             return
         }
-        // No VoIP token yet (e.g. simulator, or token not delivered) — register
-        // a placeholder so the device row exists; the real token replaces it
-        // once PushKit delivers it.
-        let placeholder = "simulator-no-apns-token"
-        _ = try? await api.registerDevice(pushToken: placeholder)
+        #if targetEnvironment(simulator)
+        // Simulators never get push tokens; a placeholder keeps the device row.
+        _ = try? await api.registerDevice(pushToken: "simulator-no-apns-token")
+        #endif
     }
 
     // MARK: - Calls
@@ -532,6 +534,10 @@ final class AppState: ObservableObject {
         // stacking a banner underneath the full-screen cover.
         if let call = activeCall, let fromUserId, call.remoteUserId == fromUserId {
             call.knockPulse += 1
+            // Remember the cadence (cap so a marathon knocker stays replayable).
+            if call.knockRhythm.count < 12 {
+                call.knockRhythm.append(Double(dt ?? 0) / 1000.0)
+            }
             return
         }
 

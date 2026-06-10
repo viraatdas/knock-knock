@@ -159,7 +159,10 @@ private struct KnockDoorAnswerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.bg)
-        .onAppear { KnockHaptics.shared.prepare() }
+        .onAppear {
+            KnockHaptics.shared.prepare()
+            replayMissedRhythm()
+        }
         .onDisappear { resetTask?.cancel() }
     }
 
@@ -208,6 +211,26 @@ private struct KnockDoorAnswerView: View {
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .accessibilityLabel("Door")
         .accessibilityHint("Knock twice to answer the call")
+    }
+
+    /// Replay the taps that landed while the phone was locked — their exact
+    /// cadence, as haptics + door rattles — so opening the app feels like
+    /// arriving at your own front door mid-knock.
+    private func replayMissedRhythm() {
+        let rhythm = call.knockRhythm
+        guard !rhythm.isEmpty else { return }
+        call.knockRhythm = []
+        Task { @MainActor in
+            var budget = 4.0
+            for dt in rhythm {
+                let gap = min(max(dt, 0.12), 1.2)
+                budget -= gap
+                if budget <= 0 { break }
+                try? await Task.sleep(nanoseconds: UInt64(gap * 1_000_000_000))
+                KnockHaptics.shared.knock()
+                theirKnock()
+            }
+        }
     }
 
     /// Their knock arrived: rattle the door and brighten the light.

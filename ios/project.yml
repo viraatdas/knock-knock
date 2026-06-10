@@ -89,6 +89,9 @@ targets:
           - audio
           - voip
           - remote-notification
+        # We forward all APNs/url callbacks to Firebase manually (AppDelegate);
+        # swizzling off so the SwiftUI adaptor can't silently eat them.
+        FirebaseAppDelegateProxyEnabled: false
     dependencies:
       - package: LiveKit
         product: LiveKit

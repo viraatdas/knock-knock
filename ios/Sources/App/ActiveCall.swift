@@ -33,6 +33,11 @@ final class ActiveCall: ObservableObject, Identifiable {
     /// call is on screen — the ringing UI observes it to thump per tap.
     @Published var knockPulse: Int = 0
 
+    /// The knocker's rhythm: seconds between taps received while this call was
+    /// ringing (often while the phone was locked). Replayed as haptics when
+    /// the door screen appears — you feel exactly how they knocked.
+    var knockRhythm: [Double] = []
+
     /// Set when the call ends with a reason worth reading ("They can't talk
     /// right now", "Call ended"). The call screen shows it briefly before
     /// dismissing instead of vanishing mid-thought.
