@@ -349,6 +349,25 @@ fn spawn_call_closed_push(state: AppState, recipients: Vec<Uuid>, call_id: Uuid,
     });
 }
 
+/// Fire-and-forget visible "missed knock" alert to the callee(s) when a
+/// ringing 1:1 call ends unanswered. Mirrors `spawn_call_closed_push`.
+fn spawn_missed_call_alert(state: AppState, recipients: Vec<Uuid>) {
+    tokio::spawn(async move {
+        for recipient in recipients {
+            state
+                .push
+                .notify_alert(
+                    &state.db,
+                    recipient,
+                    "You missed a knock",
+                    "Open Knock Knock to see who it was",
+                    Some("missed"),
+                )
+                .await;
+        }
+    });
+}
+
 // ── helpers to ensure the caller belongs to the call ──────────────────────────
 
 struct ParticipantAccess {
@@ -612,22 +631,28 @@ pub async fn leave_call(
         .bind(call_id)
         .execute(&state.db)
         .await?;
-        sqlx::query(
+        let final_status: Option<(CallStatus,)> = sqlx::query_as(
             "UPDATE calls
                 SET status = CASE
                         WHEN status = 'ringing' THEN 'missed'::call_status
                         ELSE 'ended'::call_status
                     END,
                     ended_at = now()
-              WHERE id = $1 AND status NOT IN ('ended', 'missed', 'declined')",
+              WHERE id = $1 AND status NOT IN ('ended', 'missed', 'declined')
+              RETURNING status",
         )
         .bind(call_id)
-        .execute(&state.db)
+        .fetch_optional(&state.db)
         .await?;
         let event = json!({ "type": "participant_left", "callId": call_id, "userId": uid });
         state.hub.publish_many(&others, &event).await;
         let end = json!({ "type": "call_ended", "callId": call_id });
         state.hub.publish_many(&others, &end).await;
+        // Caller hung up before the callee answered → tell the callee they
+        // missed it with a visible alert push (the VoIP ring alone vanishes).
+        if matches!(final_status, Some((CallStatus::Missed,))) {
+            spawn_missed_call_alert(state.clone(), others.clone());
+        }
         spawn_call_closed_push(state.clone(), others, call_id, uid);
         return Ok(StatusCode::NO_CONTENT);
     }

@@ -155,6 +155,9 @@ impl Push {
                     );
                     Ok(())
                 }
+                // Standard alert tokens don't ring; they're served by
+                // `notify_alert` instead.
+                "apns" => Ok(()),
                 "fcm" => self.fcm.send(&sub.token, payload).await,
                 "webpush" => {
                     self.webpush
@@ -173,6 +176,54 @@ impl Push {
             };
             if let Err(e) = result {
                 tracing::warn!(user = %user_id, kind = %sub.kind, error = %e, "push: send failed");
+            }
+        }
+    }
+
+    /// Send a standard, user-visible alert notification (banner + sound) to a
+    /// user's devices. Currently fans out to `kind = 'apns'` subscriptions
+    /// (regular APNs device tokens, NOT the VoIP tokens used for ringing).
+    /// Like [`Self::notify_incoming`], never returns an error: every problem
+    /// is logged and swallowed.
+    pub async fn notify_alert(
+        &self,
+        db: &PgPool,
+        user_id: Uuid,
+        title: &str,
+        body: &str,
+        collapse_id: Option<&str>,
+    ) {
+        let subs: Vec<Subscription> = match sqlx::query_as(
+            "SELECT kind, token, p256dh, auth FROM push_subscriptions WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_all(db)
+        .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(user = %user_id, error = %e, "push: failed to load subscriptions");
+                return;
+            }
+        };
+
+        if subs.is_empty() {
+            tracing::info!(user = %user_id, "push: no subscriptions for alert");
+            return;
+        }
+
+        for sub in subs {
+            let result = match sub.kind.as_str() {
+                "apns" => {
+                    self.apns
+                        .send_alert(&sub.token, title, body, collapse_id)
+                        .await
+                }
+                // VoIP/FCM/webpush tokens don't carry plain alerts here.
+                _ => continue,
+            };
+            if let Err(e) = result {
+                tracing::warn!(user = %user_id, kind = %sub.kind, error = %e, "push: alert send failed");
             }
         }
     }

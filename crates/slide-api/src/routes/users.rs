@@ -150,7 +150,7 @@ pub async fn register_device(
 pub struct PushRegisterBody {
     /// Device token (APNs/FCM) or the Web Push endpoint URL.
     pub push_token: String,
-    /// 'apns_voip' | 'fcm' | 'webpush'.
+    /// 'apns' (standard alert token) | 'apns_voip' | 'fcm' | 'webpush'.
     pub kind: String,
     /// Web Push only: the client public key (base64url).
     #[serde(default)]
@@ -179,9 +179,9 @@ pub async fn register_push(
         return Err(AppError::validation("pushToken required"));
     }
     let kind = body.kind.trim();
-    if !matches!(kind, "apns_voip" | "fcm" | "webpush") {
+    if !matches!(kind, "apns" | "apns_voip" | "fcm" | "webpush") {
         return Err(AppError::validation(
-            "kind must be one of apns_voip|fcm|webpush",
+            "kind must be one of apns|apns_voip|fcm|webpush",
         ));
     }
     if kind == "webpush" && (body.p256dh.is_none() || body.auth.is_none()) {

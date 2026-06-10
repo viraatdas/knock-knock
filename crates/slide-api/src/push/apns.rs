@@ -27,6 +27,9 @@ struct Inner {
     key_id: String,
     team_id: String,
     topic: String,
+    /// Topic for standard (visible) alert pushes: the bare bundle id, i.e. the
+    /// VoIP topic with its ".voip" suffix trimmed (or APNS_ALERT_TOPIC).
+    alert_topic: String,
     host: &'static str,
     encoding_key: EncodingKey,
     http: reqwest::Client,
@@ -80,6 +83,7 @@ impl Apns {
             key_id: cfg.apns_key_id.clone(),
             team_id: cfg.apns_team_id.clone(),
             topic: cfg.apns_topic.clone(),
+            alert_topic: cfg.apns_alert_topic.clone(),
             host,
             encoding_key,
             http,
@@ -131,6 +135,56 @@ impl Apns {
         } else {
             let txt = resp.text().await.unwrap_or_default();
             Err(format!("apns status {status}: {txt}"))
+        }
+    }
+
+    /// Send a standard, user-visible alert push (banner + sound) to a regular
+    /// (non-VoIP) device token. Uses the bare bundle-id topic and
+    /// `apns-push-type: alert`.
+    pub async fn send_alert(
+        &self,
+        device_token: &str,
+        title: &str,
+        body: &str,
+        collapse_id: Option<&str>,
+    ) -> Result<(), String> {
+        let Some(inner) = &self.0 else {
+            tracing::debug!("apns: disabled (no credentials) — skipping alert");
+            return Ok(());
+        };
+
+        let jwt = inner.provider_token()?;
+
+        let payload = json!({
+            "aps": {
+                "alert": { "title": title, "body": body },
+                "sound": "default",
+            }
+        });
+
+        let url = format!("{}/3/device/{}", inner.host, device_token);
+        let mut req = inner
+            .http
+            .post(&url)
+            .bearer_auth(&jwt)
+            .header("apns-topic", &inner.alert_topic)
+            .header("apns-push-type", "alert")
+            .header("apns-priority", "10");
+        if let Some(cid) = collapse_id {
+            req = req.header("apns-collapse-id", cid);
+        }
+        let resp = req
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("apns alert request failed: {e}"))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let txt = resp.text().await.unwrap_or_default();
+            Err(format!("apns alert status {status}: {txt}"))
         }
     }
 }

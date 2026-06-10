@@ -152,8 +152,24 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                         last_knock_push = Some((to, std::time::Instant::now()));
                                         tracing::info!(
                                             target = %to,
-                                            "live knock target offline — not sending non-call push"
+                                            "live knock target offline — sending alert push"
                                         );
+                                        // Anonymous on purpose: knocks reveal who
+                                        // knocked only after you answer. Spawned so
+                                        // the WS loop never blocks on APNs.
+                                        let push_state = state_in.clone();
+                                        tokio::spawn(async move {
+                                            push_state
+                                                .push
+                                                .notify_alert(
+                                                    &push_state.db,
+                                                    to,
+                                                    "Knock knock 🚪",
+                                                    "Someone's at your door — open up",
+                                                    Some("knock"),
+                                                )
+                                                .await;
+                                        });
                                     }
                                 }
                             }

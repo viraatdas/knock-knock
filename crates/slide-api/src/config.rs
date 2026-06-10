@@ -63,6 +63,10 @@ pub struct Config {
     pub apns_key_p8: String,
     /// APNs topic = bundle id + ".voip" (e.g. "app.exla.slide.voip").
     pub apns_topic: String,
+    /// APNs topic for standard alert pushes = the bare bundle id (e.g.
+    /// "app.exla.slide"). Defaults to `apns_topic` with a trailing ".voip"
+    /// trimmed; override with APNS_ALERT_TOPIC.
+    pub apns_alert_topic: String,
     /// "sandbox" | "prod". Defaults to "prod".
     pub apns_env: String,
 
@@ -147,6 +151,13 @@ impl Config {
             apns_team_id: var("APNS_TEAM_ID", ""),
             apns_key_p8: var("APNS_KEY_P8", ""),
             apns_topic: var("APNS_TOPIC", ""),
+            apns_alert_topic: {
+                let topic = var("APNS_TOPIC", "");
+                var(
+                    "APNS_ALERT_TOPIC",
+                    topic.strip_suffix(".voip").unwrap_or(&topic),
+                )
+            },
             apns_env: var("APNS_ENV", "prod"),
 
             fcm_service_account_json: var("FCM_SERVICE_ACCOUNT_JSON", ""),
