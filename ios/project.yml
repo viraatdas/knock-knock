@@ -59,7 +59,6 @@ targets:
         INFOPLIST_KEY_NSCameraUsageDescription: "Slide needs camera access for video calls."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Slide needs microphone access for calls."
         INFOPLIST_KEY_NSContactsUsageDescription: "Slide uses your contacts to find friends already on Slide."
-        INFOPLIST_KEY_UIBackgroundModes: "audio voip remote-notification"
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
       configs:
         # Push Notifications capability via the entitlements file. APNs env is
@@ -82,6 +81,14 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - app-1-561354442144-ios-898901de87c419eec650c5
+        # CRITICAL: PushKit will not deliver VoIP tokens without the voip
+        # background mode — without these, incoming calls never ring unless
+        # the app is foregrounded. (INFOPLIST_KEY_UIBackgroundModes is NOT a
+        # real build setting and was silently ignored — see removed line.)
+        UIBackgroundModes:
+          - audio
+          - voip
+          - remote-notification
     dependencies:
       - package: LiveKit
         product: LiveKit
