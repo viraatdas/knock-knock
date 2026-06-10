@@ -167,12 +167,33 @@ private struct PrivacySheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.lg) {
-            Text("Privacy")
-                .font(Theme.Font.title)
-                .foregroundStyle(Theme.Color.text)
-                .padding(.top, Theme.Space.xl)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.lg) {
+                Text("Privacy")
+                    .font(Theme.Font.title)
+                    .foregroundStyle(Theme.Color.text)
+                    .padding(.top, Theme.Space.lg)
 
+                privacyPoints
+            }
+            .padding(.horizontal, Theme.Space.lg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Theme.Color.bg)
+        .presentationDragIndicator(.visible)
+        .safeAreaInset(edge: .bottom) {
+            PrimaryButton(title: "Manage permissions in Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .padding(.horizontal, Theme.Space.lg)
+            .padding(.vertical, Theme.Space.sm)
+            .background(Theme.Color.bg.opacity(0.94))
+        }
+    }
+
+    private var privacyPoints: some View {
             VStack(alignment: .leading, spacing: Theme.Space.md) {
                 privacyPoint(icon: "phone",
                              title: "Your number is your account",
@@ -187,19 +208,6 @@ private struct PrivacySheet: View {
                              title: "No ads, no tracking",
                              detail: "There are no third-party trackers and we don't track you across other apps.")
             }
-
-            Spacer()
-
-            PrimaryButton(title: "Manage permissions in Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            .padding(.bottom, Theme.Space.lg)
-        }
-        .padding(.horizontal, Theme.Space.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.Color.bg)
     }
 
     private func privacyPoint(icon: String, title: String, detail: String) -> some View {
