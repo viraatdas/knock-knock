@@ -73,6 +73,9 @@ protocol CallService: AnyObject {
 extension CallService {
     func makeRemoteVideoView(for participantId: String) -> AnyView { makeRemoteVideoView() }
     var remoteParticipants: [RemoteParticipant] { [] }
+    /// 1pt view the call screen must host so system Picture-in-Picture can
+    /// take over the remote feed on backgrounding. Nil when unsupported.
+    func makePiPAnchorView() -> AnyView? { nil }
 }
 
 // MARK: - Mock implementation (default in simulator)

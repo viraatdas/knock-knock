@@ -121,6 +121,7 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
     }
 
     func leave() {
+        Task { @MainActor in CallPiPController.shared.detach() }
         Task { await room.disconnect() }
         remoteParticipants = []
         hasRemoteVideo = false
@@ -148,9 +149,18 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
     private func refreshRemoteVideoState() {
         let anyVideo = room.remoteParticipants.values.contains { $0.firstCameraVideoTrack != nil }
         hasRemoteVideo = anyVideo
+        let pipTrack = room.remoteParticipants.values.compactMap { $0.firstCameraVideoTrack }.first
         DispatchQueue.main.async {
             self.delegate?.callServiceRemoteVideoBecameAvailable(self)
+            // Keep the PiP layer fed by the primary remote feed.
+            if let pipTrack {
+                CallPiPController.shared.attachIfNeeded(track: pipTrack)
+            }
         }
+    }
+
+    func makePiPAnchorView() -> AnyView? {
+        AnyView(PiPAnchorView())
     }
 }
 

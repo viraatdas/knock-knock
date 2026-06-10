@@ -55,6 +55,15 @@ struct InCallView: View {
                 if isFailed {
                     failedOverlay
                 }
+
+                // Invisible 1pt host for the Picture-in-Picture source layer;
+                // required for PiP to auto-start when the app backgrounds.
+                if vm.hasRemoteVideo, let anchor = vm.service.makePiPAnchorView() {
+                    anchor
+                        .frame(width: 1, height: 1)
+                        .opacity(0.011)
+                        .allowsHitTesting(false)
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture { revealChrome() }
