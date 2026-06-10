@@ -146,7 +146,9 @@ impl Push {
         for sub in subs {
             let result = match sub.kind.as_str() {
                 "apns_voip" if payload.kind == "incoming_call" => {
-                    self.apns.send(&sub.token, payload).await
+                    let sent = self.apns.send(&sub.token, payload).await;
+                    self.reap_dead_apns_token(db, user_id, &sub.token, sent)
+                        .await
                 }
                 "apns_voip" => {
                     tracing::debug!(
@@ -180,9 +182,41 @@ impl Push {
         }
     }
 
+    /// When APNs reports the device token is permanently dead (410, or 400
+    /// "BadDeviceToken"), delete the subscription row so we stop pushing to
+    /// it. Other failures pass through unchanged for the caller to log.
+    async fn reap_dead_apns_token(
+        &self,
+        db: &PgPool,
+        user_id: Uuid,
+        token: &str,
+        result: Result<(), apns::ApnsError>,
+    ) -> Result<(), String> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(apns::ApnsError::DeadToken(reason)) => {
+                tracing::info!(
+                    user = %user_id,
+                    reason = %reason,
+                    "push: pruning dead APNs token"
+                );
+                if let Err(e) = sqlx::query("DELETE FROM push_subscriptions WHERE token = $1")
+                    .bind(token)
+                    .execute(db)
+                    .await
+                {
+                    tracing::warn!(user = %user_id, error = %e, "push: failed to prune dead APNs token");
+                }
+                Ok(())
+            }
+            Err(apns::ApnsError::Other(e)) => Err(e),
+        }
+    }
+
     /// Send a standard, user-visible alert notification (banner + sound) to a
     /// user's devices. Currently fans out to `kind = 'apns'` subscriptions
     /// (regular APNs device tokens, NOT the VoIP tokens used for ringing).
+    /// `sound` is a bundled notification sound file (None → system default).
     /// Like [`Self::notify_incoming`], never returns an error: every problem
     /// is logged and swallowed.
     pub async fn notify_alert(
@@ -192,6 +226,7 @@ impl Push {
         title: &str,
         body: &str,
         collapse_id: Option<&str>,
+        sound: Option<&str>,
     ) {
         let subs: Vec<Subscription> = match sqlx::query_as(
             "SELECT kind, token, p256dh, auth FROM push_subscriptions WHERE user_id = $1",
@@ -215,8 +250,11 @@ impl Push {
         for sub in subs {
             let result = match sub.kind.as_str() {
                 "apns" => {
-                    self.apns
-                        .send_alert(&sub.token, title, body, collapse_id)
+                    let sent = self
+                        .apns
+                        .send_alert(&sub.token, title, body, collapse_id, sound)
+                        .await;
+                    self.reap_dead_apns_token(db, user_id, &sub.token, sent)
                         .await
                 }
                 // VoIP/FCM/webpush tokens don't carry plain alerts here.

@@ -13,6 +13,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
+    time::Instant,
 };
 
 use serde_json::Value;
@@ -25,6 +26,11 @@ pub type Tx = mpsc::UnboundedSender<Value>;
 pub struct Hub {
     inner: Arc<RwLock<HashMap<Uuid, HashMap<u64, Tx>>>>,
     next_conn: Arc<AtomicU64>,
+    /// When each user last sent us anything inbound on a socket. iOS suspends
+    /// apps WITHOUT closing the WebSocket, so "has a live socket" overstates
+    /// liveness for ~30-60s after backgrounding; this lets callers detect a
+    /// stale-but-open socket and fall back to push.
+    activity: Arc<RwLock<HashMap<Uuid, Instant>>>,
 }
 
 impl Hub {
@@ -39,6 +45,9 @@ impl Hub {
         let conn_id = self.next_conn.fetch_add(1, Ordering::Relaxed);
         let mut map = self.inner.write().await;
         map.entry(user_id).or_default().insert(conn_id, tx);
+        drop(map);
+        // A fresh connection counts as activity.
+        self.touch(user_id).await;
         (conn_id, rx)
     }
 
@@ -48,8 +57,24 @@ impl Hub {
             conns.remove(&conn_id);
             if conns.is_empty() {
                 map.remove(&user_id);
+                // Last socket gone — drop the activity entry so the map stays
+                // bounded by currently-connected users.
+                drop(map);
+                self.activity.write().await.remove(&user_id);
             }
         }
+    }
+
+    /// Record inbound activity from `user_id` (any client → server message).
+    pub async fn touch(&self, user_id: Uuid) {
+        self.activity.write().await.insert(user_id, Instant::now());
+    }
+
+    /// When this user last sent us an inbound message on any socket. `None`
+    /// means no live socket (or nothing heard since connect bookkeeping was
+    /// cleared) — callers should treat that as stale.
+    pub async fn last_activity(&self, user_id: Uuid) -> Option<Instant> {
+        self.activity.read().await.get(&user_id).copied()
     }
 
     /// True if the user has at least one live socket. Used by presence + the

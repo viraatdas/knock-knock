@@ -362,6 +362,7 @@ fn spawn_missed_call_alert(state: AppState, recipients: Vec<Uuid>) {
                     "You missed a knock",
                     "Open Knock Knock to see who it was",
                     Some("missed"),
+                    None,
                 )
                 .await;
         }

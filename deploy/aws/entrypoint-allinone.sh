@@ -29,5 +29,29 @@ END $$;
 SQL
 gosu postgres createdb -O slide slide 2>/dev/null || true
 
+# ── decoy-DB guard ────────────────────────────────────────────────────────────
+# The postgres started above is a throwaway local instance; real data lives in
+# AWS RDS, reached via DATABASE_URL. Refuse to launch the API if DATABASE_URL
+# is unset or points at localhost, so a missing secret can never make prod
+# silently write to the decoy DB. Set ALLOW_LOCAL_DB=1 to bypass for local dev.
+if [ "${ALLOW_LOCAL_DB:-}" != "1" ]; then
+  db_host=""
+  if [ -n "${DATABASE_URL:-}" ]; then
+    # postgres://user:pass@HOST:port/db → HOST
+    db_host="$(printf '%s' "$DATABASE_URL" | sed -E 's|^[^/]*//([^@/]*@)?([^:/?#]+).*$|\2|')"
+  fi
+  if [ -z "${DATABASE_URL:-}" ] || [ "$db_host" = "localhost" ] || [ "$db_host" = "127.0.0.1" ]; then
+    echo "" >&2
+    echo "[entrypoint] ############################################################" >&2
+    echo "[entrypoint] FATAL: DATABASE_URL is unset or points at the LOCAL decoy" >&2
+    echo "[entrypoint] postgres (host='${db_host:-<empty>}'). Real data lives in AWS RDS." >&2
+    echo "[entrypoint] Set DATABASE_URL to the RDS instance, or export" >&2
+    echo "[entrypoint] ALLOW_LOCAL_DB=1 to intentionally use the local DB (dev only)." >&2
+    echo "[entrypoint] Refusing to start slide-api." >&2
+    echo "[entrypoint] ############################################################" >&2
+    exit 1
+  fi
+fi
+
 echo "[entrypoint] launching slide-api (migrations run on boot)…"
 exec /usr/local/bin/slide-api

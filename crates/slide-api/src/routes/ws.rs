@@ -104,6 +104,10 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
         // offline target should get ONE push per burst, not one per tap.
         let mut last_knock_push: Option<(Uuid, std::time::Instant)> = None;
         while let Some(Ok(msg)) = receiver.next().await {
+            // Any inbound frame proves THIS user's app is awake. (A suspended
+            // iOS app keeps its socket open but goes silent — see the
+            // stale-socket check in the knock branch below.)
+            state_in.hub.touch(uid).await;
             match msg {
                 Message::Text(t) => {
                     if let Ok(v) = serde_json::from_str::<Value>(&t) {
@@ -148,11 +152,25 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                     let fresh_burst = last_knock_push
                                         .map(|(t, at)| t != to || at.elapsed().as_secs() >= 4)
                                         .unwrap_or(true);
-                                    if delivered == 0 && fresh_burst {
+                                    // delivered > 0 can be a lie: iOS suspends
+                                    // apps without closing the socket, so for
+                                    // ~30-60s after backgrounding the target's
+                                    // socket accepts writes nobody will see.
+                                    // Treat the target as unreachable when it
+                                    // hasn't sent US anything for 45s (heartbeats come every 25s).
+                                    let target_stale = state_in
+                                        .hub
+                                        .last_activity(to)
+                                        .await
+                                        .map(|at| at.elapsed().as_secs() >= 45)
+                                        .unwrap_or(true);
+                                    if (delivered == 0 || target_stale) && fresh_burst {
                                         last_knock_push = Some((to, std::time::Instant::now()));
                                         tracing::info!(
                                             target = %to,
-                                            "live knock target offline — sending alert push"
+                                            delivered,
+                                            target_stale,
+                                            "live knock target offline/stale — sending alert push"
                                         );
                                         // Anonymous on purpose: knocks reveal who
                                         // knocked only after you answer. Spawned so
@@ -167,6 +185,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, uid: Uuid) {
                                                     "Knock knock 🚪",
                                                     "Someone's at your door — open up",
                                                     Some("knock"),
+                                                    Some("knock.caf"),
                                                 )
                                                 .await;
                                         });

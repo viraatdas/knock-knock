@@ -20,6 +20,37 @@ use crate::config::Config;
 /// Refresh the provider JWT well before APNs' 60-min limit.
 const TOKEN_REFRESH_SECS: u64 = 45 * 60;
 
+/// Why an APNs send failed. `DeadToken` means APNs told us the device token is
+/// permanently gone (HTTP 410 "Unregistered", or 400 with reason
+/// "BadDeviceToken") — callers should prune the subscription row. Everything
+/// else (5xx, network, auth) is `Other` and must NOT trigger pruning.
+#[derive(Debug)]
+pub enum ApnsError {
+    DeadToken(String),
+    Other(String),
+}
+
+impl std::fmt::Display for ApnsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApnsError::DeadToken(msg) | ApnsError::Other(msg) => f.write_str(msg),
+        }
+    }
+}
+
+/// Classify an APNs error response: 410 always means the token is gone;
+/// 400 only when the body's reason is "BadDeviceToken".
+fn classify_failure(status: reqwest::StatusCode, body: &str) -> ApnsError {
+    let msg = format!("apns status {status}: {body}");
+    if status == reqwest::StatusCode::GONE
+        || (status == reqwest::StatusCode::BAD_REQUEST && body.contains("BadDeviceToken"))
+    {
+        ApnsError::DeadToken(msg)
+    } else {
+        ApnsError::Other(msg)
+    }
+}
+
 #[derive(Clone)]
 pub struct Apns(Option<Arc<Inner>>);
 
@@ -95,13 +126,13 @@ impl Apns {
         self.0.is_some()
     }
 
-    pub async fn send(&self, device_token: &str, payload: &IncomingPush) -> Result<(), String> {
+    pub async fn send(&self, device_token: &str, payload: &IncomingPush) -> Result<(), ApnsError> {
         let Some(inner) = &self.0 else {
             tracing::debug!("apns: disabled (no credentials) — skipping");
             return Ok(());
         };
 
-        let jwt = inner.provider_token()?;
+        let jwt = inner.provider_token().map_err(ApnsError::Other)?;
 
         // VoIP push: `aps` is empty; our routing fields ride alongside.
         let body = json!({
@@ -127,38 +158,40 @@ impl Apns {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("apns request failed: {e}"))?;
+            .map_err(|e| ApnsError::Other(format!("apns request failed: {e}")))?;
 
         let status = resp.status();
         if status.is_success() {
             Ok(())
         } else {
             let txt = resp.text().await.unwrap_or_default();
-            Err(format!("apns status {status}: {txt}"))
+            Err(classify_failure(status, &txt))
         }
     }
 
     /// Send a standard, user-visible alert push (banner + sound) to a regular
     /// (non-VoIP) device token. Uses the bare bundle-id topic and
-    /// `apns-push-type: alert`.
+    /// `apns-push-type: alert`. `sound` is a bundled sound file name
+    /// (e.g. "knock.caf"); `None` plays the system default.
     pub async fn send_alert(
         &self,
         device_token: &str,
         title: &str,
         body: &str,
         collapse_id: Option<&str>,
-    ) -> Result<(), String> {
+        sound: Option<&str>,
+    ) -> Result<(), ApnsError> {
         let Some(inner) = &self.0 else {
             tracing::debug!("apns: disabled (no credentials) — skipping alert");
             return Ok(());
         };
 
-        let jwt = inner.provider_token()?;
+        let jwt = inner.provider_token().map_err(ApnsError::Other)?;
 
         let payload = json!({
             "aps": {
                 "alert": { "title": title, "body": body },
-                "sound": "default",
+                "sound": sound.unwrap_or("default"),
             }
         });
 
@@ -177,14 +210,14 @@ impl Apns {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| format!("apns alert request failed: {e}"))?;
+            .map_err(|e| ApnsError::Other(format!("apns alert request failed: {e}")))?;
 
         let status = resp.status();
         if status.is_success() {
             Ok(())
         } else {
             let txt = resp.text().await.unwrap_or_default();
-            Err(format!("apns alert status {status}: {txt}"))
+            Err(classify_failure(status, &txt))
         }
     }
 }
