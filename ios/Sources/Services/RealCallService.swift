@@ -135,7 +135,8 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
             RemoteParticipant(
                 id: p.identity?.stringValue ?? p.sid?.stringValue ?? UUID().uuidString,
                 displayName: p.name ?? "",
-                hasVideo: p.firstCameraVideoTrack != nil)
+                hasVideo: p.firstCameraVideoTrack != nil,
+                isAudioMuted: p.firstAudioPublication.map { $0.isMuted } ?? false)
         }
         remoteParticipants = mapped
         DispatchQueue.main.async {

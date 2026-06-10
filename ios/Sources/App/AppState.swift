@@ -345,6 +345,34 @@ final class AppState: ObservableObject {
         // here (that would double-report the same UUID).
     }
 
+    /// Show a brief end-state message on the call screen, then dismiss — the
+    /// screen shouldn't just vanish when the other side declines or hangs up.
+    private func windDown(_ call: ActiveCall, message: String, after seconds: Double) {
+        call.endMessage = message
+        call.status = .ended
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard let self, self.activeCall?.id == call.id else { return }
+            self.activeCall = nil
+        }
+    }
+
+    /// Re-place a failed 1:1 call with the same person and settings.
+    func retryCall(_ failed: ActiveCall) {
+        guard let userId = failed.remoteUserId, !userId.isEmpty, !failed.isGroup else { return }
+        let user = User(id: userId,
+                        phone: failed.remotePhone,
+                        displayName: failed.remoteName,
+                        avatarUrl: nil,
+                        createdAt: nil, lastSeenAt: nil)
+        activeCall = nil
+        if failed.isKnock {
+            startKnockCall(to: user, video: failed.isVideo)
+        } else {
+            startCall(to: user, video: failed.isVideo)
+        }
+    }
+
     func endActiveCall(fromCallKit: Bool = false) {
         guard let call = activeCall else { return }
         Haptics.strong()   // decisive: hang up
@@ -562,15 +590,15 @@ extension AppState: SignalingClientDelegate {
                     displayName: self.callKitDisplayName(name, isKnock: isKnock),
                     hasVideo: call.isVideo)
             case let .callEnded(callId):
-                if self.activeCall?.callId == callId {
-                    CallKitManager.shared.reportCallEnded(uuid: self.activeCall!.uuid)
-                    self.activeCall = nil
+                if let call = self.activeCall, call.callId == callId {
+                    CallKitManager.shared.reportCallEnded(uuid: call.uuid)
+                    self.windDown(call, message: "Call ended", after: 1.2)
                 }
             case let .callDeclined(callId, _):
-                if self.activeCall?.callId == callId {
+                if let call = self.activeCall, call.callId == callId {
                     Haptics.warning()   // they declined — make the dismissal felt
-                    CallKitManager.shared.reportCallEnded(uuid: self.activeCall!.uuid, reason: .remoteEnded)
-                    self.activeCall = nil
+                    CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .remoteEnded)
+                    self.windDown(call, message: "They can't talk right now", after: 1.8)
                 }
             case let .callAccepted(callId, _):
                 if self.activeCall?.callId == callId { self.activeCall?.status = .connecting }

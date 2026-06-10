@@ -18,6 +18,9 @@ struct RemoteParticipant: Identifiable, Equatable {
     let id: String
     var displayName: String
     var hasVideo: Bool
+    /// True when their microphone is muted — shown so nobody does the
+    /// "can you hear me?" dance.
+    var isAudioMuted: Bool = false
 }
 
 protocol CallServiceDelegate: AnyObject {

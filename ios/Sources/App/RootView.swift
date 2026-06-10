@@ -59,5 +59,11 @@ struct CallContainerView: View {
             }
         }
         .preferredColorScheme(.light)
+        // Allow rotation only while actually in a call (not while ringing).
+        .onAppear { AppDelegate.allowLandscape = !(call.direction == .incoming && call.status == .ringing) }
+        .onChange(of: call.status) { _, status in
+            AppDelegate.allowLandscape = !(call.direction == .incoming && status == .ringing)
+        }
+        .onDisappear { AppDelegate.allowLandscape = false }
     }
 }

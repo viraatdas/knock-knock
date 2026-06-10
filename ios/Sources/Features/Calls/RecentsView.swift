@@ -170,6 +170,20 @@ struct RecentsView: View {
                             ) {
                                 appState.startKnockCall(to: user, video: call.videoEnabled ?? true)
                             }
+                            .contextMenu {
+                                Button {
+                                    appState.startKnockCall(to: user, video: true)
+                                } label: { Label("Knock (video)", systemImage: "hand.tap") }
+                                Button {
+                                    appState.startKnockCall(to: user, video: false)
+                                } label: { Label("Knock (audio)", systemImage: "phone") }
+                                Button {
+                                    appState.startCall(to: user, video: true)
+                                } label: { Label("Ring \u{2014} classic video call", systemImage: "video") }
+                                Button {
+                                    appState.startCall(to: user, video: false)
+                                } label: { Label("Ring \u{2014} classic audio call", systemImage: "phone.arrow.up.right") }
+                            }
                         }
                     }
                     .padding(.horizontal, Theme.Space.md)

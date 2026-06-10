@@ -9,6 +9,15 @@ import FirebaseCore
 /// URL-scheme callbacks it uses to confirm the device (anti-abuse) before
 /// sending the SMS. No-ops cleanly when Firebase isn't bundled.
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// The app is portrait-only except during an active call, where rotating
+    /// to show someone something is natural. Toggled by CallContainerView.
+    static var allowLandscape = false
+
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        Self.allowLandscape ? [.portrait, .landscapeLeft, .landscapeRight] : .portrait
+    }
+
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         #if canImport(FirebaseAuth)

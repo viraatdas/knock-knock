@@ -51,6 +51,10 @@ struct InCallView: View {
                 chrome
                     .opacity(chromeVisible ? 1 : 0)
                     .animation(Theme.Motion.standard, value: chromeVisible)
+
+                if isFailed {
+                    failedOverlay
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture { revealChrome() }
@@ -79,7 +83,7 @@ struct InCallView: View {
                 Text(call.remoteName)
                     .font(Theme.Font.title)
                     .foregroundStyle(Theme.Color.text)
-                Text(vm.statusText)
+                Text(call.endMessage ?? vm.statusText)
                     .font(Theme.Font.callout)
                     .foregroundStyle(Theme.Color.textSecondary)
                     .monospacedDigit()
@@ -113,7 +117,7 @@ struct InCallView: View {
                 Text(call.remoteName)
                     .font(Theme.Font.title)
                     .foregroundStyle(.white)
-                Text(videoWaitingText)
+                Text(call.endMessage ?? videoWaitingText)
                     .font(Theme.Font.callout)
                     .foregroundStyle(Color.white.opacity(0.7))
                     .monospacedDigit()
@@ -160,7 +164,8 @@ struct InCallView: View {
     /// Keep the tap pad up until the other person actually joins the room —
     /// being connected to the media server ourselves doesn't mean they picked up.
     private var showsWaitingTapTarget: Bool {
-        guard call.isKnock, call.direction == .outgoing, !vm.remoteJoined else { return false }
+        guard call.isKnock, call.direction == .outgoing, !vm.remoteJoined,
+              call.status != .ended, call.status != .failed else { return false }
         switch vm.connectionState {
         case .ended, .failed(_):
             return false
@@ -187,6 +192,7 @@ struct InCallView: View {
                       spacing: spacing) {
                 ForEach(participants) { p in
                     GroupTile(name: p.displayName,
+                              muted: p.isAudioMuted,
                               showVideo: isVideoCall && p.hasVideo,
                               video: { vm.service.makeRemoteVideoView(for: p.id) })
                         .frame(width: w, height: h)
@@ -272,6 +278,19 @@ struct InCallView: View {
                     .font(Theme.Font.callout)
                     .foregroundStyle(chromeSubtext)
                     .monospacedDigit()
+                if !vm.isGroup, vm.remoteParticipants.first?.isAudioMuted == true {
+                    HStack(spacing: 4) {
+                        Image(systemName: "mic.slash.fill")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Muted")
+                            .font(Theme.Font.caption)
+                    }
+                    .foregroundStyle(chromeSubtext)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(chromeText.opacity(0.10), in: Capsule())
+                    .padding(.top, 2)
+                }
             }
             .padding(.top, Theme.Space.xxl)
             .frame(maxWidth: .infinity)
@@ -372,6 +391,41 @@ struct InCallView: View {
         hideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             if !Task.isCancelled { chromeVisible = false }
+        }
+    }
+
+    private var isFailed: Bool {
+        if call.status == .failed { return true }
+        if case .failed = vm.connectionState { return true }
+        return false
+    }
+
+    /// Failed calls get a way forward, not a dead end.
+    private var failedOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.25).ignoresSafeArea()
+            VStack(spacing: Theme.Space.md) {
+                Text("Couldn\u{2019}t connect")
+                    .font(Theme.Font.title2)
+                    .foregroundStyle(Theme.Color.text)
+                Text("Check your connection and try again.")
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                if !call.isGroup, call.remoteUserId?.isEmpty == false {
+                    PrimaryButton(title: "Try again") {
+                        appState.retryCall(call)
+                    }
+                    .padding(.top, Theme.Space.xs)
+                }
+                TextLinkButton(title: "Close") { endCall() }
+            }
+            .padding(Theme.Space.lg)
+            .frame(maxWidth: 320)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
+                    .fill(Theme.Color.bg)
+            )
+            .padding(.horizontal, Theme.Space.xl)
         }
     }
 
@@ -476,6 +530,7 @@ private struct WaitingTapButton: View {
 /// otherwise an avatar on near-black, with a name chip in the corner.
 private struct GroupTile<Video: View>: View {
     let name: String
+    var muted: Bool = false
     let showVideo: Bool
     @ViewBuilder var video: () -> Video
 
@@ -490,12 +545,18 @@ private struct GroupTile<Video: View>: View {
             VStack {
                 Spacer()
                 HStack {
-                    Text(name.isEmpty ? "" : name)
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.black.opacity(0.45), in: Capsule())
+                    HStack(spacing: 4) {
+                        if muted {
+                            Image(systemName: "mic.slash.fill")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        Text(name.isEmpty ? "" : name)
+                            .font(Theme.Font.caption)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.black.opacity(0.45), in: Capsule())
                     Spacer()
                 }
             }

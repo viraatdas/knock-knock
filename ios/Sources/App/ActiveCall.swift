@@ -33,6 +33,11 @@ final class ActiveCall: ObservableObject, Identifiable {
     /// call is on screen — the ringing UI observes it to thump per tap.
     @Published var knockPulse: Int = 0
 
+    /// Set when the call ends with a reason worth reading ("They can't talk
+    /// right now", "Call ended"). The call screen shows it briefly before
+    /// dismissing instead of vanishing mid-thought.
+    @Published var endMessage: String?
+
     init(direction: Direction, remoteName: String, remotePhone: String,
          remoteUserId: String?, isVideo: Bool, status: Status,
          isKnock: Bool = false,

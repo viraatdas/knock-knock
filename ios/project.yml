@@ -51,9 +51,11 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
         INFOPLIST_KEY_UIRequiresFullScreen: "YES"
-        # Phone-only: portrait, iPhone family only. No iPad orientation keys so the
-        # build doesn't declare iPad support (which would force iPad screenshots).
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        # Phone-only, iPhone family only. No iPad orientation keys so the build
+        # doesn't declare iPad support (which would force iPad screenshots).
+        # Landscape is declared but locked to portrait at runtime except during
+        # an active call (AppDelegate.supportedInterfaceOrientationsFor).
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSCameraUsageDescription: "Slide needs camera access for video calls."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Slide needs microphone access for calls."
         INFOPLIST_KEY_NSContactsUsageDescription: "Slide uses your contacts to find friends already on Slide."
