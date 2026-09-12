@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Coordinates the phone-only auth flow: Welcome -> Phone -> Code.
-/// (Name step happens after auth, driven by AppPhase.needsName.)
+/// Coordinates the phone-only, transport-first auth flow: Welcome -> Phone ->
+/// Code. `AppState.didAuthenticate` takes it from there (profileSetup or
+/// home, depending on `MeView.profileComplete`).
 struct OnboardingFlow: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var vm = OnboardingViewModel()
@@ -10,16 +11,22 @@ struct OnboardingFlow: View {
         NavigationStack(path: $vm.path) {
             WelcomeView { vm.path.append(OnboardingStep.phone) }
                 .onAppear {
-                    // Debug/screenshot hooks so flows can be reached deterministically
-                    // in the simulator (no signing / no live backend required).
-                    let args = ProcessInfo.processInfo.arguments
-                    if args.contains("-startPhone"), vm.path.isEmpty {
+                    // Screenshot/debug hook (SPEC §2.5): `-scene phone`/`-scene code`.
+                    guard vm.path.isEmpty else { return }
+                    switch ProcessInfo.processInfo.arguments.sceneArgument {
+                    case "phone":
                         vm.nationalNumber = "415 555 0123"
                         vm.path = [.phone]
-                    } else if args.contains("-startCode"), vm.path.isEmpty {
+                    case "code":
+                        // Deliberately leave `vm.devCode` unset here: setting it
+                        // shows the "Dev code: ..." convenience text, whose own
+                        // `onAppear` auto-fills and submits the code — which would
+                        // race straight through to profile setup instead of
+                        // rendering the code-entry screen this scene is for.
                         vm.nationalNumber = "415 555 0123"
-                        vm.devCode = "123456"
                         vm.path = [.phone, .code]
+                    default:
+                        break
                     }
                 }
                 .navigationDestination(for: OnboardingStep.self) { step in
@@ -28,7 +35,7 @@ struct OnboardingFlow: View {
                         PhoneEntryView(vm: vm)
                     case .code:
                         CodeEntryView(vm: vm) { user, isNew in
-                            appState.didAuthenticate(user: user, isNewUser: isNew)
+                            appState.didAuthenticate(user: user)
                         }
                     }
                 }
@@ -51,8 +58,12 @@ final class OnboardingViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var devCode: String?
 
-    /// Firebase verification id, set by requestOtp when Firebase auth is active.
+    /// Firebase verification id, set by requestOtp when the server said
+    /// `transport == "firebase"`.
     private var firebaseVerificationID: String?
+    /// Which verification path the active request used, so verify() matches
+    /// it: Firebase when the server said so; otherwise the backend OTP.
+    private var usingFirebase = false
 
     private let api = APIClient.shared
 
@@ -65,38 +76,44 @@ final class OnboardingViewModel: ObservableObject {
         nationalNumber.filter(\.isNumber).count >= 7
     }
 
-    /// Tracks which verification path the active request used, so verify() can
-    /// match it. Firebase when its send succeeds; otherwise the backend OTP.
-    private var usingFirebase = false
-
+    /// `POST /auth/request-otp` first, then branch on `transport`:
+    /// - "firebase": run Firebase phone verification ourselves. If it can't
+    ///   send, show the error inline and never advance to the code screen.
+    /// - "sms"/"review": the backend already sent (or simulated) the code;
+    ///   advance to the code screen.
     func requestOtp() async -> Bool {
         errorMessage = nil
         isSending = true
         defer { isSending = false }
 
-        #if canImport(FirebaseAuth)
-        if Config.useFirebaseAuth {
-            do {
-                firebaseVerificationID = try await FirebaseAuthService.sendCode(toE164: e164)
-                usingFirebase = true
-                return true
-            } catch {
-                // Firebase can't send (e.g. project billing not enabled, or a
-                // transient config issue). Fall back to the backend OTP so sign-in
-                // still works rather than dead-ending the user.
-                usingFirebase = false
-            }
-        }
-        #endif
-
         do {
             let resp = try await api.requestOtp(phone: e164)
             devCode = resp.devCode
+
+            if resp.transport == "firebase" {
+                #if canImport(FirebaseAuth)
+                do {
+                    firebaseVerificationID = try await FirebaseAuthService.sendCode(toE164: e164)
+                    usingFirebase = true
+                    return true
+                } catch {
+                    usingFirebase = false
+                    errorMessage = "We couldn't send a code. Try again in a minute."
+                    return false
+                }
+                #else
+                errorMessage = "We couldn't send a code. Try again in a minute."
+                return false
+                #endif
+            }
+
+            usingFirebase = false
             return true
         } catch {
             if Config.useMockData {
                 // Offline: pretend it worked, surface a dev code.
                 devCode = "123456"
+                usingFirebase = false
                 return true
             }
             errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
@@ -104,7 +121,7 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
-    func verify() async -> (User, Bool)? {
+    func verify() async -> (MeView, Bool)? {
         errorMessage = nil
         isSending = true
         defer { isSending = false }
@@ -126,17 +143,14 @@ final class OnboardingViewModel: ObservableObject {
 
         do {
             let resp = try await api.verifyOtp(phone: e164, code: code)
-            Haptics.success()   // signed in
+            Haptics.success()
             return (resp.user, resp.isNewUser)
         } catch {
             if Config.useMockData {
                 // Accept the dev code (or any 6 digits) offline.
                 TokenStore.shared.save(access: "mock-access", refresh: "mock-refresh")
                 Haptics.success()
-                let isNew = true
-                let user = User(id: "u_me", phone: e164, displayName: nil,
-                                avatarUrl: nil, createdAt: Date(), lastSeenAt: Date())
-                return (user, isNew)
+                return (MockData.meIncomplete, true)
             }
             Haptics.error()
             errorMessage = (error as? APIError)?.errorDescription ?? "Incorrect code. Try again."

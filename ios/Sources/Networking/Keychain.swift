@@ -56,6 +56,7 @@ final class TokenStore: @unchecked Sendable {
     private let keychain = Keychain()
     private let accessKey = "accessToken"
     private let refreshKey = "refreshToken"
+    private let pushTokenKey = "devicePushToken"
     private let lock = NSLock()
 
     var accessToken: String? {
@@ -70,6 +71,20 @@ final class TokenStore: @unchecked Sendable {
 
     var isAuthenticated: Bool { accessToken != nil }
 
+    /// The most recent APNs device token (see `AppDelegate.
+    /// didRegisterForRemoteNotificationsWithDeviceToken`), kept independent
+    /// of `clear()` so a sign-out can still unregister it, and a later
+    /// sign-in on the same device can re-claim it without waiting for a
+    /// fresh callback from the OS.
+    var devicePushToken: String? {
+        get { lock.lock(); defer { lock.unlock() }; return keychain.get(pushTokenKey) }
+        set {
+            lock.lock(); defer { lock.unlock() }
+            if let newValue { keychain.set(newValue, for: pushTokenKey) }
+            else { keychain.remove(pushTokenKey) }
+        }
+    }
+
     func save(access: String, refresh: String) {
         lock.lock(); defer { lock.unlock() }
         keychain.set(access, for: accessKey)
@@ -82,27 +97,12 @@ final class TokenStore: @unchecked Sendable {
         keychain.set(refresh, for: refreshKey)
     }
 
+    /// Clears only the session tokens. `devicePushToken` deliberately
+    /// survives a sign-out/sign-in so the next account on this device can
+    /// still be told which token it owns.
     func clear() {
         lock.lock(); defer { lock.unlock() }
         keychain.remove(accessKey)
         keychain.remove(refreshKey)
     }
-}
-
-/// Stable for this installed app, independent of the signed-in account. The
-/// backend uses it to elect exactly one installation when two devices answer
-/// the same account's call at once, while allowing safe same-device retries.
-enum InstallationIdentity {
-    private static let callAcceptKeyName = "slide.callAcceptKey"
-
-    static let callAcceptKey: String = {
-        if let existing = UserDefaults.standard.string(forKey: callAcceptKeyName),
-           existing.count >= 8, existing.count <= 128,
-           existing.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) {
-            return existing
-        }
-        let generated = UUID().uuidString.lowercased()
-        UserDefaults.standard.set(generated, forKey: callAcceptKeyName)
-        return generated
-    }()
 }

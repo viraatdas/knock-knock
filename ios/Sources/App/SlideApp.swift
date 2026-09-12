@@ -7,7 +7,7 @@ struct SlideApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // Quiet, precise system chrome: white, near-black tint.
+        // Quiet, precise system chrome: warm eggshell, espresso tint.
         configureAppearance()
         // Warm up the Taptic engine so the first haptic fires without latency.
         Haptics.prepareAll()
@@ -18,7 +18,8 @@ struct SlideApp: App {
             RootView()
                 .environmentObject(appState)
                 .tint(Theme.Color.accent)
-                .preferredColorScheme(.light) // design is white-first, no dark mode
+                .preferredColorScheme(.light) // design is warm/light-first, no dark mode
+                .onAppear { appDelegate.appState = appState }
                 .task { await appState.bootstrap() }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {

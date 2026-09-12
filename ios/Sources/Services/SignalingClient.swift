@@ -1,20 +1,14 @@
 import Foundation
 
-// MARK: - Signaling events (server -> client)
+// MARK: - Signaling events (server -> client), SPEC §1.9
 
 enum SignalingEvent {
-    case incomingCall(callId: String, fromUserId: String?, fromName: String?,
-                      type: CallType, videoEnabled: Bool, ringStyle: String,
-                      expiresAt: Date?)
-    case callAccepted(callId: String, byUserId: String?)
-    case callDeclined(callId: String, byUserId: String?)
-    case callEnded(callId: String)
-    case participantJoined(callId: String, userId: String)
-    case participantLeft(callId: String, userId: String)
-    case presenceUpdate(userId: String, online: Bool)
-    case contactsUpdated(userId: String?, phone: String?)
-    /// A lightweight presence ping — one event per received tap.
-    case knock(fromUserId: String?, fromName: String?, seq: Int?, dt: Int?)
+    case dateMatched(DateSession)
+    case dateEnded(dateId: String, reason: String)
+    case matchMade(MatchSummary)
+    case matchRemoved(matchId: String)
+    case message(matchId: String, message: Message)
+    case connected
     case unknown(type: String)
 }
 
@@ -25,7 +19,8 @@ protocol SignalingClientDelegate: AnyObject {
 }
 
 /// App-plane WebSocket: `GET /v1/ws?token=<accessToken>`.
-/// Handles incoming_call/call_accepted/etc with reconnect + exponential backoff.
+/// Handles date_matched/date_ended/match_made/match_removed/message/connected
+/// with reconnect + exponential backoff and a 25s client heartbeat.
 final class SignalingClient: NSObject, @unchecked Sendable {
     weak var delegate: SignalingClientDelegate?
 
@@ -39,12 +34,13 @@ final class SignalingClient: NSObject, @unchecked Sendable {
     private var heartbeatTimer: DispatchSourceTimer?
     private var socketGeneration = 0
     private var retryGeneration = 0
-    private struct PendingMessage {
-        let text: String
-        let expiresAt: Date
-    }
-    private var pendingKnocks: [PendingMessage] = []
     private let queue = DispatchQueue(label: "app.slide.signaling")
+
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601WithFractional
+        return d
+    }()
 
     init(baseURL: URL = Config.apiBaseURL, tokens: TokenStore = .shared) {
         self.baseURL = baseURL
@@ -143,128 +139,65 @@ final class SignalingClient: NSObject, @unchecked Sendable {
         @unknown default: data = nil
         }
         guard let data,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = obj["type"] as? String else { return }
+              let raw = try? JSONSerialization.jsonObject(with: data),
+              let obj = raw as? [String: Any],
+              let type = obj["type"] as? String
+        else { return }
 
-        let event = Self.parse(type: type, obj: obj)
+        let event = parse(type: type, data: data)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.signaling(self, didReceive: event)
         }
     }
 
-    static func parse(type: String, obj: [String: Any]) -> SignalingEvent {
+    private func parse(type: String, data: Data) -> SignalingEvent {
         switch type {
-        case "incoming_call":
-            let typeStr = obj["callType"] as? String ?? obj["type2"] as? String
-            let call = obj["call"] as? [String: Any]
-            let from = obj["from"] as? [String: Any]
-            let callType = CallType(rawValue: typeStr ?? "one_to_one") ?? .oneToOne
-            let videoEnabled = boolValue(obj["videoEnabled"])
-                ?? boolValue(call?["videoEnabled"])
-                ?? true
-            let ringStyle = (obj["ringStyle"] as? String)
-                ?? (call?["ringStyle"] as? String)
-                ?? ((boolValue(obj["knock"]) ?? false) ? "knock" : "call")
-            return .incomingCall(
-                callId: (obj["callId"] as? String) ?? (obj["id"] as? String) ?? (call?["id"] as? String) ?? "",
-                fromUserId: obj["fromUserId"] as? String ?? (obj["from"] as? String) ?? (from?["id"] as? String),
-                fromName: obj["fromName"] as? String ?? obj["fromDisplayName"] as? String
-                    ?? (from?["displayName"] as? String) ?? (from?["phone"] as? String),
-                type: callType,
-                videoEnabled: videoEnabled,
-                ringStyle: ringStyle,
-                expiresAt: epochMillisecondsDate(obj["expiresAt"] ?? call?["expiresAt"]))
-        case "call_accepted":
-            return .callAccepted(callId: callIdOf(obj),
-                                 byUserId: obj["byUserId"] as? String
-                                    ?? obj["userId"] as? String)
-        case "call_declined":
-            return .callDeclined(callId: callIdOf(obj),
-                                 byUserId: obj["byUserId"] as? String
-                                    ?? obj["userId"] as? String)
-        case "call_ended":
-            return .callEnded(callId: callIdOf(obj))
-        case "participant_joined":
-            return .participantJoined(callId: callIdOf(obj), userId: obj["userId"] as? String ?? "")
-        case "participant_left":
-            return .participantLeft(callId: callIdOf(obj), userId: obj["userId"] as? String ?? "")
-        case "presence_update":
-            return .presenceUpdate(userId: obj["userId"] as? String ?? "",
-                                   online: obj["online"] as? Bool ?? false)
-        case "contacts_updated":
-            return .contactsUpdated(userId: obj["userId"] as? String,
-                                    phone: obj["phone"] as? String)
-        case "knock":
-            return .knock(fromUserId: obj["fromUserId"] as? String,
-                          fromName: obj["fromName"] as? String,
-                          seq: intValue(obj["seq"]),
-                          dt: intValue(obj["dt"]))
+        case "date_matched":
+            struct Payload: Decodable { let date: DateSession }
+            guard let payload = try? decoder.decode(Payload.self, from: data) else {
+                return .unknown(type: type)
+            }
+            return .dateMatched(payload.date)
+        case "date_ended":
+            struct Payload: Decodable { let dateId: String; let reason: String }
+            guard let payload = try? decoder.decode(Payload.self, from: data) else {
+                return .unknown(type: type)
+            }
+            return .dateEnded(dateId: payload.dateId, reason: payload.reason)
+        case "match_made":
+            struct Payload: Decodable { let match: MatchSummary }
+            guard let payload = try? decoder.decode(Payload.self, from: data) else {
+                return .unknown(type: type)
+            }
+            return .matchMade(payload.match)
+        case "match_removed":
+            struct Payload: Decodable { let matchId: String }
+            guard let payload = try? decoder.decode(Payload.self, from: data) else {
+                return .unknown(type: type)
+            }
+            return .matchRemoved(matchId: payload.matchId)
+        case "message":
+            struct Payload: Decodable { let matchId: String; let message: Message }
+            guard let payload = try? decoder.decode(Payload.self, from: data) else {
+                return .unknown(type: type)
+            }
+            return .message(matchId: payload.matchId, message: payload.message)
+        case "connected":
+            return .connected
         default:
             return .unknown(type: type)
         }
     }
 
-    private static func callIdOf(_ obj: [String: Any]) -> String {
-        (obj["callId"] as? String) ?? (obj["id"] as? String) ?? ""
-    }
-
-    /// JSON numbers may decode as Int, Double, or NSNumber — coerce to Int and
-    /// pass through nulls/missing values as nil.
-    private static func intValue(_ value: Any?) -> Int? {
-        switch value {
-        case let i as Int: return i
-        case let d as Double: return Int(d)
-        case let n as NSNumber: return n.intValue
-        default: return nil
-        }
-    }
-
-    private static func boolValue(_ value: Any?) -> Bool? {
-        switch value {
-        case let b as Bool:
-            return b
-        case let s as String:
-            if s.caseInsensitiveCompare("true") == .orderedSame { return true }
-            if s.caseInsensitiveCompare("false") == .orderedSame { return false }
-            return nil
-        case let n as NSNumber:
-            return n.boolValue
-        default:
-            return nil
-        }
-    }
-
-    /// Incoming expiry is transported as epoch milliseconds; accept JSON
-    /// strings and numbers because APNs/WS serializers differ.
-    private static func epochMillisecondsDate(_ value: Any?) -> Date? {
-        let milliseconds: Double?
-        switch value {
-        case let string as String:
-            milliseconds = Double(string)
-        case let double as Double:
-            milliseconds = double
-        case let int as Int:
-            milliseconds = Double(int)
-        case let number as NSNumber:
-            milliseconds = number.doubleValue
-        default:
-            milliseconds = nil
-        }
-        guard let milliseconds, milliseconds.isFinite, milliseconds > 0 else { return nil }
-        return Date(timeIntervalSince1970: milliseconds / 1_000)
-    }
-
     // MARK: Outbound
 
-    func send(_ object: [String: Any]) {
+    private func send(_ object: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let string = String(data: data, encoding: .utf8) else { return }
-        let isKnock = object["type"] as? String == "knock"
         queue.async { [weak self] in
             guard let self else { return }
             guard let task = self.task else {
-                if isKnock { self.enqueueKnock(string) }
                 if self.isStarted {
                     self.retryGeneration += 1
                     self.openSocket()
@@ -275,37 +208,13 @@ final class SignalingClient: NSObject, @unchecked Sendable {
             task.send(.string(string)) { [weak self, weak task] error in
                 guard error != nil, let self, let task else { return }
                 self.queue.async {
-                    if isKnock { self.enqueueKnock(string) }
                     self.handleDisconnect(task: task, generation: generation)
                 }
             }
         }
     }
 
-    func presencePing() { send(["type": "presence_ping"]) }
-
-    /// Relay a single knock tap to `to` (a callee user-id UUID string). Each tap
-    /// is its own message; `seq` increments per knock session and `dt` is the
-    /// gap in ms since the previous tap (0 for the first tap).
-    func sendKnock(to: String, fromName: String, seq: Int, dt: Int) {
-        send(["type": "knock", "to": to, "fromName": fromName, "seq": seq, "dt": dt])
-    }
     private func heartbeat() { send(["type": "heartbeat"]) }
-
-    private func enqueueKnock(_ text: String) {
-        pendingKnocks.removeAll { $0.expiresAt <= Date() }
-        pendingKnocks.append(PendingMessage(text: text, expiresAt: Date().addingTimeInterval(5)))
-        if pendingKnocks.count > 20 { pendingKnocks.removeFirst(pendingKnocks.count - 20) }
-    }
-
-    private func flushPendingKnocks(on task: URLSessionWebSocketTask) {
-        let now = Date()
-        let messages = pendingKnocks.filter { $0.expiresAt > now }
-        pendingKnocks.removeAll()
-        for message in messages {
-            task.send(.string(message.text)) { _ in }
-        }
-    }
 
     private func startHeartbeat() {
         stopHeartbeat()
@@ -351,7 +260,6 @@ extension SignalingClient: URLSessionWebSocketDelegate {
         queue.async { [weak self] in
             guard let self, self.task === webSocketTask else { return }
             self.reconnectAttempt = 0
-            self.flushPendingKnocks(on: webSocketTask)
             self.startHeartbeat()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }

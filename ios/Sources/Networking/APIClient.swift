@@ -1,6 +1,6 @@
 import Foundation
 
-/// Async/await URLSession client implementing every endpoint in AGENTS.md.
+/// Async/await URLSession client implementing every endpoint in SPEC §1.
 /// Performs a silent refresh on 401 via POST /auth/refresh.
 actor APIClient {
     static let shared = APIClient()
@@ -42,13 +42,11 @@ actor APIClient {
     // MARK: - Auth (no bearer)
 
     func requestOtp(phone: String) async throws -> RequestOtpResponse {
-        // 202 may carry a devCode body, or be empty.
         let data = try await send(
             path: "/auth/request-otp", method: "POST",
-            body: ["phone": phone], authenticated: false, allowEmpty: true
+            body: ["phone": phone], authenticated: false
         )
-        if data.isEmpty { return RequestOtpResponse(devCode: nil) }
-        return (try? decoder.decode(RequestOtpResponse.self, from: data)) ?? RequestOtpResponse(devCode: nil)
+        return try decode(RequestOtpResponse.self, from: data)
     }
 
     func verifyOtp(phone: String, code: String) async throws -> VerifyOtpResponse {
@@ -61,7 +59,7 @@ actor APIClient {
         return resp
     }
 
-    /// Exchange a verified Firebase ID token for Slide session tokens.
+    /// Exchange a verified Firebase ID token for Knock Knock session tokens.
     func firebaseAuth(idToken: String) async throws -> VerifyOtpResponse {
         let data = try await send(
             path: "/auth/firebase", method: "POST",
@@ -81,53 +79,71 @@ actor APIClient {
         tokens.clear()
     }
 
-    // MARK: - User & onboarding
+    // MARK: - Session window
 
-    func me() async throws -> User {
+    func fetchSessionWindow() async throws -> SessionWindow {
+        let data = try await send(path: "/session", method: "GET")
+        return try decode(SessionWindow.self, from: data)
+    }
+
+    // MARK: - Profile
+
+    func me() async throws -> MeView {
         let data = try await send(path: "/me", method: "GET")
-        return try decode(User.self, from: data)
+        return try decode(MeView.self, from: data)
     }
 
-    func updateMe(displayName: String? = nil, avatarUrl: String? = nil) async throws -> User {
-        var body: [String: String] = [:]
+    func updateMe(displayName: String? = nil, birthdate: String? = nil,
+                 gender: Gender? = nil, interestedIn: [Gender]? = nil,
+                 ageMin: Int? = nil, ageMax: Int? = nil, bio: String? = nil) async throws -> MeView {
+        var body: [String: Any] = [:]
         if let displayName { body["displayName"] = displayName }
-        if let avatarUrl { body["avatarUrl"] = avatarUrl }
-        let data = try await send(path: "/me", method: "PATCH", body: body)
-        return try decode(User.self, from: data)
+        if let birthdate { body["birthdate"] = birthdate }
+        if let gender { body["gender"] = gender.rawValue }
+        if let interestedIn { body["interestedIn"] = interestedIn.map(\.rawValue) }
+        if let ageMin { body["ageMin"] = ageMin }
+        if let ageMax { body["ageMax"] = ageMax }
+        if let bio { body["bio"] = bio }
+        let data = try await send(path: "/me", method: "PATCH", jsonObject: body)
+        return try decode(MeView.self, from: data)
     }
 
-    func uploadAvatar(_ imageData: Data, fileName: String = "avatar.jpg",
-                      mime: String = "image/jpeg") async throws -> String {
-        let boundary = "Boundary-\(UUID().uuidString)"
-        var body = Data()
-        body.append("--\(boundary)\r\n")
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
-        body.append("Content-Type: \(mime)\r\n\r\n")
-        body.append(imageData)
-        body.append("\r\n--\(boundary)--\r\n")
+    struct PhotoUploadResponse: Codable { let photoUrl: String; let photoUpdatedAt: Date }
 
-        let data = try await sendRaw(
-            path: "/me/avatar", method: "POST", body: body,
-            contentType: "multipart/form-data; boundary=\(boundary)"
-        )
-        struct Resp: Codable { let avatarUrl: String }
-        return try decode(Resp.self, from: data).avatarUrl
+    /// Raw-body upload: `PUT /me/photo`, `Content-Type: image/jpeg`. Caller is
+    /// responsible for resizing/compressing first (max 1024px, JPEG q0.8).
+    func uploadPhoto(_ jpegData: Data) async throws -> PhotoUploadResponse {
+        let data = try await sendRaw(path: "/me/photo", method: "PUT", body: jpegData,
+                                     contentType: "image/jpeg")
+        return try decode(PhotoUploadResponse.self, from: data)
     }
 
-    func registerDevice(pushToken: String, platform: String = "ios") async throws -> Device {
-        let data = try await send(path: "/devices", method: "POST", body: [
-            "pushToken": pushToken,
-            "platform": platform,
-            "appVersion": Config.appVersion
-        ])
-        return try decode(Device.self, from: data)
+    func deletePhoto() async throws {
+        _ = try await send(path: "/me/photo", method: "DELETE", allowEmpty: true)
     }
 
-    /// Register the standard APNs token so the backend can send alert pushes
-    /// (knock taps while backgrounded, missed knocks). Distinct from the VoIP
-    /// token, which only rings calls.
-    func registerStandardPushToken(_ token: String) async throws {
-        _ = try await send(path: "/push/register", method: "POST", body: [
+    /// Fetch someone's photo bytes with bearer auth (there is no public photo
+    /// URL). 404 when they have none; the caller should fall back to initials.
+    func photoData(for userId: String) async throws -> Data {
+        try await perform(path: "/users/\(userId)/photo", method: "GET", bodyData: nil,
+                          authenticated: true, allowEmpty: false)
+    }
+
+    func submitLocation(lat: Double, lng: Double) async throws {
+        _ = try await send(path: "/me/location", method: "PUT",
+                           jsonObject: ["lat": lat, "lng": lng], allowEmpty: true)
+    }
+
+    func deleteAccount() async throws {
+        _ = try await send(path: "/me", method: "DELETE", allowEmpty: true)
+    }
+
+    // MARK: - Push
+
+    /// Standard APNs alert token so the backend can push doors-open, match and
+    /// message notifications. No VoIP push framework anymore — `kind` is always "apns".
+    func registerPushToken(_ token: String) async throws {
+        _ = try await send(path: "/push/register", method: "POST", jsonObject: [
             "pushToken": token,
             "kind": "apns",
             "platform": "ios",
@@ -135,104 +151,103 @@ actor APIClient {
         ])
     }
 
-    /// Register the PushKit VoIP token so the backend can wake the app with a
-    /// VoIP push for incoming calls/knocks. Requires a valid Bearer access
-    /// token (call after sign-in once the token is available).
-    func registerPushToken(_ token: String) async throws {
-        _ = try await send(path: "/push/register", method: "POST", body: [
-            "pushToken": token,
-            "kind": "apns_voip",
-            "platform": "ios",
-            "appVersion": Config.appVersion
-        ])
-    }
-
-    /// Remove a standard or VoIP token from the current account. This matters
-    /// on logout and account switching: APNs tokens identify the app install,
-    /// not the signed-in user, so leaving one attached to an old account can
-    /// ring the wrong person on this phone.
     func unregisterPushToken(_ token: String) async throws {
         _ = try await send(path: "/push/register", method: "DELETE", body: [
             "pushToken": token
         ], allowEmpty: true)
     }
 
-    // MARK: - Contacts
-
-    func syncContacts(phones: [String], names: [String] = []) async throws -> [ContactSyncResult] {
-        var body: [String: Any] = ["phones": phones]
-        if !names.isEmpty { body["names"] = names }
-        let data = try await send(path: "/contacts/sync", method: "POST",
-                                  jsonObject: body,
-                                  authenticated: true, allowEmpty: false)
-        return try decode([ContactSyncResult].self, from: data)
+    func registerDevice(pushToken: String, platform: String = "ios") async throws {
+        _ = try await send(path: "/devices", method: "POST", body: [
+            "pushToken": pushToken,
+            "platform": platform,
+            "appVersion": Config.appVersion
+        ], allowEmpty: true)
     }
 
-    func contacts() async throws -> [Contact] {
-        let data = try await send(path: "/contacts", method: "GET")
-        return try decode([Contact].self, from: data)
+    // MARK: - Lobby + matching
+
+    func joinLobby() async throws -> LobbyResponse {
+        let data = try await send(path: "/lobby/join", method: "POST", allowEmpty: false)
+        return try decode(LobbyResponse.self, from: data)
     }
 
-    // MARK: - Calls control plane
-
-    func createCall(type: CallType, participantUserIds: [String],
-                    videoEnabled: Bool = true,
-                    ringStyle: String = "call") async throws -> CallSession {
-        let body: [String: Any] = [
-            "type": type.rawValue,
-            "participantUserIds": participantUserIds,
-            "videoEnabled": videoEnabled,
-            "ringStyle": ringStyle
-        ]
-        let data = try await send(path: "/calls", method: "POST", jsonObject: body,
-                                  authenticated: true, allowEmpty: false)
-        return try decode(CallSession.self, from: data)
+    func lobbyHeartbeat() async throws -> LobbyResponse {
+        let data = try await send(path: "/lobby/heartbeat", method: "POST", allowEmpty: false)
+        return try decode(LobbyResponse.self, from: data)
     }
 
-    func acceptCall(id: String) async throws -> CallSession {
-        let data = try await perform(
-            path: "/calls/\(id)/accept", method: "POST", bodyData: nil,
-            authenticated: true, allowEmpty: false,
-            additionalHeaders: ["X-Call-Accept-Key": InstallationIdentity.callAcceptKey]
-        )
-        return try decode(CallSession.self, from: data)
+    func leaveLobby() async throws {
+        _ = try await send(path: "/lobby", method: "DELETE", allowEmpty: true)
     }
 
-    func declineCall(id: String) async throws {
-        _ = try await send(path: "/calls/\(id)/decline", method: "POST", allowEmpty: true)
+    struct CurrentDateResponse: Codable { var date: DateSession? }
+
+    func currentDate() async throws -> DateSession? {
+        let data = try await send(path: "/dates/current", method: "GET")
+        return try decode(CurrentDateResponse.self, from: data).date
     }
 
-    func leaveCall(id: String) async throws {
-        _ = try await perform(
-            path: "/calls/\(id)/leave", method: "POST", bodyData: nil,
-            authenticated: true, allowEmpty: true,
-            additionalHeaders: ["X-Call-Accept-Key": InstallationIdentity.callAcceptKey]
-        )
+    func datesToday() async throws -> [DateHistoryEntry] {
+        let data = try await send(path: "/dates/today", method: "GET")
+        return try decode([DateHistoryEntry].self, from: data)
     }
 
-    /// Lifecycle cleanup must survive the transient outage that often caused
-    /// the call to fail in the first place. `/leave` is idempotent, so retry a
-    /// few times and still allow later owners (CallKit/view teardown) to retry.
-    func leaveCallBestEffort(id: String) async {
-        for attempt in 0..<3 {
-            do {
-                try await leaveCall(id: id)
-                return
-            } catch let error as APIError {
-                guard attempt < 2, error.shouldRetryCallAccept else { return }
-                let delay = UInt64(500_000_000 * (attempt + 1))
-                try? await Task.sleep(nanoseconds: delay)
-            } catch {
-                return
-            }
-        }
+    func leaveDate(id: String) async throws {
+        _ = try await send(path: "/dates/\(id)/leave", method: "POST", allowEmpty: true)
     }
 
-    func calls(cursor: String? = nil) async throws -> CallListResponse {
-        var path = "/calls"
-        if let cursor { path += "?cursor=\(cursor)" }
+    func decideDate(id: String, explore: Bool) async throws -> DecisionResponse {
+        let data = try await send(path: "/dates/\(id)/decision", method: "POST",
+                                  jsonObject: ["explore": explore])
+        return try decode(DecisionResponse.self, from: data)
+    }
+
+    // MARK: - Matches + chat
+
+    func matches() async throws -> [MatchSummary] {
+        let data = try await send(path: "/matches", method: "GET")
+        return try decode([MatchSummary].self, from: data)
+    }
+
+    func messages(matchId: String, before: String? = nil, limit: Int = 50) async throws -> MessagesPage {
+        var path = "/matches/\(matchId)/messages?limit=\(limit)"
+        if let before { path += "&before=\(before)" }
         let data = try await send(path: path, method: "GET")
-        return try decode(CallListResponse.self, from: data)
+        return try decode(MessagesPage.self, from: data)
+    }
+
+    func sendMessage(matchId: String, body: String) async throws -> Message {
+        let data = try await send(path: "/matches/\(matchId)/messages", method: "POST",
+                                  jsonObject: ["body": body])
+        return try decode(Message.self, from: data)
+    }
+
+    func markRead(matchId: String) async throws {
+        _ = try await send(path: "/matches/\(matchId)/read", method: "POST", allowEmpty: true)
+    }
+
+    func unmatch(matchId: String) async throws {
+        _ = try await send(path: "/matches/\(matchId)", method: "DELETE", allowEmpty: true)
+    }
+
+    // MARK: - Safety
+
+    func block(userId: String) async throws {
+        _ = try await send(path: "/users/\(userId)/block", method: "POST", allowEmpty: true)
+    }
+
+    func unblock(userId: String) async throws {
+        _ = try await send(path: "/users/\(userId)/block", method: "DELETE", allowEmpty: true)
+    }
+
+    func report(userId: String, reason: ReportReason, details: String = "",
+               dateId: String? = nil, matchId: String? = nil) async throws {
+        var body: [String: Any] = ["reason": reason.rawValue, "details": details]
+        if let dateId { body["dateId"] = dateId }
+        if let matchId { body["matchId"] = matchId }
+        _ = try await send(path: "/users/\(userId)/report", method: "POST",
+                           jsonObject: body, allowEmpty: true)
     }
 
     // MARK: - Token refresh
@@ -282,11 +297,9 @@ actor APIClient {
     private func perform(path: String, method: String, bodyData: Data?,
                          authenticated: Bool, allowEmpty: Bool,
                          contentType: String = "application/json",
-                         isRetry: Bool = false,
-                         additionalHeaders: [String: String] = [:]) async throws -> Data {
+                         isRetry: Bool = false) async throws -> Data {
         var req = try makeRawRequest(path: path, method: method, bodyData: bodyData,
-                                     authenticated: authenticated, contentType: contentType,
-                                     additionalHeaders: additionalHeaders)
+                                     authenticated: authenticated, contentType: contentType)
         let (data, response) = try await transport(req)
         guard let http = response as? HTTPURLResponse else { throw APIError.http(status: -1) }
 
@@ -294,12 +307,10 @@ actor APIClient {
             // Silent refresh, then retry once.
             try await performRefresh()
             req = try makeRawRequest(path: path, method: method, bodyData: bodyData,
-                                     authenticated: authenticated, contentType: contentType,
-                                     additionalHeaders: additionalHeaders)
+                                     authenticated: authenticated, contentType: contentType)
             return try await perform(path: path, method: method, bodyData: bodyData,
                                      authenticated: authenticated, allowEmpty: allowEmpty,
-                                     contentType: contentType, isRetry: true,
-                                     additionalHeaders: additionalHeaders)
+                                     contentType: contentType, isRetry: true)
         }
 
         guard (200..<300).contains(http.statusCode) else {
@@ -313,9 +324,6 @@ actor APIClient {
             throw APIError.http(status: http.statusCode)
         }
 
-        if data.isEmpty && !allowEmpty {
-            // 204 etc. with body expected but absent.
-        }
         return data
     }
 
@@ -356,13 +364,11 @@ actor APIClient {
                              body: [String: String]?, authenticated: Bool) throws -> URLRequest {
         let bodyData = try body.map { try JSONSerialization.data(withJSONObject: $0) }
         return try makeRawRequest(path: path, method: method, bodyData: bodyData,
-                                  authenticated: authenticated, contentType: "application/json",
-                                  additionalHeaders: [:])
+                                  authenticated: authenticated, contentType: "application/json")
     }
 
     private func makeRawRequest(path: String, method: String, bodyData: Data?,
-                                authenticated: Bool, contentType: String,
-                                additionalHeaders: [String: String] = [:]) throws -> URLRequest {
+                                authenticated: Bool, contentType: String) throws -> URLRequest {
         guard let url = URL(string: baseURL.absoluteString + path) else {
             throw APIError.invalidURL
         }
@@ -373,9 +379,6 @@ actor APIClient {
             req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        for (header, value) in additionalHeaders {
-            req.setValue(value, forHTTPHeaderField: header)
-        }
         if authenticated {
             guard let token = tokens.accessToken else { throw APIError.notAuthenticated }
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -389,14 +392,6 @@ actor APIClient {
         } catch {
             throw APIError.decoding(error)
         }
-    }
-}
-
-// MARK: - Helpers
-
-private extension Data {
-    mutating func append(_ string: String) {
-        if let d = string.data(using: .utf8) { append(d) }
     }
 }
 

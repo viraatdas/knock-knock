@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Wordmark
 
@@ -258,6 +259,149 @@ struct EmptyStateView: View {
                 .foregroundStyle(Theme.Color.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Chip (multi-select pill: gender, show-me, etc.)
+
+struct Chip: View {
+    let title: String
+    var isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Theme.Font.buttonSmall)
+                .foregroundStyle(isSelected ? Theme.Color.onAccent : Theme.Color.text)
+                .padding(.horizontal, Theme.Space.md)
+                .frame(minHeight: 44)
+                .background(Capsule().fill(isSelected ? Theme.Color.accent : Theme.Color.bg))
+                .overlay(
+                    Capsule().stroke(isSelected ? Color.clear : Theme.Color.hairline,
+                                     lineWidth: Theme.hairlineWidth)
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+}
+
+// MARK: - CountdownRing (date timer, 5:00 -> 0:00)
+
+struct CountdownRing: View {
+    /// 1.0 (just started) -> 0.0 (time's up).
+    let progress: Double
+    var lineWidth: CGFloat = 4
+    var color: Color = Theme.Color.accent
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Theme.Color.hairline, lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: max(0, min(1, progress)))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(Theme.Motion.standard, value: progress)
+        }
+    }
+}
+
+// MARK: - PhotoAvatar (bearer-authed photo fetch, in-memory cache, initials fallback)
+
+/// Small in-memory cache for `GET /users/:id/photo` bytes. There is no public
+/// photo URL — every fetch needs the bearer token — so PhotoAvatar goes
+/// through this instead of AsyncImage.
+@MainActor
+final class PhotoCache {
+    static let shared = PhotoCache()
+    private var cache: [String: UIImage] = [:]
+    private var inFlight: [String: Task<UIImage?, Never>] = [:]
+
+    func cached(for userId: String) -> UIImage? { cache[userId] }
+
+    func load(for userId: String) async -> UIImage? {
+        if let cached = cache[userId] { return cached }
+        if let existing = inFlight[userId] { return await existing.value }
+        let task = Task<UIImage?, Never> {
+            guard let data = try? await APIClient.shared.photoData(for: userId),
+                  let image = UIImage(data: data) else { return nil }
+            return image
+        }
+        inFlight[userId] = task
+        let image = await task.value
+        inFlight[userId] = nil
+        if let image { cache[userId] = image }
+        return image
+    }
+}
+
+/// A date partner's/match's photo, loaded via `PhotoCache`. Falls back to
+/// initials immediately (no spinner) while the fetch is in flight.
+struct PhotoAvatar: View {
+    let profile: PublicProfile?
+    var size: CGFloat = 44
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Theme.Color.bgGrouped)
+                .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
+            if let image {
+                Image(uiImage: image)
+                    .resizable().scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            } else {
+                Text(initials)
+                    .font(.system(size: size * 0.38, weight: .regular))
+                    .foregroundStyle(Theme.Color.text)
+            }
+        }
+        .frame(width: size, height: size)
+        .task(id: profile?.id) {
+            guard let profile else { image = nil; return }
+            #if DEBUG
+            // Screenshot seam: `-mockPhotosDir` stands in real-looking faces
+            // for MockData's fixed profiles, independent of `hasPhoto` (mock
+            // profiles are all seeded with `hasPhoto: false`).
+            if let mock = MockPhotoAvatars.image(for: profile.id) { image = mock; return }
+            #endif
+            guard profile.hasPhoto else { image = nil; return }
+            image = PhotoCache.shared.cached(for: profile.id)
+            if image == nil {
+                image = await PhotoCache.shared.load(for: profile.id)
+            }
+        }
+    }
+
+    private var initials: String {
+        guard let name = profile?.displayName,
+              !name.trimmingCharacters(in: .whitespaces).isEmpty else { return "?" }
+        let parts = name.split(separator: " ").prefix(2)
+        let chars = parts.compactMap { $0.first }
+        return chars.isEmpty ? "?" : String(chars).uppercased()
+    }
+}
+
+// MARK: - Image resizing (profile photo upload prep)
+
+extension UIImage {
+    /// Downscale to at most `maxDimension` on the long edge and re-encode as
+    /// JPEG at `quality`. Used before `PUT /me/photo` (SPEC: "max 1024px JPEG
+    /// q0.8"); a no-op re-encode if the image is already small enough.
+    func resizedJPEGData(maxDimension: CGFloat = 1024, quality: CGFloat = 0.8) -> Data? {
+        let longEdge = max(size.width, size.height)
+        guard longEdge > maxDimension else { return jpegData(compressionQuality: quality) }
+        let scale = maxDimension / longEdge
+        let target = CGSize(width: size.width * scale, height: size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        let resized = renderer.image { _ in draw(in: CGRect(origin: .zero, size: target)) }
+        return resized.jpegData(compressionQuality: quality)
     }
 }
 

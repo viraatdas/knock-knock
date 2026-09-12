@@ -5,23 +5,19 @@ import AVFoundation
 #if canImport(LiveKit)
 import LiveKit
 
-/// Real media via the self-hosted **LiveKit** SFU. The control plane (`/calls`)
-/// returns `session.sfuUrl` (LiveKit ws URL) + `session.joinToken` (a LiveKit
-/// access token scoped to room = call id); both participants join the same room.
+/// Real media via the self-hosted **LiveKit** SFU, 1:1 only. The control
+/// plane (`POST /lobby/join` etc.) returns `session.sfuUrl` + `session.
+/// joinToken`; both daters join the same room (= the date id).
 ///
-/// Replaces the old custom-SFU `RTCPeerConnection` client (webrtc-rs SFU couldn't
-/// complete DTLS over real networks). LiveKit handles ICE/DTLS/TURN + a TCP
-/// fallback, so calls connect even on UDP-restricted networks.
+/// There is no system call UI anymore, so nothing else configures the audio session.
+/// `join(session:videoEnabled:)` sets `.playAndRecord`/`.videoChat` with
+/// Bluetooth + speaker routing and activates it itself, before `room.connect`.
 final class RealCallService: NSObject, CallService, @unchecked Sendable {
     weak var delegate: CallServiceDelegate?
 
-    /// The LiveKit room. Held for the lifetime of the call; the SwiftUI video
-    /// views observe it (and its participants) for track updates.
-    ///
     /// Audio tuning: full voice processing (echo cancellation + noise
     /// suppression + auto gain) and DTX off — DTX stops sending packets during
     /// silence, which can make quiet speech sound gated/choppy on flaky links.
-    /// Continuous Opus at a steady bitrate sounds noticeably smoother.
     /// Video tuning: capture 720p@30 from the front camera and publish with
     /// simulcast so the SFU can serve each receiver the best layer for their
     /// link instead of one compromise stream.
@@ -53,7 +49,6 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
     private(set) var isMuted = false
     private(set) var isVideoEnabled = true
     private(set) var isUsingFrontCamera = true
-    private(set) var remoteParticipants: [RemoteParticipant] = []
     private let lifecycleLock = NSLock()
     private var lifecycleGeneration = 0
     private var isLeaving = false
@@ -66,10 +61,11 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
 
     // MARK: - Join
 
-    func join(session: CallSession, videoEnabled: Bool) {
+    func join(session: DateSession, videoEnabled: Bool) {
         let generation = beginJoin()
         isVideoEnabled = videoEnabled
         connectionState = .connecting
+        Self.configureAudioSession()
         let url = session.sfuUrl
         let token = session.joinToken
         let task = Task { [weak self] in
@@ -86,10 +82,6 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
                     return
                 }
                 if videoEnabled {
-                    // Camera denial should degrade a video invitation to audio,
-                    // not tear down a successfully connected/mic-enabled call.
-                    // Permission UI is handled before outgoing call creation;
-                    // a cold incoming answer cannot present it in background.
                     if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
                         do {
                             try await self.room.localParticipant.setCamera(enabled: true)
@@ -103,10 +95,8 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
                                 self.isVideoEnabled = false
                             }
                         }
-                    } else {
-                        if self.isCurrentJoin(generation) {
-                            self.isVideoEnabled = false
-                        }
+                    } else if self.isCurrentJoin(generation) {
+                        self.isVideoEnabled = false
                     }
                 }
                 guard !Task.isCancelled, self.isCurrentJoin(generation) else {
@@ -121,6 +111,20 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
             }
         }
         joinTask = task
+    }
+
+    /// No system call UI here to own the audio session, so the app configures
+    /// it itself: `.playAndRecord`/`.videoChat` with Bluetooth + speaker routing.
+    private static func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .videoChat,
+                                    options: [.allowBluetoothHFP, .allowBluetoothA2DP, .defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            // Best-effort: LiveKit's own AudioManager default configuration is
+            // a reasonable fallback if this fails.
+        }
     }
 
     private func beginJoin() -> Int {
@@ -163,7 +167,7 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         isMuted = muted
         Task { [weak self] in
             guard let self, self.isCurrentJoin(generation) else { return }
-            try? await self.room.localParticipant.setMicrophone(enabled: !muted)
+            _ = try? await self.room.localParticipant.setMicrophone(enabled: !muted)
         }
     }
 
@@ -172,7 +176,7 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         isVideoEnabled = enabled
         Task { [weak self] in
             guard let self, self.isCurrentJoin(generation) else { return }
-            try? await self.room.localParticipant.setCamera(enabled: enabled)
+            _ = try? await self.room.localParticipant.setCamera(enabled: enabled)
             guard self.isCurrentJoin(generation) else { return }
             if enabled { Self.preferSpeakerIfOnEarpiece() }
         }
@@ -216,10 +220,7 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         AnyView(LiveKitLocalVideoView(participant: room.localParticipant))
     }
     func makeRemoteVideoView() -> AnyView {
-        AnyView(LiveKitRemoteVideoView(room: room, participantId: nil))
-    }
-    func makeRemoteVideoView(for participantId: String) -> AnyView {
-        AnyView(LiveKitRemoteVideoView(room: room, participantId: participantId))
+        AnyView(LiveKitRemoteVideoView(room: room))
     }
 
     func leave() {
@@ -227,48 +228,20 @@ final class RealCallService: NSObject, CallService, @unchecked Sendable {
         invalidateJoin()
         joinTask?.cancel()
         joinTask = nil
-        Task { @MainActor in CallPiPController.shared.detach() }
         Task { await room.disconnect() }
-        remoteParticipants = []
         hasRemoteVideo = false
         connectionState = .ended
     }
 
-    // MARK: - Roster
-
-    private func rebuildParticipants() {
-        guard !isLeavingSnapshot else { return }
-        let ps = Array(room.remoteParticipants.values)
-        let mapped = ps.map { p in
-            RemoteParticipant(
-                id: p.identity?.stringValue ?? p.sid?.stringValue ?? UUID().uuidString,
-                displayName: p.name ?? "",
-                hasVideo: p.firstCameraVideoTrack != nil,
-                isAudioMuted: p.firstAudioPublication.map { $0.isMuted } ?? false)
-        }
-        remoteParticipants = mapped
-        DispatchQueue.main.async {
-            self.delegate?.callService(self, didUpdateParticipants: mapped)
-        }
-        refreshRemoteVideoState()
-    }
+    // MARK: - Remote video state (1:1 — a single partner)
 
     private func refreshRemoteVideoState() {
         guard !isLeavingSnapshot else { return }
         let anyVideo = room.remoteParticipants.values.contains { $0.firstCameraVideoTrack != nil }
         hasRemoteVideo = anyVideo
-        let pipTrack = room.remoteParticipants.values.compactMap { $0.firstCameraVideoTrack }.first
         DispatchQueue.main.async {
             self.delegate?.callServiceRemoteVideoBecameAvailable(self)
-            // Keep the PiP layer fed by the primary remote feed.
-            if let pipTrack {
-                CallPiPController.shared.attachIfNeeded(track: pipTrack)
-            }
         }
-    }
-
-    func makePiPAnchorView() -> AnyView? {
-        AnyView(PiPAnchorView())
     }
 }
 
@@ -290,7 +263,7 @@ extension RealCallService: RoomDelegate {
         case .disconnected:
             // Only an explicit local leave is a clean end. Losing the room after
             // it was connected is recoverable/failable UI, not a terminal event
-            // that leaves the call screen stuck with no retry affordance.
+            // that leaves the date screen stuck with no retry affordance.
             self.connectionState = isLeavingSnapshot ? .ended : .failed("Disconnected")
         case .disconnecting:
             break
@@ -300,31 +273,26 @@ extension RealCallService: RoomDelegate {
     }
 
     func room(_ room: Room, participantDidConnect participant: LiveKit.RemoteParticipant) {
-        rebuildParticipants()
+        refreshRemoteVideoState()
     }
 
     func room(_ room: Room, participantDidDisconnect participant: LiveKit.RemoteParticipant) {
-        rebuildParticipants()
+        refreshRemoteVideoState()
     }
 
     func room(_ room: Room, participant: LiveKit.RemoteParticipant,
               didSubscribeTrack publication: RemoteTrackPublication) {
-        rebuildParticipants()
+        refreshRemoteVideoState()
     }
 
     func room(_ room: Room, participant: LiveKit.RemoteParticipant,
               didUnsubscribeTrack publication: RemoteTrackPublication) {
-        rebuildParticipants()
+        refreshRemoteVideoState()
     }
 
     func room(_ room: Room, participant: LiveKit.RemoteParticipant,
               didUnpublishTrack publication: RemoteTrackPublication) {
-        rebuildParticipants()
-    }
-
-    func room(_ room: Room, participant: Participant,
-              trackPublication: TrackPublication, didUpdateIsMuted isMuted: Bool) {
-        rebuildParticipants()
+        refreshRemoteVideoState()
     }
 }
 
@@ -347,19 +315,12 @@ private struct LiveKitLocalVideoView: View {
 
 private struct LiveKitRemoteVideoView: View {
     @ObservedObject var room: Room
-    let participantId: String?
 
-    private var participant: LiveKit.RemoteParticipant? {
-        let values = room.remoteParticipants.values
-        if let id = participantId {
-            return values.first { $0.identity?.stringValue == id }
-        }
-        return values.first
-    }
+    private var partner: LiveKit.RemoteParticipant? { room.remoteParticipants.values.first }
 
     var body: some View {
-        if let participant {
-            RemoteParticipantVideo(participant: participant)
+        if let partner {
+            RemoteParticipantVideo(participant: partner)
         } else {
             Color.black
         }

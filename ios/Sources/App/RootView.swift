@@ -13,8 +13,8 @@ struct RootView: View {
             case .onboarding:
                 OnboardingFlow()
                     .transition(.opacity)
-            case .needsName:
-                NameStepView()
+            case .profileSetup:
+                ProfileSetupFlow()
                     .transition(.opacity)
             case .home:
                 MainTabView()
@@ -22,48 +22,71 @@ struct RootView: View {
             }
         }
         .animation(Theme.Motion.standard, value: appState.phase)
-        // Incoming-knock banner floats above the tabs (lightweight, not CallKit).
-        .overlay(alignment: .top) {
-            IncomingKnockOverlay()
+        // The date flow (waiting/in-date/deciding/result) takes over full
+        // screen above the tabs, for any DateFlow case but `.none`.
+        .fullScreenCover(isPresented: dateFlowPresented) {
+            DateFlowContainerView()
                 .environmentObject(appState)
         }
-        // Active call takes over full screen, modal above the tabs.
-        .fullScreenCover(item: $appState.activeCall) { call in
-            CallContainerView(call: call)
-                .environmentObject(appState)
-        }
+    }
+
+    private var dateFlowPresented: Binding<Bool> {
+        Binding(
+            get: { appState.dateFlow != .none },
+            set: { presented in
+                if !presented { appState.dismissDateFlow() }
+            }
+        )
     }
 }
 
 private struct LoadingView: View {
+    @EnvironmentObject private var appState: AppState
+
     var body: some View {
-        VStack {
+        VStack(spacing: Theme.Space.lg) {
             Spacer()
             Wordmark(size: 30)
+            if appState.bootstrapUnreachable {
+                VStack(spacing: Theme.Space.md) {
+                    Text("Can't reach Knock Knock. Check your connection.")
+                        .font(Theme.Font.footnote)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .multilineTextAlignment(.center)
+                    PrimaryButton(title: "Try again") { appState.retryBootstrap() }
+                        .frame(maxWidth: 200)
+                }
+                .padding(.horizontal, Theme.Space.xl)
+            }
             Spacer()
         }
     }
 }
 
-/// Decides between the incoming-call screen and the in-call screen.
-struct CallContainerView: View {
+/// Picks the right full-screen view for the current `DateFlow` case.
+private struct DateFlowContainerView: View {
     @EnvironmentObject private var appState: AppState
-    @ObservedObject var call: ActiveCall
 
     var body: some View {
         Group {
-            if call.direction == .incoming && call.status == .ringing {
-                IncomingCallView(call: call)
-            } else {
-                InCallView(call: call)
+            switch appState.dateFlow {
+            case .none:
+                EmptyView()
+            case .waiting, .closed:
+                LobbyView()
+            case .inDate(let date):
+                DateView(date: date)
+            case .deciding(let date, let endReason):
+                DecisionView(date: date, endReason: endReason, result: nil)
+            case .result(let result, let date):
+                switch result {
+                case .matched(let match):
+                    MatchMadeView(match: match, date: date)
+                case .waiting, .passed:
+                    DecisionView(date: date, endReason: nil, result: result)
+                }
             }
         }
         .preferredColorScheme(.light)
-        // Allow rotation only while actually in a call (not while ringing).
-        .onAppear { AppDelegate.allowLandscape = !(call.direction == .incoming && call.status == .ringing) }
-        .onChange(of: call.status) { _, status in
-            AppDelegate.allowLandscape = !(call.direction == .incoming && status == .ringing)
-        }
-        .onDisappear { AppDelegate.allowLandscape = false }
     }
 }

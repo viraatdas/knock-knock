@@ -20,11 +20,20 @@ enum Theme {
         static let hairline = SwiftUI.Color(hex: 0xE6DCCB)
         /// #5A4632 — primary action / active toggles — rich espresso brown.
         static let accent = SwiftUI.Color(hex: 0x5A4632)
-        /// #D4694F — warm terracotta for end call / decline / destructive.
+        /// #D4694F — warm terracotta for end date / decline / destructive.
         static let danger = SwiftUI.Color(hex: 0xD4694F)
+        /// Same terracotta, named for its other job: countdown-warning rings,
+        /// the "leave" button, anything that should read as warm urgency
+        /// without reading as an error.
+        static let warm = SwiftUI.Color(hex: 0xD4694F)
 
         /// On-accent text/icon color (cream, for filled brown buttons).
         static let onAccent = SwiftUI.Color(hex: 0xFAF6EF)
+
+        /// My chat bubble: accent fill, cream text.
+        static let bubbleMine = accent
+        /// Their chat bubble: grouped fill with a hairline stroke.
+        static let bubbleTheirs = bgGrouped
     }
 
     // MARK: Spacing — 8px grid

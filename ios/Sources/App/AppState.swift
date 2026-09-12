@@ -1,85 +1,104 @@
 import SwiftUI
 import Combine
-import UserNotifications
 
 /// Top-level app phases.
 enum AppPhase: Equatable {
     case loading
     case onboarding
-    case needsName        // authenticated but new user without a name
+    case profileSetup
     case home
 }
 
+/// The date flow's state machine (SPEC §2.4). `RootView` presents a
+/// `fullScreenCover` for any case other than `.none`. All server events
+/// (WebSocket + lobby-heartbeat poll fallback) funnel through `AppState`;
+/// views never talk to `SignalingClient` or the lobby/date endpoints directly.
+enum DateFlow: Equatable {
+    case none
+    case waiting(since: Date)
+    /// Doors closed while waiting in the lobby. Transient: LobbyView shows
+    /// "Doors are closed for tonight." for a beat, then AppState moves this
+    /// to `.none` itself (see `closeLobby`) so the message is actually seen
+    /// instead of the fullScreenCover dismissing out from under it.
+    case closed
+    case inDate(DateSession)
+    case deciding(DateSession, endReason: String)
+    case result(DecisionResult, DateSession)
+}
+
+/// One chat message plus its optimistic send state.
+struct ChatMessage: Identifiable, Hashable {
+    enum Status: Hashable { case sent, pending, failed }
+    var message: Message
+    var status: Status = .sent
+    var id: String { message.id }
+}
+
+/// Where a tapped push notification should take the user (SPEC §2.3 "Push
+/// routing"). `RootView`/`MainTabView` observe `AppState.pendingRoute` and
+/// clear it once handled.
+enum NotificationRoute: Equatable {
+    case chat(matchId: String)
+    case matches
+    case tonight
+}
+
 /// Owns auth/session state and the cross-cutting services. Injected as an
-/// `@EnvironmentObject`.
+/// `@EnvironmentObject`. See the header comments on each Features/* file for
+/// exactly which of these a view is expected to read/call.
 @MainActor
 final class AppState: ObservableObject {
     @Published var phase: AppPhase = .loading
-    @Published var currentUser: User?
-    @Published private(set) var contacts: [Contact] = []
+    @Published var me: MeView?
+    @Published var sessionWindow: SessionWindow?
+    @Published var dateFlow: DateFlow = .none
+    @Published var matches: [MatchSummary] = []
+    @Published var datesToday: [DateHistoryEntry] = []
+    @Published private(set) var messagesByMatch: [String: [ChatMessage]] = [:]
+    /// matchIds whose full history has actually been fetched from
+    /// `GET /matches/:id/messages`. `messagesByMatch[matchId]` alone can't
+    /// tell us that — a live WS `message` event seeds it with just one
+    /// message before the chat is ever opened (see `applyIncomingMessage`).
+    private var historyLoadedMatchIds: Set<String> = []
+    /// The server's real "is there more history before this?" per match,
+    /// seeded from `MessagesPage.hasMore` on the initial `loadMessages`
+    /// fetch. `ChatViewModel` reads this to seed its own `hasMoreOlder`
+    /// instead of assuming `true`, which used to send every re-opened chat
+    /// on a wasted (and visually disruptive) pagination round trip even
+    /// when history was already exhausted.
+    private(set) var hasMoreOlderByMatch: [String: Bool] = [:]
+    /// True once the first `refreshMatches()` (success or failure) has
+    /// completed, so MatchesView can show a spinner instead of the "no
+    /// matches" empty state while the initial fetch is still in flight.
+    @Published private(set) var matchesLoaded = false
+
+    /// Routing hooks a tapped notification or a "Say hi" from MatchMadeView
+    /// sets; the relevant view reads it, navigates, then clears it.
+    @Published var pendingRoute: NotificationRoute?
+    /// Set by ChatView while it's the visible chat, so AppDelegate can
+    /// suppress a foreground banner for a message that's already on screen.
+    @Published var activeChatMatchId: String?
+    /// Set when a `match_removed` event lands for the currently open chat, so
+    /// ChatView can show "This match ended." and pop.
+    @Published var matchEndedToastMatchId: String?
+    /// True when `bootstrap()` has an authenticated session but couldn't
+    /// reach the server after retrying (offline, DNS, backend down) — never
+    /// set for an actually-invalid session, which signs out instead.
+    /// `LoadingView` reads this to offer a manual retry rather than the app
+    /// silently sitting on a wordmark forever.
+    @Published var bootstrapUnreachable = false
 
     let api = APIClient.shared
     let tokens = TokenStore.shared
     let signaling = SignalingClient()
+    let sessionClock = SessionClock()
+    let locationService = LocationService.shared
 
-    /// Drives the incoming-call screen / in-call modal.
-    @Published var activeCall: ActiveCall?
-
-    /// Drives the incoming-knock banner overlay (lightweight, not CallKit).
-    @Published var incomingKnock: IncomingKnock?
-
-    /// Short-lived tombstones stop a delayed duplicate WS/VoIP delivery from
-    /// resurrecting a call we already ended.
-    private var recentlyFinishedCallIds: [String: Date] = [:]
-    private var answerRequestedCallIds = Set<UUID>()
-    private var acceptingCallIds = Set<UUID>()
-    private var answerCompletions: [UUID: [(Bool) -> Void]] = [:]
-    private var incomingRingDeadlineTasks: [UUID: Task<Void, Never>] = [:]
-    private var permissionRequestTask: Task<Void, Never>?
-
-    // MARK: Knock send-side state
-    /// Monotonic sequence for the current outbound knock session.
-    private var outgoingKnockSeq = 0
-    /// Timestamp of the previous outbound tap, to compute `dt`.
-    private var lastOutgoingKnockAt: Date?
-    /// The user-id we're currently knocking, so a new target resets the session.
-    private var outgoingKnockTarget: String?
-
-    // MARK: Knock receive-side state
-    /// Auto-clears the incoming-knock banner ~2.5s after the last received tap.
-    private var incomingKnockClearTask: Task<Void, Never>?
+    private var lobbyHeartbeatTask: Task<Void, Never>?
+    private var sessionPollTask: Task<Void, Never>?
 
     init() {
         signaling.delegate = self
-
-        // Install the PushKit handoff before the CallKit delegate. Both systems
-        // can fire before SwiftUI's `.task` bootstrap runs on a cold launch;
-        // replaying the payload first guarantees a queued answer has an
-        // ActiveCall to act on when CallKitManager drains it.
-        PushService.shared.onIncomingCall = { [weak self] callId, fromUserId, fromName,
-                                              callType, videoEnabled, ringStyle, expiresAt in
-            // PKPushRegistry is explicitly created on the main queue, and a
-            // pending payload is drained here from AppState's main-actor init.
-            MainActor.assumeIsolated {
-                self?.receivePushedCall(callId: callId, fromUserId: fromUserId,
-                                        fromName: fromName, type: callType,
-                                        videoEnabled: videoEnabled,
-                                        ringStyle: ringStyle,
-                                        expiresAt: expiresAt)
-            }
-        }
-        PushService.shared.onIncomingCallReportFailed = { [weak self] callId in
-            MainActor.assumeIsolated {
-                self?.handleIncomingCallReportFailure(callId: callId)
-            }
-        }
-        PushService.shared.onCallTerminal = { [weak self] type, callId in
-            MainActor.assumeIsolated {
-                self?.receivePushedTerminal(type: type, callId: callId)
-            }
-        }
-        CallKitManager.shared.delegate = self
-
         Task { [weak self] in
             guard let self else { return }
             await api.setAuthFailureHandler { [weak self] in
@@ -88,912 +107,637 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Bootstrap
+
     func bootstrap() async {
-        // Debug/screenshot hooks: jump straight to a screen in the simulator.
-        let args = ProcessInfo.processInfo.arguments
-        if args.contains("-group") {
-            // Group-call grid for screenshots.
-            currentUser = MockData.me
-            phase = .home
-            let names = ["Amelia Stone", "Daniel Wu", "Grace Lin", "Marcus Reed", "Priya Nair"]
-            let demo = ActiveCall(direction: .outgoing,
-                                  remoteName: names[0],
-                                  remotePhone: "",
-                                  remoteUserId: "u_group",
-                                  isVideo: true,
-                                  status: .connecting,
-                                  isGroup: true,
-                                  memberNames: names)
-            demo.session = MockData.callSession(for: MockData.userForContact(MockData.contacts[0]),
-                                                video: true)
-            activeCall = demo
-            return
-        }
-        if args.contains("-home") || args.contains("-incall") {
-            currentUser = MockData.me
-            phase = .home
-            if args.contains("-incall") {
-                let demo = ActiveCall(direction: .outgoing,
-                                      remoteName: "Amelia Stone",
-                                      remotePhone: "+14155550111",
-                                      remoteUserId: "u_amelia",
-                                      isVideo: !args.contains("-audio"),
-                                      status: .connecting,
-                                      isKnock: args.contains("-knock"))
-                // Knock demo: leave the session unset so nobody "answers" and
-                // the knock stage stays up for screenshots.
-                if !demo.isKnock {
-                    demo.session = MockData.callSession(for: MockData.userForContact(MockData.contacts[0]),
-                                                        video: !args.contains("-audio"))
-                }
-                activeCall = demo
-            }
-            return
-        }
-        if args.contains("-incoming") {
-            currentUser = MockData.me
-            phase = .home
-            let demo = ActiveCall(direction: .incoming,
-                                  remoteName: "Daniel Wu",
-                                  remotePhone: "+14155550114",
-                                  remoteUserId: "u_daniel",
-                                  isVideo: true,
-                                  status: .ringing,
-                                  isKnock: args.contains("-knock"))
-            demo.callId = "demo_incoming"
-            activeCall = demo
-            // Simulate the knocker's rhythm so the door rattles in screenshots.
-            if demo.isKnock {
-                Task { @MainActor in
-                    while self.activeCall === demo {
-                        try? await Task.sleep(nanoseconds: 1_400_000_000)
-                        demo.knockPulse += 1
-                    }
-                }
-            }
-            return
-        }
+        if seedScreenshotSceneIfRequested() { return }
 
         guard tokens.isAuthenticated else {
             phase = .onboarding
             return
         }
-
-        // Try to load the profile; if it fails on auth, fall back to onboarding.
-        do {
-            let user = try await api.me()
-            currentUser = user
-            phase = (user.displayName?.isEmpty ?? true) ? .needsName : .home
-            signaling.connect()
-            Task { await registerDeviceIfPossible() }
-            Task { await refreshContactCache() }
-            Task { await reconcileActiveRingingCall() }
-            Task { await recoverRecentIncomingCall() }
-            schedulePostAuthenticationPermissionsIfNeeded()
-        } catch APIError.unauthorized, APIError.notAuthenticated {
-            logoutLocally()
-        } catch {
-            // Network down but we have tokens — proceed to home optimistically.
-            if Config.useMockData {
-                currentUser = MockData.me
-                phase = .home
-            } else {
-                phase = .home
+        bootstrapUnreachable = false
+        // A plain connectivity blip (no network, DNS, backend mid-deploy) on
+        // cold launch must never bounce an already-signed-in user back to
+        // onboarding — their tokens are still good. Retry with backoff first;
+        // only an actual "your session is invalid" response signs out. Mock
+        // mode has no real backend to retry against, so it falls straight
+        // through to the mock fallback like before instead of waiting out
+        // retries that can only fail.
+        let attempts = Config.useMockData ? 1 : 3
+        for attempt in 0..<attempts {
+            do {
+                let user = try await api.me()
+                me = user
+                phase = user.profileComplete ? .home : .profileSetup
+                await postAuthSetup()
+                return
+            } catch APIError.unauthorized, APIError.notAuthenticated {
+                logoutLocally()
+                return
+            } catch {
+                if attempt < attempts - 1 {
+                    try? await Task.sleep(nanoseconds: UInt64(1_000_000_000 * (1 << attempt)))
+                    continue
+                }
+                if Config.useMockData {
+                    me = MockData.me
+                    phase = .home
+                    await postAuthSetup()
+                } else {
+                    // Stay signed in, on the loading screen, with a manual
+                    // retry — never `.onboarding` for a network error alone.
+                    bootstrapUnreachable = true
+                }
             }
-            signaling.connect()
-            Task { await registerDeviceIfPossible() }
-            Task { await refreshContactCache() }
-            Task { await recoverRecentIncomingCall() }
-            schedulePostAuthenticationPermissionsIfNeeded()
         }
     }
 
-    func didAuthenticate(user: User, isNewUser: Bool) {
-        currentUser = user
-        phase = (isNewUser || (user.displayName?.isEmpty ?? true)) ? .needsName : .home
+    /// "Try again" on the unreachable-loading screen.
+    func retryBootstrap() {
+        Task { await bootstrap() }
+    }
+
+    private func postAuthSetup() async {
         signaling.connect()
-        Task { await registerDeviceIfPossible() }
-        Task { await refreshContactCache() }
-        Task { await reconcileActiveRingingCall() }
-        Task { await recoverRecentIncomingCall() }
-        schedulePostAuthenticationPermissionsIfNeeded()
+        startSessionPollLoop()
+        await refreshMatches()
+        // Re-asserts push registration for whichever account is signed in
+        // now. `didRegisterForRemoteNotificationsWithDeviceToken` only fires
+        // once per process on its own, so a second, already-onboarded user
+        // logging in without a relaunch would otherwise never claim this
+        // device's token — this call re-triggers that callback.
+        NotificationService.registerForRemoteNotifications()
     }
 
-    func didCompleteName(user: User) {
-        currentUser = user
-        phase = .home
-        Task { await refreshContactCache() }
-        schedulePostAuthenticationPermissionsIfNeeded()
-    }
-
-    func logout() {
-        let standardToken = PushService.shared.standardTokenHex
-        let voipToken = PushService.shared.voipToken
-        let callResolution: (id: String, decline: Bool)? = {
-            guard let call = activeCall,
-                  let id = call.callIdForBackendResolution() else { return nil }
-            if call.direction == .incoming, call.session == nil {
-                // `/leave` acts on the account participant and could terminate a
-                // sibling installation that won a racing accept. A still-ringing
-                // invitation can be declined safely; an ambiguous in-flight
-                // keyed accept reconciles itself when its response returns.
-                guard !acceptingCallIds.contains(call.uuid) else { return nil }
-                return (id, true)
-            }
-            return (id, false)
-        }()
-        Task {
-            await withTaskGroup(of: Void.self) { group in
-                if let callResolution {
-                    group.addTask {
-                        if callResolution.decline {
-                            _ = try? await self.api.declineCall(id: callResolution.id)
-                        } else {
-                            await self.api.leaveCallBestEffort(id: callResolution.id)
-                        }
-                    }
-                }
-                if let standardToken {
-                    group.addTask { _ = try? await self.api.unregisterPushToken(standardToken) }
-                }
-                if let voipToken {
-                    group.addTask { _ = try? await self.api.unregisterPushToken(voipToken) }
-                }
-            }
-            await api.logout()
-            await MainActor.run { logoutLocally() }
-        }
-    }
-
-    func logoutLocally() {
-        signaling.disconnect()
-        permissionRequestTask?.cancel()
-        permissionRequestTask = nil
-        cancelAllIncomingRingDeadlines()
-        tokens.clear()
-        currentUser = nil
-        contacts = []
-        if let call = activeCall {
-            CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .failed)
-            rememberFinished(call.callId)
-        }
-        acceptingCallIds.removeAll()
-        finishAnswerCompletions(success: false)
-        activeCall = nil
-        phase = .onboarding
-    }
-
-    func refreshContactCache() async {
-        guard tokens.isAuthenticated else { return }
-        do {
-            let list = try await api.contacts()
-            contacts = list
-            refreshActiveCallDisplayName()
-        } catch {
-            // Contacts are a display-name enhancement. Never block calls on it.
-        }
-    }
-
-    func replaceContactCache(_ list: [Contact]) {
-        contacts = list
-        refreshActiveCallDisplayName()
+    func didAuthenticate(user: MeView) {
+        me = user
+        phase = user.profileComplete ? .home : .profileSetup
+        Task { await postAuthSetup() }
     }
 
     func appBecameActive() async {
         guard tokens.isAuthenticated else { return }
         signaling.reconnectNow()
-        Task { await registerDeviceIfPossible() }
-        await refreshContactCache()
-        await reconcileActiveRingingCall()
-        if activeCall == nil { await recoverRecentIncomingCall() }
-        schedulePostAuthenticationPermissionsIfNeeded()
+        await refreshSession()
+        await refreshMatches()
     }
 
     func appEnteredBackground() {
-        // An idle iOS process is about to be suspended. Closing the socket makes
-        // server-side offline detection truthful immediately instead of leaving
-        // a stale connection that swallows realtime-only delivery. Keep it for
-        // an active call so hang-up signaling can continue under audio/PiP.
-        switch activeCall?.status {
-        case .ringing, .connecting, .active:
+        // Keep the socket up mid-date or while waiting in the lobby (so a
+        // partner-left/matched event still arrives); otherwise let it go idle.
+        switch dateFlow {
+        case .inDate, .waiting:
             break
-        case .none, .dialing, .failed, .ended:
+        case .none, .closed, .deciding, .result:
             signaling.disconnect()
         }
     }
 
-    /// Ask for core permissions after onboarding, one prompt at a time. The mic
-    /// is requested proactively so a locked/cold CallKit answer never needs to
-    /// present permission UI in the background.
-    private func schedulePostAuthenticationPermissionsIfNeeded() {
-        guard permissionRequestTask == nil,
-              tokens.isAuthenticated,
-              phase == .home,
-              activeCall == nil,
-              UIApplication.shared.applicationState == .active else { return }
+    // MARK: - Auth lifecycle
 
-        permissionRequestTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.permissionRequestTask = nil }
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard !Task.isCancelled, self.activeCall == nil,
-                  UIApplication.shared.applicationState == .active else { return }
-
-            let notificationKey = "askedNotificationPermission"
-            if !UserDefaults.standard.bool(forKey: notificationKey) {
-                UserDefaults.standard.set(true, forKey: notificationKey)
-                _ = try? await UNUserNotificationCenter.current()
-                    .requestAuthorization(options: [.alert, .sound, .badge])
-                guard !Task.isCancelled else { return }
-                // Avoid stacking the microphone sheet directly on the
-                // notification sheet's dismissal animation.
-                try? await Task.sleep(nanoseconds: 700_000_000)
-            }
-
-            UIApplication.shared.registerForRemoteNotifications()
-            guard !Task.isCancelled, self.activeCall == nil,
-                  UIApplication.shared.applicationState == .active else { return }
-            _ = await MediaPermissions.requestMicrophoneAccess()
-        }
-    }
-
-    private func registerDeviceIfPossible() async {
-        // Standard APNs token → backend alert pushes (knocks while
-        // backgrounded, missed knocks). Re-sent here in case it arrived
-        // before sign-in.
-        if let hex = PushService.shared.standardTokenHex {
-            _ = try? await api.registerStandardPushToken(hex)
-        }
-        // PushKit tokens land moments after launch — wait briefly instead of
-        // racing ahead (the old placeholder write masked real failures).
-        for _ in 0..<16 where PushService.shared.voipToken == nil {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-        }
-        if let voip = PushService.shared.voipToken {
-            _ = try? await api.registerPushToken(voip)
-            return
-        }
-        #if targetEnvironment(simulator)
-        // Simulators never get push tokens; a placeholder keeps the device row.
-        _ = try? await api.registerDevice(pushToken: "simulator-no-apns-token")
-        #endif
-    }
-
-    // MARK: - Calls
-
-    func startCall(to user: User, video: Bool) {
-        guard activeCall == nil else { return }
-        Haptics.impact()   // committing to a call
-        let call = ActiveCall(direction: .outgoing,
-                              remoteName: user.displayName ?? user.phone,
-                              remotePhone: user.phone,
-                              remoteUserId: user.id,
-                              isVideo: video,
-                              status: .dialing)
-        activeCall = call
+    func logout() {
+        let flow = dateFlow
         Task {
-            guard await prepareMediaPermissions(for: call) else { return }
-            guard await startOutgoingSystemCall(
-                uuid: call.uuid, handle: call.remoteName,
-                displayName: call.remoteName, hasVideo: call.isVideo) else {
-                call.status = .failed
-                call.endMessage = "Another call is already using the phone."
-                return
+            switch flow {
+            case .inDate(let date):
+                try? await self.api.leaveDate(id: date.id)
+            case .waiting:
+                try? await self.api.leaveLobby()
+            default:
+                break
             }
-            guard activeCall?.id == call.id else {
-                CallKitManager.shared.endCall(uuid: call.uuid)
-                return
+            // Drop this device's push binding first so a message/match/
+            // doors-open push meant for the next account on this device
+            // never gets delivered while this one is still signed in to it.
+            if let token = self.tokens.devicePushToken {
+                try? await self.api.unregisterPushToken(token)
             }
-            await placeCall(to: user, video: call.isVideo, ringStyle: "call", local: call)
+            await self.api.logout()
+            await MainActor.run { self.logoutLocally() }
         }
     }
 
-    func startKnockCall(to user: User, video: Bool = false) {
-        guard activeCall == nil else { return }
-        KnockHaptics.shared.knock()
-        let call = ActiveCall(direction: .outgoing,
-                              remoteName: user.displayName ?? user.phone,
-                              remotePhone: user.phone,
-                              remoteUserId: user.id,
-                              isVideo: video,
-                              status: .dialing,
-                              isKnock: true)
-        activeCall = call
-        Task {
-            guard await prepareMediaPermissions(for: call) else { return }
-            guard await startOutgoingSystemCall(
-                uuid: call.uuid, handle: "Knock Knock",
-                displayName: "Knocking", hasVideo: call.isVideo) else {
-                call.status = .failed
-                call.endMessage = "Another call is already using the phone."
-                return
+    func logoutLocally() {
+        signaling.disconnect()
+        stopLobbyHeartbeatLoop()
+        stopSessionPollLoop()
+        NotificationService.cancelDoorsOpenReminder()
+        tokens.clear()
+        me = nil
+        sessionWindow = nil
+        matches = []
+        matchesLoaded = false
+        datesToday = []
+        messagesByMatch = [:]
+        historyLoadedMatchIds = []
+        hasMoreOlderByMatch = [:]
+        dateFlow = .none
+        phase = .onboarding
+    }
+
+    func deleteAccount() async {
+        try? await api.deleteAccount()
+        logoutLocally()
+    }
+
+    // MARK: - Session window
+
+    func refreshSession() async {
+        do {
+            let window = try await api.fetchSessionWindow()
+            sessionWindow = window
+            sessionClock.update(from: window)
+        } catch {
+            if Config.useMockData, sessionWindow == nil {
+                sessionWindow = MockData.sessionOpen
+                sessionClock.update(from: MockData.sessionOpen)
             }
-            guard activeCall?.id == call.id else {
-                CallKitManager.shared.endCall(uuid: call.uuid)
-                return
-            }
-            await placeCall(to: user, video: call.isVideo, ringStyle: "knock", local: call)
+        }
+        if let sessionWindow, !sessionWindow.isOpen, case .waiting = dateFlow {
+            closeLobby()
         }
     }
 
-    /// Start a group call with several people selected up front. The backend
-    /// rings everyone and the SFU fans out each participant's media.
-    func startGroupCall(to users: [User], video: Bool) {
-        guard activeCall == nil else { return }
-        guard !users.isEmpty else { return }
-        guard users.count > 1 else { startCall(to: users[0], video: video); return }
-        Haptics.impact()   // committing to a group call
-        let names = users.map { $0.displayName ?? $0.phone }
-        let call = ActiveCall(direction: .outgoing,
-                              remoteName: names.first ?? "Group",
-                              remotePhone: "",
-                              remoteUserId: users.first?.id,
-                              isVideo: video,
-                              status: .dialing,
-                              isGroup: true,
-                              memberNames: names)
-        activeCall = call
-        Task {
-            guard await prepareMediaPermissions(for: call) else { return }
-            guard await startOutgoingSystemCall(
-                uuid: call.uuid, handle: "Group call",
-                displayName: names.joined(separator: ", "), hasVideo: call.isVideo) else {
-                call.status = .failed
-                call.endMessage = "Another call is already using the phone."
-                return
-            }
-            guard activeCall?.id == call.id else {
-                CallKitManager.shared.endCall(uuid: call.uuid)
-                return
-            }
-            await placeGroupCall(to: users, video: call.isVideo, local: call)
+    /// Doors closed while waiting in the lobby (either this session poll or a
+    /// `session_closed` heartbeat error). Shows "Doors are closed for
+    /// tonight." for a beat before actually dismissing, instead of flipping
+    /// `dateFlow` straight to `.none` and yanking the cover away mid-sentence.
+    private func closeLobby() {
+        stopLobbyHeartbeatLoop()
+        guard case .waiting = dateFlow else { return }
+        dateFlow = .closed
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard let self, case .closed = self.dateFlow else { return }
+            self.dateFlow = .none
         }
     }
 
-    private func startOutgoingSystemCall(uuid: UUID, handle: String,
-                                         displayName: String, hasVideo: Bool) async -> Bool {
-        await withCheckedContinuation { continuation in
-            CallKitManager.shared.startOutgoingCall(
-                uuid: uuid, handle: handle, displayName: displayName, hasVideo: hasVideo
-            ) { error in
-                continuation.resume(returning: error == nil)
+    /// Refreshes `/session` every 60s per SPEC §2.3 ("Loads /session on
+    /// appear/foreground and every 60 s"). Runs for the lifetime of the app
+    /// once signed in; harmless to call `bootstrap`'s postAuthSetup more than
+    /// once since this guards against a duplicate task.
+    private func startSessionPollLoop() {
+        guard sessionPollTask == nil else { return }
+        sessionPollTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                await self.refreshSession()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
     }
 
-    private func prepareMediaPermissions(for call: ActiveCall) async -> Bool {
-        guard await MediaPermissions.requestMicrophoneAccess() else {
-            guard activeCall?.id == call.id else { return false }
-            call.status = .failed
-            call.endMessage = "Microphone access is required for calls."
+    private func stopSessionPollLoop() {
+        sessionPollTask?.cancel()
+        sessionPollTask = nil
+    }
+
+    func refreshDatesToday() async {
+        do {
+            datesToday = try await api.datesToday()
+        } catch {
+            if Config.useMockData, datesToday.isEmpty { datesToday = MockData.datesToday }
+        }
+    }
+
+    // MARK: - Lobby / date state machine
+
+    func startLookingForDate() async {
+        guard dateFlow == .none else { return }
+        dateFlow = .waiting(since: Date())
+        do {
+            let resp = try await api.joinLobby()
+            handleLobbyResponse(resp)
+        } catch let error as APIError {
+            await handleLobbyError(error)
+        } catch {
+            if Config.useMockData {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard case .waiting = dateFlow else { return }
+                applyDateMatched(MockData.dateSession(with: MockData.profiles.randomElement() ?? MockData.profiles[0],
+                                                      secondsLeft: 300))
+                return
+            }
+        }
+        if case .waiting = dateFlow { startLobbyHeartbeatLoop() }
+    }
+
+    func cancelLooking() async {
+        switch dateFlow {
+        case .waiting:
+            stopLobbyHeartbeatLoop()
+            dateFlow = .none
+            try? await api.leaveLobby()
+        case .closed:
+            // "Back" on the transient "doors are closed" beat — no lobby
+            // membership left to leave, just dismiss right away.
+            dateFlow = .none
+        default:
+            break
+        }
+    }
+
+    private func startLobbyHeartbeatLoop() {
+        guard lobbyHeartbeatTask == nil else { return }
+        lobbyHeartbeatTask = Task { [weak self] in
+            while let self, case .waiting = self.dateFlow, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard case .waiting = self.dateFlow else { break }
+                do {
+                    let resp = try await self.api.lobbyHeartbeat()
+                    self.handleLobbyResponse(resp)
+                } catch let error as APIError {
+                    await self.handleLobbyError(error)
+                } catch {
+                    break
+                }
+            }
+            self?.lobbyHeartbeatTask = nil
+        }
+    }
+
+    private func stopLobbyHeartbeatLoop() {
+        lobbyHeartbeatTask?.cancel()
+        lobbyHeartbeatTask = nil
+    }
+
+    private func handleLobbyResponse(_ resp: LobbyResponse) {
+        guard resp.status == "matched", let date = resp.date else { return }
+        applyDateMatched(date)
+    }
+
+    /// `date_matched` from the server, or a `matched` lobby/heartbeat
+    /// response. Deduped by date id so a delayed WS delivery after the
+    /// heartbeat poll already caught it is a no-op.
+    private func applyDateMatched(_ date: DateSession) {
+        if case .inDate(let existing) = dateFlow, existing.id == date.id { return }
+        stopLobbyHeartbeatLoop()
+        dateFlow = .inDate(date)
+        SoundEffects.play(.found)
+        Haptics.impact()
+    }
+
+    /// `date_ended` from the server. Ignored for any date id other than the
+    /// one currently on screen.
+    private func applyDateEnded(dateId: String, reason: String) {
+        guard case .inDate(let date) = dateFlow, date.id == dateId else { return }
+        dateFlow = .deciding(date, endReason: reason)
+        SoundEffects.play(.ended)
+    }
+
+    /// 409/422 from `/lobby/join` or `/lobby/heartbeat`.
+    private func handleLobbyError(_ error: APIError) async {
+        switch error.code {
+        case "session_closed":
+            closeLobby()
+        case "profile_incomplete", "location_required":
+            stopLobbyHeartbeatLoop()
+            dateFlow = .none
+            phase = .profileSetup
+        case "date_in_progress":
+            // The error body carries the date, but APIError only surfaces
+            // {code,message,retryAfter}; recover it with a follow-up GET
+            // instead of threading the payload through. See openIssues.
+            stopLobbyHeartbeatLoop()
+            if let date = try? await api.currentDate() {
+                applyDateMatched(date)
+            } else {
+                dateFlow = .none
+            }
+        default:
+            break
+        }
+    }
+
+    /// Returns nil on success (the flow has already moved to `.result`), or an
+    /// inline message for `DecisionView` to show when the answer didn't
+    /// register — a plain failure, or a 409 because the caller already
+    /// answered differently and can't change it.
+    @discardableResult
+    func decide(explore: Bool) async -> String? {
+        guard case .deciding(let date, _) = dateFlow else { return nil }
+        do {
+            let resp = try await api.decideDate(id: date.id, explore: explore)
+            applyDecision(resp, date: date)
+            return nil
+        } catch let error as APIError where error.status == 409 {
+            // A changed answer is rejected server-side; the original stands.
+            return "Your first answer already went through. That one stands."
+        } catch {
+            if Config.useMockData {
+                let mockResult: DecisionResult = explore
+                    ? .matched(MockData.matches[0])
+                    : .passed
+                if case .matched(let match) = mockResult { upsertMatch(match) }
+                dateFlow = .result(mockResult, date)
+                return nil
+            }
+            return "Couldn't save that. Check your connection and try again."
+        }
+    }
+
+    private func applyDecision(_ resp: DecisionResponse, date: DateSession) {
+        let result: DecisionResult
+        switch resp.status {
+        case "matched":
+            let match = resp.match ?? MatchSummary(id: date.id, partner: date.partner,
+                                                   createdAt: Date(), lastMessage: nil, unreadCount: 0)
+            upsertMatch(match)
+            result = .matched(match)
+            SoundEffects.play(.match)
+            Haptics.success()
+        case "passed":
+            result = .passed
+        default:
+            result = .waiting
+        }
+        dateFlow = .result(result, date)
+    }
+
+    /// The client-side 5-minute timer (DateViewModel) hit zero. The
+    /// server's own date-expirer will also end the date and publish
+    /// `date_ended {reason: "timeout"}` momentarily, but SPEC §2.3 wants the
+    /// knock-knock cue to move straight to DecisionView rather than waiting
+    /// on that round trip. Deduped by date id like every other transition.
+    func handleLocalDateTimeout(_ date: DateSession) {
+        guard case .inDate(let current) = dateFlow, current.id == date.id else { return }
+        dateFlow = .deciding(date, endReason: "timeout")
+    }
+
+    /// "Done for tonight" / dismissing the result screen.
+    func dismissDateFlow() {
+        stopLobbyHeartbeatLoop()
+        dateFlow = .none
+    }
+
+    /// "Say hi" on MatchMadeView: close the date flow and hand a route to
+    /// MatchesView so it can push straight into the chat.
+    func openChat(matchId: String) {
+        dismissDateFlow()
+        pendingRoute = .chat(matchId: matchId)
+    }
+
+    func setActiveChatMatchId(_ matchId: String?) {
+        activeChatMatchId = matchId
+    }
+
+    // MARK: - Matches
+
+    func refreshMatches() async {
+        defer { matchesLoaded = true }
+        do {
+            matches = try await api.matches()
+        } catch {
+            if Config.useMockData, matches.isEmpty { matches = MockData.matches }
+        }
+    }
+
+    func markRead(matchId: String) async {
+        if let idx = matches.firstIndex(where: { $0.id == matchId }) {
+            matches[idx].unreadCount = 0
+        }
+        try? await api.markRead(matchId: matchId)
+    }
+
+    private func upsertMatch(_ match: MatchSummary) {
+        if let idx = matches.firstIndex(where: { $0.id == match.id }) {
+            matches[idx] = match
+        } else {
+            matches.insert(match, at: 0)
+        }
+    }
+
+    func unmatch(matchId: String) async {
+        matches.removeAll { $0.id == matchId }
+        messagesByMatch[matchId] = nil
+        historyLoadedMatchIds.remove(matchId)
+        hasMoreOlderByMatch.removeValue(forKey: matchId)
+        try? await api.unmatch(matchId: matchId)
+    }
+
+    func block(userId: String) async {
+        matches.removeAll { $0.partner.id == userId }
+        try? await api.block(userId: userId)
+    }
+
+    func report(userId: String, reason: ReportReason, details: String = "",
+               dateId: String? = nil, matchId: String? = nil) async {
+        try? await api.report(userId: userId, reason: reason, details: details,
+                              dateId: dateId, matchId: matchId)
+    }
+
+    // MARK: - Chat
+
+    func loadMessages(matchId: String) async {
+        guard !historyLoadedMatchIds.contains(matchId) else { return }
+        do {
+            let page = try await api.messages(matchId: matchId)
+            messagesByMatch[matchId] = page.messages.map { ChatMessage(message: $0) }
+            historyLoadedMatchIds.insert(matchId)
+            hasMoreOlderByMatch[matchId] = page.hasMore
+        } catch {
+            if Config.useMockData {
+                messagesByMatch[matchId] = MockData.transcript.map { ChatMessage(message: $0) }
+                historyLoadedMatchIds.insert(matchId)
+                // The mock transcript is a fixed, non-paginated fixture —
+                // there's nothing further back to page in.
+                hasMoreOlderByMatch[matchId] = false
+            }
+        }
+    }
+
+    /// Pages backwards. Returns whether there's more to load: `true`/`false`
+    /// from the server's own `hasMore`, or `nil` if the request itself failed
+    /// (a network hiccup, not "reached the start of history") so the caller
+    /// can leave its own "more to load" flag untouched and retry later
+    /// instead of latching it permanently off.
+    func loadOlderMessages(matchId: String) async -> Bool? {
+        guard let first = messagesByMatch[matchId]?.first else { return false }
+        do {
+            let page = try await api.messages(matchId: matchId, before: first.id)
+            let older = page.messages.map { ChatMessage(message: $0) }
+            messagesByMatch[matchId] = older + (messagesByMatch[matchId] ?? [])
+            hasMoreOlderByMatch[matchId] = page.hasMore
+            return page.hasMore
+        } catch {
+            return nil
+        }
+    }
+
+    /// Optimistic send: appends a `.pending` bubble immediately, swaps it for
+    /// the server's copy on success, marks it `.failed` (retryable via
+    /// `retryMessage`) otherwise.
+    @discardableResult
+    func sendMessage(matchId: String, body: String) async -> Message? {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let tempId = "pending-\(UUID().uuidString)"
+        let optimistic = Message(id: tempId, matchId: matchId, senderId: me?.id ?? "",
+                                 body: trimmed, createdAt: Date())
+        messagesByMatch[matchId, default: []].append(ChatMessage(message: optimistic, status: .pending))
+        Haptics.tap()
+        do {
+            let sent = try await api.sendMessage(matchId: matchId, body: trimmed)
+            replacePending(matchId: matchId, tempId: tempId, with: sent)
+            updateLastMessage(matchId: matchId, from: sent)
+            SoundEffects.play(.message)
+            return sent
+        } catch {
+            markFailed(matchId: matchId, tempId: tempId)
+            return nil
+        }
+    }
+
+    func retryMessage(matchId: String, tempId: String) async {
+        guard var list = messagesByMatch[matchId],
+              let idx = list.firstIndex(where: { $0.id == tempId }) else { return }
+        let body = list[idx].message.body
+        list[idx].status = .pending
+        messagesByMatch[matchId] = list
+        do {
+            let sent = try await api.sendMessage(matchId: matchId, body: body)
+            replacePending(matchId: matchId, tempId: tempId, with: sent)
+            updateLastMessage(matchId: matchId, from: sent)
+        } catch {
+            markFailed(matchId: matchId, tempId: tempId)
+        }
+    }
+
+    private func replacePending(matchId: String, tempId: String, with message: Message) {
+        guard var list = messagesByMatch[matchId] else { return }
+        // The WS echo of our own send can land and get appended (see
+        // applyIncomingMessage) before this HTTP response comes back. If the
+        // real id is already in the list, this call is a no-op instead of a
+        // second copy.
+        guard !list.contains(where: { $0.message.id == message.id }) else { return }
+        if let idx = list.firstIndex(where: { $0.id == tempId }) {
+            list[idx] = ChatMessage(message: message, status: .sent)
+        } else {
+            list.append(ChatMessage(message: message, status: .sent))
+        }
+        messagesByMatch[matchId] = list
+    }
+
+    private func markFailed(matchId: String, tempId: String) {
+        guard var list = messagesByMatch[matchId],
+              let idx = list.firstIndex(where: { $0.id == tempId }) else { return }
+        list[idx].status = .failed
+        messagesByMatch[matchId] = list
+    }
+
+    private func updateLastMessage(matchId: String, from message: Message) {
+        guard let idx = matches.firstIndex(where: { $0.id == matchId }) else { return }
+        matches[idx].lastMessage = LastMessage(id: message.id, senderId: message.senderId,
+                                               body: message.body, createdAt: message.createdAt)
+        let match = matches.remove(at: idx)
+        matches.insert(match, at: 0)
+    }
+
+    private func applyIncomingMessage(matchId: String, message: Message) {
+        var list = messagesByMatch[matchId] ?? []
+        guard !list.contains(where: { $0.message.id == message.id }) else { return }
+        // The server echoes a just-sent message back to the sender's own
+        // socket, and that echo frequently arrives before the POST /messages
+        // response does. If this is our own message and there's still a
+        // pending/failed bubble with the same body waiting for its real id,
+        // resolve that bubble in place instead of appending a second one
+        // (replacePending, running second, then finds the real id already
+        // present and no-ops).
+        if message.senderId == me?.id,
+           let idx = list.lastIndex(where: { $0.status != .sent && $0.message.body == message.body }) {
+            list[idx] = ChatMessage(message: message, status: .sent)
+        } else {
+            list.append(ChatMessage(message: message))
+        }
+        messagesByMatch[matchId] = list
+        updateLastMessage(matchId: matchId, from: message)
+        guard message.senderId != me?.id else { return }
+        if let idx = matches.firstIndex(where: { $0.id == matchId }) {
+            matches[idx].unreadCount += 1
+        }
+        if activeChatMatchId == matchId {
+            SoundEffects.play(.message_received)
+        }
+    }
+
+    // MARK: - Profile
+
+    @discardableResult
+    func updateProfile(displayName: String? = nil, birthdate: String? = nil,
+                       gender: Gender? = nil, interestedIn: [Gender]? = nil,
+                       ageMin: Int? = nil, ageMax: Int? = nil, bio: String? = nil) async -> Bool {
+        do {
+            let updated = try await api.updateMe(displayName: displayName, birthdate: birthdate,
+                                                 gender: gender, interestedIn: interestedIn,
+                                                 ageMin: ageMin, ageMax: ageMax, bio: bio)
+            me = updated
+            return true
+        } catch {
+            guard Config.useMockData else { return false }
+            var m = me ?? MockData.meIncomplete
+            if let displayName { m.displayName = displayName }
+            if let birthdate { m.birthdate = birthdate }
+            if let gender { m.gender = gender }
+            if let interestedIn { m.interestedIn = interestedIn }
+            if let ageMin { m.ageMin = ageMin }
+            if let ageMax { m.ageMax = ageMax }
+            if let bio { m.bio = bio }
+            m.profileComplete = m.displayName != nil && m.birthdate != nil
+                && m.gender != nil && !m.interestedIn.isEmpty
+            me = m
+            return true
+        }
+    }
+
+    @discardableResult
+    func uploadPhoto(_ jpegData: Data) async -> Bool {
+        do {
+            let resp = try await api.uploadPhoto(jpegData)
+            me?.hasPhoto = true
+            me?.photoUrl = resp.photoUrl
+            me?.photoUpdatedAt = resp.photoUpdatedAt
+            return true
+        } catch {
+            if Config.useMockData { me?.hasPhoto = true; return true }
             return false
         }
-        if call.isVideo {
-            // Camera denial does not block audio; the media service skips local
-            // video publication and the user can enable access in Settings.
-            if !(await MediaPermissions.requestCameraAccess()) {
-                call.isVideo = false
+    }
+
+    func deletePhoto() async {
+        me?.hasPhoto = false
+        me?.photoUrl = nil
+        try? await api.deletePhoto()
+    }
+
+    @discardableResult
+    func submitLocation() async -> Bool {
+        let ok = await locationService.submitLocation()
+        if ok { me?.hasLocation = true } else if Config.useMockData { me?.hasLocation = true }
+        return ok || Config.useMockData
+    }
+
+    // MARK: - Notification routing
+
+    /// Called by AppDelegate when a notification is tapped.
+    func routeNotification(userInfo: [AnyHashable: Any]) {
+        guard let type = userInfo["type"] as? String else { return }
+        switch type {
+        case "message":
+            if let matchId = userInfo["matchId"] as? String {
+                pendingRoute = .chat(matchId: matchId)
             }
-        }
-        return activeCall?.id == call.id
-    }
-
-    private func placeGroupCall(to users: [User], video: Bool, local: ActiveCall) async {
-        do {
-            let session = try await api.createCall(type: .group,
-                                                   participantUserIds: users.map { $0.id },
-                                                   videoEnabled: video,
-                                                   ringStyle: "call")
-            guard activeCall?.id == local.id else {
-                // The user hung up while POST /calls was in flight. Cancel the
-                // newly-created server call before it becomes a ghost ring.
-                await api.leaveCallBestEffort(id: session.call.id)
-                return
-            }
-            local.session = session
-            local.callId = session.call.id
-            local.status = .connecting
-        } catch {
-            guard activeCall?.id == local.id else { return }
-            if Config.useMockData {
-                local.session = MockData.callSession(for: users[0], video: video)
-                local.status = .connecting
-            } else {
-                local.status = .failed
-                CallKitManager.shared.reportCallEnded(uuid: local.uuid, reason: .failed)
-            }
+        case "match_made":
+            pendingRoute = .matches
+        case "doors_open":
+            pendingRoute = .tonight
+        default:
+            break
         }
     }
 
-    private func placeCall(to user: User, video: Bool, ringStyle: String, local: ActiveCall) async {
-        do {
-            let session = try await api.createCall(type: .oneToOne,
-                                                   participantUserIds: [user.id],
-                                                   videoEnabled: video,
-                                                   ringStyle: ringStyle)
-            guard activeCall?.id == local.id else {
-                await api.leaveCallBestEffort(id: session.call.id)
-                return
-            }
-            local.session = session
-            local.callId = session.call.id
-            local.status = .connecting
-        } catch {
-            guard activeCall?.id == local.id else { return }
-            if Config.useMockData {
-                // Mock: synthesize a session so the in-call UI works offline.
-                local.session = MockData.callSession(for: user, video: video)
-                local.status = .connecting
-            } else {
-                local.status = .failed
-                CallKitManager.shared.reportCallEnded(uuid: local.uuid, reason: .failed)
-            }
-        }
-    }
-
-    /// Surface a call that arrived via a VoIP push. CallKit has already been
-    /// told about this call (in PushService) using `PushService.uuid(for:)`, so
-    /// we build the ActiveCall with the SAME uuid. That makes the CallKit answer
-    /// callback (`callKitDidAnswer`) match this call and run `acceptIncoming`,
-    /// which joins via the normal accept path — identical to an in-app
-    /// `incoming_call`. If the WebSocket later delivers the same `incoming_call`,
-    /// it's deduped by callId so we don't double-ring.
-    func receivePushedCall(callId: String, fromUserId: String?,
-                           fromName: String?, type: CallType,
-                           videoEnabled: Bool, ringStyle: String,
-                           expiresAt: Date?) {
-        // A cold/background PushKit launch must also bring signaling up now,
-        // rather than waiting for profile bootstrap. That lets a caller hang-up
-        // dismiss CallKit while this process is still backgrounded.
-        if UIApplication.shared.applicationState == .active {
-            signaling.connect()
-        } else {
-            signaling.reconnectNow()
-        }
-        receiveIncomingCall(callId: callId, fromUserId: fromUserId,
-                            fromName: fromName, type: type,
-                            videoEnabled: videoEnabled, ringStyle: ringStyle,
-                            expiresAt: expiresAt,
-                            wasReportedByPushKit: true)
-    }
-
-    private func receiveIncomingCall(callId: String, fromUserId: String?,
-                                     fromName: String?, type: CallType,
-                                     videoEnabled: Bool, ringStyle: String,
-                                     expiresAt: Date?,
-                                     wasReportedByPushKit: Bool) {
-        guard !callId.isEmpty else { return }
-        let uuid = PushService.uuid(for: callId)
-        let resolvedExpiry = expiresAt ?? Date().addingTimeInterval(45)
-        let fromUserId = actionableUserId(fromUserId)
-
-        guard resolvedExpiry > Date() else {
-            if wasReportedByPushKit {
-                CallKitManager.shared.reportCallEnded(uuid: uuid, reason: .unanswered)
-            }
-            if let call = activeCall, call.callId == callId, call.status == .ringing {
-                cancelIncomingRingDeadline(for: call)
-                finishAnswer(call.uuid, success: false)
-                CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .unanswered)
-                activeCall = nil
-            }
-            rememberFinished(callId)
-            return
-        }
-
-        guard tokens.isAuthenticated else {
-            // A token can remain briefly registered after logout. PushKit has
-            // already reported the native call; end it instead of presenting an
-            // unanswerable call over onboarding with no bearer credentials.
-            if wasReportedByPushKit {
-                CallKitManager.shared.reportCallEnded(uuid: uuid, reason: .failed)
-            }
-            rememberFinished(callId)
-            return
-        }
-
-        pruneFinishedCallIds()
-        if recentlyFinishedCallIds[callId] != nil {
-            // PushKit has already satisfied its report requirement. End the
-            // delayed duplicate immediately instead of resurrecting the UI.
-            if wasReportedByPushKit {
-                CallKitManager.shared.reportCallEnded(uuid: uuid, reason: .remoteEnded)
-            }
-            return
-        }
-
-        if let existing = activeCall {
-            if existing.callId == callId {
-                if existing.isKnock { clearIncomingKnock() }
-                if existing.status == .ringing, expiresAt != nil {
-                    armIncomingRingDeadline(for: existing, expiresAt: resolvedExpiry)
-                }
-                // A duplicate PushKit delivery may have refreshed CallKit with
-                // the raw payload name after the WS path resolved a local
-                // contact. Re-apply the app's authoritative presentation.
-                let hideKnocker = existing.isKnock && existing.session == nil
-                CallKitManager.shared.updateCall(
-                    uuid: existing.uuid,
-                    handle: callKitHandle(existing.remoteName, isKnock: hideKnocker),
-                    displayName: callKitDisplayName(existing.remoteName,
-                                                    isKnock: hideKnocker),
-                    hasVideo: existing.isVideo)
-                return
-            }
-
-            // Slide supports one live call. Never overwrite the current media
-            // session with a second invitation; explicitly reject the newcomer
-            // so its caller does not ring forever.
-            if wasReportedByPushKit {
-                CallKitManager.shared.reportCallEnded(uuid: uuid, reason: .failed)
-            }
-            rememberFinished(callId)
-            Task { try? await api.declineCall(id: callId) }
-            return
-        }
-
-        let isKnock = ringStyle == "knock"
-        let name = isKnock
-            ? "Someone"
-            : displayNameForIncomingCall(fromUserId: fromUserId, fromName: fromName)
-        if isKnock { clearIncomingKnock() }
-        let call = ActiveCall(direction: .incoming,
-                              remoteName: name,
-                              remotePhone: "",
-                              remoteUserId: fromUserId,
-                              isVideo: videoEnabled,
-                              status: .ringing,
-                              isKnock: isKnock,
-                              isGroup: type == .group,
-                              uuid: uuid)
-        call.callId = callId
-        activeCall = call
-        armIncomingRingDeadline(for: call, expiresAt: resolvedExpiry)
-        if wasReportedByPushKit {
-            CallKitManager.shared.updateCall(
-                uuid: uuid, handle: callKitHandle(name, isKnock: isKnock),
-                displayName: callKitDisplayName(name, isKnock: isKnock),
-                hasVideo: call.isVideo)
-        } else {
-            Haptics.warning()
-            CallKitManager.shared.reportIncomingCall(
-                uuid: uuid, handle: callKitHandle(name, isKnock: isKnock),
-                displayName: callKitDisplayName(name, isKnock: isKnock),
-                hasVideo: call.isVideo) { [weak self] error in
-                    guard error != nil else { return }
-                    Task { @MainActor in
-                        self?.handleIncomingCallReportFailure(callId: callId)
-                    }
-                }
-        }
-        Task { await reconcileActiveRingingCall() }
-    }
-
-    /// Show a brief end-state message on the call screen, then dismiss — the
-    /// screen shouldn't just vanish when the other side declines or hangs up.
-    private func windDown(_ call: ActiveCall, message: String, after seconds: Double) {
-        guard call.status != .ended else { return }
-        cancelIncomingRingDeadline(for: call)
-        rememberFinished(call.callId)
-        finishAnswer(call.uuid, success: false)
-        call.endMessage = message
-        call.status = .ended
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard let self, self.activeCall?.id == call.id else { return }
-            self.activeCall = nil
-        }
-    }
-
-    /// Re-place a failed 1:1 call with the same person and settings.
-    func retryCall(_ failed: ActiveCall) {
-        guard let userId = failed.remoteUserId, !userId.isEmpty, !failed.isGroup else { return }
-        guard activeCall?.id == failed.id else { return }
-        cancelIncomingRingDeadline(for: failed)
-        let user = User(id: userId,
-                        phone: failed.remotePhone,
-                        displayName: failed.remoteName,
-                        avatarUrl: nil,
-                        createdAt: nil, lastSeenAt: nil)
-        rememberFinished(failed.callId)
-        CallKitManager.shared.reportCallEnded(uuid: failed.uuid, reason: .failed)
-        resolveCallOnBackend(failed)
-        activeCall = nil
-        if failed.isKnock {
-            startKnockCall(to: user, video: failed.isVideo)
-        } else {
-            startCall(to: user, video: failed.isVideo)
-        }
-    }
-
-    func endActiveCall(fromCallKit: Bool = false) {
-        guard let call = activeCall else { return }
-        Haptics.strong()   // decisive: hang up
-        cancelIncomingRingDeadline(for: call)
-        rememberFinished(call.callId)
-        finishAnswer(call.uuid, success: false)
-        if !fromCallKit {
-            CallKitManager.shared.endCall(uuid: call.uuid)
-        }
-        resolveCallOnBackend(call)
-        activeCall = nil
-    }
-
-    func acceptIncoming() {
-        guard let call = activeCall,
-              call.direction == .incoming,
-              call.status == .ringing,
-              call.callId != nil else { return }
-        Haptics.strong()   // decisive: answer
-        cancelIncomingRingDeadline(for: call)
-        answerRequestedCallIds.insert(call.uuid)
-        // Move the app UI immediately, but let CXProvider own the actual accept
-        // operation. Its action stays pending until `/accept` returns.
-        call.status = .connecting
-        CallKitManager.shared.answerCall(uuid: call.uuid) { [weak self, weak call] error in
-            guard let error else { return }
-            Task { @MainActor in
-                guard let self, let call, self.activeCall?.id == call.id,
-                      call.session == nil else { return }
-                call.status = .failed
-                self.rememberFinished(call.callId)
-                CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .failed)
-                self.resolveCallOnBackend(call)
-                self.finishAnswer(call.uuid, success: false)
-#if DEBUG
-                print("CallKit answer request failed: \(error.localizedDescription)")
-#endif
-            }
-        }
-    }
-
-    private func performCallKitAnswer(call: ActiveCall, completion: @escaping (Bool) -> Void) {
-        guard activeCall?.id == call.id,
-              call.direction == .incoming,
-              let id = call.callId,
-              call.status != .ended else {
-            completion(false)
-            return
-        }
-
-        if call.session != nil {
-            completion(true)
-            return
-        }
-        answerRequestedCallIds.insert(call.uuid)
-        answerCompletions[call.uuid, default: []].append(completion)
-        guard acceptingCallIds.insert(call.uuid).inserted else { return }
-
-        cancelIncomingRingDeadline(for: call)
-        call.status = .connecting
-
-        Task {
-            do {
-                guard await MediaPermissions.requestMicrophoneAccess() else {
-                    throw CallAcceptanceError.microphoneDenied
-                }
-                guard activeCall?.id == call.id, call.status != .ended else {
-                    finishAnswer(call.uuid, success: false)
-                    return
-                }
-                if call.isVideo {
-                    let cameraGranted = await MediaPermissions.requestCameraAccess()
-                    guard activeCall?.id == call.id, call.status != .ended else {
-                        finishAnswer(call.uuid, success: false)
-                        return
-                    }
-                    if !cameraGranted {
-                        // Foreground answers ask; background/cold answers cannot
-                        // present UI and safely degrade to audio.
-                        call.isVideo = false
-                        CallKitManager.shared.updateCall(
-                            uuid: call.uuid,
-                            handle: callKitHandle(call.remoteName, isKnock: call.isKnock),
-                            displayName: callKitDisplayName(
-                                call.remoteName, isKnock: call.isKnock),
-                            hasVideo: false)
-                    }
-                }
-                let session = try await acceptCallWithRetry(id: id)
-                guard activeCall?.id == call.id, call.status != .ended else {
-                    if let callId = call.callIdForBackendResolution() {
-                        await api.leaveCallBestEffort(id: callId)
-                    }
-                    finishAnswer(call.uuid, success: false)
-                    return
-                }
-                revealAcceptedPeerIfNeeded(on: call, from: session)
-                call.session = session
-                finishAnswer(call.uuid, success: true)
-            } catch {
-                if let apiError = error as? APIError,
-                   apiError.isAnsweredOnAnotherInstallation {
-                    cancelIncomingRingDeadline(for: call)
-                    rememberFinished(call.callId)
-                    finishAnswer(call.uuid, success: false)
-                    CallKitManager.shared.reportCallEnded(
-                        uuid: call.uuid, reason: .answeredElsewhere)
-                    if activeCall?.id == call.id {
-                        activeCall = nil
-                    }
-                    return
-                }
-                if !Config.useMockData {
-                    if let apiError = error as? APIError, apiError.shouldRetryCallAccept {
-                        reconcileAmbiguousAccept(callId: id)
-                    } else {
-                        resolveCallOnBackend(call)
-                    }
-                }
-                guard activeCall?.id == call.id else {
-                    finishAnswer(call.uuid, success: false)
-                    return
-                }
-                if Config.useMockData {
-                    call.session = MockData.incomingSession(callId: id, video: call.isVideo)
-                    finishAnswer(call.uuid, success: true)
-                } else {
-                    call.status = .failed
-                    rememberFinished(call.callId)
-                    CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .failed)
-                    finishAnswer(call.uuid, success: false)
-                }
-            }
-        }
-    }
-
-    func declineIncoming(fromCallKit: Bool = false) {
-        guard let call = activeCall else { return }
-        Haptics.gentle()   // dismiss
-        cancelIncomingRingDeadline(for: call)
-        rememberFinished(call.callId)
-        finishAnswer(call.uuid, success: false)
-        if !fromCallKit {
-            CallKitManager.shared.endCall(uuid: call.uuid)
-        }
-        if let id = call.callId {
-            Task { try? await api.declineCall(id: id) }
-        }
-        activeCall = nil
-    }
-
-    // MARK: - Knocks
-
-    /// This user's outbound display name on a knock: prefer the display name,
-    /// fall back to phone, then a generic label.
-    private var myKnockName: String {
-        if let name = currentUser?.displayName, !name.isEmpty { return name }
-        if let phone = currentUser?.phone, !phone.isEmpty { return phone }
-        return "Someone"
-    }
-
-    /// Send a single knock tap to `userId`. Tracks `seq` + the last-tap time so
-    /// `dt` (ms since the previous tap) is filled in. Plays the caller's own
-    /// sound + haptic so they feel the rhythm they're tapping. Call once per tap.
-    func sendKnockTap(to userId: String, playLocalFeedback: Bool = true) {
-        // Reset the session whenever the target changes.
-        if outgoingKnockTarget != userId {
-            outgoingKnockTarget = userId
-            outgoingKnockSeq = 0
-            lastOutgoingKnockAt = nil
-        }
-        let now = Date()
-        let dt: Int
-        if let last = lastOutgoingKnockAt {
-            dt = max(0, Int(now.timeIntervalSince(last) * 1000))
-        } else {
-            dt = 0
-        }
-        lastOutgoingKnockAt = now
-        let seq = outgoingKnockSeq
-        outgoingKnockSeq += 1
-
-        // Local feedback so the caller feels their own taps.
-        if playLocalFeedback { KnockHaptics.shared.knock() }
-
-        signaling.sendKnock(to: userId, fromName: myKnockName, seq: seq, dt: dt)
-    }
-
-    /// Reset the outbound knock session (e.g. when the knock pad is dismissed).
-    func resetKnockSession() {
-        outgoingKnockTarget = nil
-        outgoingKnockSeq = 0
-        lastOutgoingKnockAt = nil
-    }
-
-    /// Tap back at whoever is currently tapping us, then clear the banner.
-    func knockBack() {
-        guard let knock = incomingKnock, let userId = knock.fromUserId else { return }
-        sendKnockTap(to: userId)
-    }
-
-    /// Escalate the incoming knock into a real call.
-    func callFromKnock(video: Bool = false) {
-        guard let knock = incomingKnock,
-              let userId = knock.fromUserId,
-              !userId.isEmpty else { return }
-        let user = User(id: userId,
-                        phone: "",
-                        displayName: displayNameForIncomingCall(
-                            fromUserId: userId, fromName: knock.displayName),
-                        avatarUrl: nil,
-                        createdAt: nil, lastSeenAt: nil)
-        clearIncomingKnock()
-        startCall(to: user, video: video)
-    }
-
-    /// Handle one received knock tap: play sound + haptic, surface/refresh the
-    /// banner, bump the pulse counter, and (re)arm the auto-clear timer.
-    func receiveKnock(fromUserId: String?, fromName: String?, seq: Int?, dt: Int?) {
-        let fromUserId = actionableUserId(fromUserId)
-        KnockHaptics.shared.knock()
-
-        // If the tap comes from the person whose call is on screen right now,
-        // drive that call's UI (avatar thump on the ringing screen) instead of
-        // stacking a banner underneath the full-screen cover.
-        if let call = activeCall,
-           (call.remoteUserId == fromUserId && fromUserId != nil
-                || call.isKnock && fromUserId == nil) {
-            call.knockPulse += 1
-            // Remember the cadence (cap so a marathon knocker stays replayable).
-            if call.knockRhythm.count < 12 {
-                call.knockRhythm.append(Double(dt ?? 0) / 1000.0)
-            }
-            return
-        }
-        // A raw anonymous tap must never cover an active call's controls. If it
-        // cannot be safely attributed to the current knock call, keep only the
-        // sound/haptic feedback already played above.
-        if activeCall != nil { return }
-
-        if let existing = incomingKnock, existing.fromUserId == fromUserId {
-            existing.pulse += 1
-            existing.lastName = fromName ?? existing.lastName
-        } else {
-            let knock = IncomingKnock(fromUserId: fromUserId, fromName: fromName)
-            incomingKnock = knock
-        }
-        armIncomingKnockClear()
-    }
-
-    private func armIncomingKnockClear() {
-        incomingKnockClearTask?.cancel()
-        incomingKnockClearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !Task.isCancelled else { return }
-            self?.incomingKnock = nil
-        }
-    }
-
-    func clearIncomingKnock() {
-        incomingKnockClearTask?.cancel()
-        incomingKnockClearTask = nil
-        incomingKnock = nil
-    }
-}
-
-/// Transient state backing the incoming-knock banner. `pulse` increments on
-/// every received tap so the banner can re-animate per tap.
-@MainActor
-final class IncomingKnock: ObservableObject, Identifiable {
-    let id = UUID()
-    let fromUserId: String?
-    private let initialName: String?
-    /// Most recently seen name (knock messages may carry it each tap).
-    @Published var lastName: String?
-    /// Increments per received tap; the banner observes this to re-pulse.
-    @Published var pulse: Int = 0
-
-    init(fromUserId: String?, fromName: String?) {
-        self.fromUserId = fromUserId
-        self.initialName = fromName
-        self.lastName = fromName
-    }
-
-    var displayName: String {
-        if let name = lastName, !name.isEmpty { return name }
-        if let name = initialName, !name.isEmpty { return name }
-        return "Someone"
+    func clearPendingRoute() {
+        pendingRoute = nil
     }
 }
 
@@ -1003,62 +747,24 @@ extension AppState: SignalingClientDelegate {
     nonisolated func signaling(_ client: SignalingClient, didReceive event: SignalingEvent) {
         Task { @MainActor in
             switch event {
-            case let .incomingCall(callId, fromUserId, fromName, type, videoEnabled,
-                                   ringStyle, expiresAt):
-                self.receiveIncomingCall(callId: callId, fromUserId: fromUserId,
-                                         fromName: fromName, type: type,
-                                         videoEnabled: videoEnabled,
-                                         ringStyle: ringStyle,
-                                         expiresAt: expiresAt,
-                                         wasReportedByPushKit: false)
-            case let .callEnded(callId):
-                if let call = self.activeCall, call.callId == callId {
-                    guard call.status != .ended else { break }
-                    CallKitManager.shared.reportCallEnded(uuid: call.uuid)
-                    self.windDown(call, message: "Call ended", after: 1.2)
+            case .dateMatched(let date):
+                self.applyDateMatched(date)
+            case .dateEnded(let dateId, let reason):
+                self.applyDateEnded(dateId: dateId, reason: reason)
+            case .matchMade(let match):
+                self.upsertMatch(match)
+                Haptics.success()
+            case .matchRemoved(let matchId):
+                self.matches.removeAll { $0.id == matchId }
+                self.messagesByMatch[matchId] = nil
+                self.historyLoadedMatchIds.remove(matchId)
+                self.hasMoreOlderByMatch.removeValue(forKey: matchId)
+                if self.activeChatMatchId == matchId {
+                    self.matchEndedToastMatchId = matchId
                 }
-            case let .callDeclined(callId, _):
-                if let call = self.activeCall, call.callId == callId {
-                    // One member declining a group invitation does not end the
-                    // call for everyone else; a later call_ended event is the
-                    // authoritative group terminal signal.
-                    guard !call.isGroup, call.status != .ended else { break }
-                    Haptics.warning()   // they declined — make the dismissal felt
-                    CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .remoteEnded)
-                    self.windDown(call, message: "They can't talk right now", after: 1.8)
-                }
-            case let .callAccepted(callId, byUserId):
-                if let call = self.activeCall, call.callId == callId {
-                    if call.direction == .outgoing {
-                        call.status = .connecting
-                        CallKitManager.shared.reportOutgoingConnected(uuid: call.uuid)
-                    } else if self.acceptingCallIds.contains(call.uuid)
-                                || self.answerRequestedCallIds.contains(call.uuid)
-                                || call.session != nil
-                    {
-                        // This install initiated the answer; let its in-flight
-                        // `/accept` continue when the backend fans the event back.
-                        call.status = .connecting
-                    } else {
-                        let acceptedOnThisAccount = byUserId == self.currentUser?.id
-                            || (self.currentUser == nil && !call.isGroup
-                                && byUserId != nil && byUserId != call.remoteUserId)
-                        guard acceptedOnThisAccount else { break }
-                        self.cancelIncomingRingDeadline(for: call)
-                        self.rememberFinished(call.callId)
-                        self.finishAnswer(call.uuid, success: false)
-                        CallKitManager.shared.reportCallEnded(
-                            uuid: call.uuid, reason: .answeredElsewhere)
-                        // Do not `/leave`: the same account's other install owns
-                        // the joined participant and must remain in the call.
-                        self.activeCall = nil
-                    }
-                }
-            case let .knock(fromUserId, fromName, seq, dt):
-                self.receiveKnock(fromUserId: fromUserId, fromName: fromName, seq: seq, dt: dt)
-            case .contactsUpdated(_, _):
-                await self.refreshContactCache()
-            default:
+            case .message(let matchId, let message):
+                self.applyIncomingMessage(matchId: matchId, message: message)
+            case .connected, .unknown:
                 break
             }
         }
@@ -1068,352 +774,87 @@ extension AppState: SignalingClientDelegate {
     nonisolated func signalingDidDisconnect(_ client: SignalingClient) {}
 }
 
+// MARK: - Screenshot / debug scenes (SPEC §2.5, DEBUG launch arg `-scene <name>`)
+
 private extension AppState {
-    func receivePushedTerminal(type: String, callId: String) {
-        guard !callId.isEmpty else { return }
-        let uuid = PushService.uuid(for: callId)
-
-        if type == "call_accepted" {
-            if let call = activeCall, call.callId == callId {
-                if call.direction == .outgoing {
-                    call.status = .connecting
-                    CallKitManager.shared.reportOutgoingConnected(uuid: call.uuid)
-                    return
-                }
-                // The winning installation sees its own fanout while `/accept`
-                // is in flight or after it has a session. Its keyed API response
-                // is authoritative; idle sibling installations dismiss here.
-                if acceptingCallIds.contains(call.uuid) || call.session != nil {
-                    return
-                }
-                cancelIncomingRingDeadline(for: call)
-                rememberFinished(callId)
-                finishAnswer(call.uuid, success: false)
-                CallKitManager.shared.reportCallEnded(
-                    uuid: call.uuid, reason: .answeredElsewhere)
-                activeCall = nil
-                return
-            }
-            rememberFinished(callId)
-            CallKitManager.shared.reportCallEnded(uuid: uuid, reason: .answeredElsewhere)
-            return
+    func seedScreenshotSceneIfRequested() -> Bool {
+        guard let scene = ProcessInfo.processInfo.arguments.sceneArgument else { return false }
+        switch scene {
+        case "welcome", "phone", "code":
+            // OnboardingFlow reads the same `-scene` argument to pick its step.
+            phase = .onboarding
+        case "setupName":
+            me = MockData.meIncomplete
+            phase = .profileSetup
+        case "setupShowMe":
+            var m = MockData.meIncomplete
+            m.displayName = "Alex"
+            m.birthdate = "1996-04-02"
+            m.gender = .nonbinary
+            me = m
+            phase = .profileSetup
+        case "tonightClosed":
+            seedHome()
+            sessionWindow = MockData.sessionClosed
+            sessionClock.update(from: MockData.sessionClosed)
+        case "tonightOpen":
+            seedHome()
+            sessionWindow = MockData.sessionOpen
+            sessionClock.update(from: MockData.sessionOpen)
+        case "lobby":
+            seedHome()
+            sessionWindow = MockData.sessionOpen
+            sessionClock.update(from: MockData.sessionOpen)
+            dateFlow = .waiting(since: Date())
+        case "date":
+            seedHome()
+            dateFlow = .inDate(MockData.dateSession(secondsLeft: 192))
+        case "decision":
+            seedHome()
+            dateFlow = .deciding(MockData.dateSession(secondsLeft: 0), endReason: "timeout")
+        case "match":
+            seedHome()
+            let match = MockData.matches[0]
+            dateFlow = .result(.matched(match), MockData.dateSession())
+        case "matches":
+            seedHome()
+        case "chat":
+            seedHome()
+            messagesByMatch["m1"] = MockData.transcript.map { ChatMessage(message: $0) }
+            historyLoadedMatchIds.insert("m1")
+            hasMoreOlderByMatch["m1"] = false
+            pendingRoute = .chat(matchId: "m1")
+        case "profile":
+            seedHome()
+        default:
+            return false
         }
+        return true
+    }
 
-        guard type == "call_ended" || type == "call_declined" else { return }
-        rememberFinished(callId)
-        if let call = activeCall, call.callId == callId {
-            cancelIncomingRingDeadline(for: call)
-            finishAnswer(call.uuid, success: false)
-            CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .remoteEnded)
-            // Background terminal delivery must tear media down immediately;
-            // a delayed UI wind-down task may not run while iOS is suspended.
-            activeCall = nil
-        } else {
-            CallKitManager.shared.reportCallEnded(uuid: uuid, reason: .remoteEnded)
+    func seedHome() {
+        me = MockData.me
+        phase = .home
+        matches = MockData.matches
+        matchesLoaded = true
+        datesToday = MockData.datesToday
+        if sessionWindow == nil {
+            sessionWindow = MockData.sessionOpen
+            sessionClock.update(from: MockData.sessionOpen)
         }
-    }
-
-    func handleIncomingCallReportFailure(callId: String) {
-        guard let call = activeCall, call.callId == callId else { return }
-        cancelIncomingRingDeadline(for: call)
-        rememberFinished(call.callId)
-        finishAnswer(call.uuid, success: false)
-        resolveCallOnBackend(call)
-        activeCall = nil
-    }
-
-    func armIncomingRingDeadline(for call: ActiveCall, expiresAt: Date) {
-        cancelIncomingRingDeadline(for: call)
-        let delay = min(max(0, expiresAt.timeIntervalSinceNow), 120)
-        incomingRingDeadlineTasks[call.uuid] = Task { @MainActor [weak self, weak call] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled,
-                  let self, let call,
-                  self.activeCall?.id == call.id,
-                  call.direction == .incoming,
-                  call.status == .ringing else { return }
-
-            self.incomingRingDeadlineTasks.removeValue(forKey: call.uuid)
-            self.rememberFinished(call.callId)
-            self.finishAnswer(call.uuid, success: false)
-            CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .unanswered)
-            self.resolveCallOnBackend(call)
-            self.activeCall = nil
-        }
-    }
-
-    func cancelIncomingRingDeadline(for call: ActiveCall) {
-        incomingRingDeadlineTasks.removeValue(forKey: call.uuid)?.cancel()
-    }
-
-    func cancelAllIncomingRingDeadlines() {
-        incomingRingDeadlineTasks.values.forEach { $0.cancel() }
-        incomingRingDeadlineTasks.removeAll()
-    }
-
-    func resolveCallOnBackend(_ call: ActiveCall) {
-        guard let callId = call.callIdForBackendResolution() else { return }
-        if call.direction == .incoming, call.session == nil {
-            // This installation never received a winning keyed session. Decline
-            // is a no-op once a sibling has joined, whereas `/leave` would tear
-            // down that sibling's participant.
-            Task { _ = try? await api.declineCall(id: callId) }
-        } else {
-            Task { await api.leaveCallBestEffort(id: callId) }
-        }
-    }
-
-    func acceptCallWithRetry(id: String) async throws -> CallSession {
-        do {
-            return try await api.acceptCall(id: id)
-        } catch let error as APIError where error.shouldRetryCallAccept {
-            // The server may have committed just before the response was lost.
-            // A same-installation retry returns the winning session safely.
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            return try await api.acceptCall(id: id)
-        }
-    }
-
-    func reconcileAmbiguousAccept(callId: String) {
-        Task {
-            for delay in [700_000_000, 1_400_000_000, 2_800_000_000] as [UInt64] {
-                try? await Task.sleep(nanoseconds: delay)
-                do {
-                    _ = try await api.acceptCall(id: callId)
-                    await api.leaveCallBestEffort(id: callId)
-                    return
-                } catch let error as APIError {
-                    if error.isAnsweredOnAnotherInstallation || !error.shouldRetryCallAccept {
-                        return
-                    }
-                } catch {
-                    continue
-                }
-            }
-        }
-    }
-
-    func revealAcceptedPeerIfNeeded(on call: ActiveCall, from session: CallSession) {
-        guard call.isKnock else { return }
-        let creatorId = session.call.createdBy
-        let creator = session.call.participants.first { $0.userId == creatorId }
-        let revealedName = displayNameForIncomingCall(
-            fromUserId: creatorId,
-            fromName: creator?.displayName ?? creator?.phone)
-        call.remoteUserId = creatorId
-        call.remoteName = revealedName
-        if !call.isGroup {
-            call.memberNames = [revealedName]
-        }
-        CallKitManager.shared.updateCall(
-            uuid: call.uuid, handle: revealedName,
-            displayName: revealedName, hasVideo: call.isVideo)
-    }
-
-    func rememberFinished(_ callId: String?) {
-        guard let callId, !callId.isEmpty else { return }
-        recentlyFinishedCallIds[callId] = Date()
-        pruneFinishedCallIds()
-    }
-
-    func pruneFinishedCallIds() {
-        recentlyFinishedCallIds = recentlyFinishedCallIds.filter {
-            Date().timeIntervalSince($0.value) < 300
-        }
-    }
-
-    func finishAnswer(_ uuid: UUID, success: Bool) {
-        answerRequestedCallIds.remove(uuid)
-        acceptingCallIds.remove(uuid)
-        let callbacks = answerCompletions.removeValue(forKey: uuid) ?? []
-        callbacks.forEach { $0(success) }
-    }
-
-    func finishAnswerCompletions(success: Bool) {
-        let callbacks = answerCompletions.values.flatMap { $0 }
-        answerRequestedCallIds.removeAll()
-        acceptingCallIds.removeAll()
-        answerCompletions.removeAll()
-        callbacks.forEach { $0(success) }
-    }
-
-    func displayNameForIncomingCall(fromUserId: String?, fromName: String?) -> String {
-        if let fromUserId,
-           let contact = contacts.first(where: { $0.contactUserId == fromUserId }) {
-            let name = contact.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty { return name }
-        }
-        if let name = sanitizedRemoteName(fromName) {
-            return name
-        }
-        return "Slide"
-    }
-
-    func actionableUserId(_ value: String?) -> String? {
-        guard let value, !value.isEmpty,
-              value != "00000000-0000-0000-0000-000000000000",
-              value.localizedCaseInsensitiveCompare("unknown") != .orderedSame else {
-            return nil
-        }
-        return value
-    }
-
-    func sanitizedRemoteName(_ fromName: String?) -> String? {
-        if let name = fromName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty,
-           name.localizedCaseInsensitiveCompare("unknown") != .orderedSame,
-           name.localizedCaseInsensitiveCompare("someone") != .orderedSame {
-            return name
-        }
-        return nil
-    }
-
-    func reconcileActiveRingingCall() async {
-        guard let call = activeCall,
-              let callId = call.callId else { return }
-        do {
-            let response = try await api.calls()
-            guard let serverCall = response.calls.first(where: { $0.id == callId }) else {
-                clearRingingCallIfStillActive(call)
-                return
-            }
-            if call.status != .ringing {
-                switch serverCall.status {
-                case .ended, .missed, .declined:
-                    CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .remoteEnded)
-                    windDown(call, message: "Call ended", after: 1.0)
-                case .ringing, .active:
-                    break
-                }
-                return
-            }
-            if let currentUserId = currentUser?.id,
-               let participant = serverCall.participants.first(where: { $0.userId == currentUserId }),
-               participant.state != .ringing {
-                // Another device on this account already answered/declined, or
-                // this invitation was otherwise resolved.
-                clearRingingCallIfStillActive(call)
-                return
-            }
-            switch serverCall.status {
-            case .ringing:
-                return
-            case .active:
-                if serverCall.type == .oneToOne {
-                    clearRingingCallIfStillActive(call)
-                }
-            case .ended, .missed, .declined:
-                clearRingingCallIfStillActive(call)
-            }
-        } catch {
-            // Avoid hiding a real incoming call just because the network blipped.
-        }
-    }
-
-    /// If WS delivery and APNs both failed, opening/foregrounding the app gets
-    /// one last chance to recover a fresh server-side invitation. Old ringing
-    /// rows are deliberately ignored so call history never starts ringing.
-    func recoverRecentIncomingCall() async {
-        guard activeCall == nil, let userId = currentUser?.id else { return }
-        do {
-            let response = try await api.calls()
-            guard let serverCall = response.calls.first(where: { call in
-                guard call.createdBy != userId,
-                      let createdAt = call.createdAt,
-                      Date().timeIntervalSince(createdAt) < 90,
-                      let me = call.participants.first(where: { $0.userId == userId }),
-                      me.state == .ringing else { return false }
-                return call.status == .ringing || (call.status == .active && call.type == .group)
-            }) else { return }
-
-            let caller = serverCall.participants.first { $0.userId == serverCall.createdBy }
-            receiveIncomingCall(
-                callId: serverCall.id,
-                fromUserId: serverCall.createdBy,
-                fromName: caller?.displayName ?? caller?.phone,
-                type: serverCall.type,
-                videoEnabled: serverCall.videoEnabled ?? true,
-                ringStyle: serverCall.ringStyle ?? "call",
-                expiresAt: serverCall.createdAt?.addingTimeInterval(45),
-                wasReportedByPushKit: false)
-        } catch {
-            // Recovery is best-effort; never replace a network blip with a fake
-            // incoming call or dismiss real state.
-        }
-    }
-
-    func clearRingingCallIfStillActive(_ call: ActiveCall) {
-        guard activeCall?.id == call.id else { return }
-        cancelIncomingRingDeadline(for: call)
-        rememberFinished(call.callId)
-        finishAnswer(call.uuid, success: false)
-        CallKitManager.shared.reportCallEnded(uuid: call.uuid, reason: .remoteEnded)
-        activeCall = nil
-    }
-
-    func refreshActiveCallDisplayName() {
-        guard let call = activeCall,
-              call.direction == .incoming,
-              let remoteUserId = call.remoteUserId else { return }
-        let name = displayNameForIncomingCall(fromUserId: remoteUserId, fromName: call.remoteName)
-        guard name != call.remoteName else { return }
-        call.remoteName = name
-        if !call.isGroup {
-            call.memberNames = [name]
-        }
-        // While a knock is still ringing, CallKit stays anonymous; the name is
-        // revealed there on answer (acceptIncoming).
-        if call.isKnock && call.status == .ringing { return }
-        CallKitManager.shared.updateCall(uuid: call.uuid, handle: name,
-                                         displayName: name,
-                                         hasVideo: call.isVideo)
-    }
-
-    /// Knocks are anonymous until answered — "knock knock, who's there?".
-    func callKitDisplayName(_ name: String, isKnock: Bool) -> String {
-        isKnock ? "Knock knock…" : name
-    }
-
-    func callKitHandle(_ name: String, isKnock: Bool) -> String {
-        isKnock ? "Knock Knock" : name
     }
 }
 
-// MARK: - CallKit delegate
-
-extension AppState: CallKitManagerDelegate {
-    nonisolated func callKitDidAnswer(callId: UUID, completion: @escaping (Bool) -> Void) {
-        Task { @MainActor in
-            guard let call = self.activeCall, call.uuid == callId else {
-                completion(false)
-                return
-            }
-            self.performCallKitAnswer(call: call, completion: completion)
-        }
-    }
-
-    nonisolated func callKitDidEnd(callId: UUID) {
-        Task { @MainActor in
-            guard let call = self.activeCall, call.uuid == callId else { return }
-            if call.direction == .incoming && call.status == .ringing {
-                self.declineIncoming(fromCallKit: true)
-            } else {
-                self.endActiveCall(fromCallKit: true)
-            }
-        }
-    }
-
-    nonisolated func callKitDidSetMuted(callId: UUID, muted: Bool) {
-        Task { @MainActor in
-            guard let call = self.activeCall, call.uuid == callId else { return }
-            call.systemMuted = muted
-        }
-    }
-
-    nonisolated func callKitDidReset() {
-        Task { @MainActor in
-            guard self.activeCall != nil else { return }
-            self.endActiveCall(fromCallKit: true)
-        }
+extension Array where Element == String {
+    /// Reads `-scene <name>` out of `ProcessInfo.arguments`. DEBUG only: a
+    /// Release build ignores this launch argument entirely, so mock/screenshot
+    /// scenes can never be triggered outside development builds.
+    var sceneArgument: String? {
+        #if DEBUG
+        guard let idx = firstIndex(of: "-scene"), idx + 1 < count else { return nil }
+        return self[idx + 1]
+        #else
+        return nil
+        #endif
     }
 }

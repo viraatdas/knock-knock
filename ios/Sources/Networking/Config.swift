@@ -15,7 +15,7 @@ enum Config {
         return URL(string: "http://localhost:8080/v1")!
         #else
         // Release/TestFlight: slide-api on Fly. NOT App Runner — its Envoy
-        // ingress 403s WebSocket upgrades, so /v1/ws (call ring + presence)
+        // ingress 403s WebSocket upgrades, so /v1/ws (date/match signaling)
         // can't connect there. Fly serves WebSockets.
         return URL(string: "https://slide-api.fly.dev/v1")!
         #endif
@@ -31,7 +31,7 @@ enum Config {
         // Simulator can't do real capture; default to the mock for screens.
         return true
         #else
-        // Release/TestFlight on a real device: use real media so calls (and
+        // Release/TestFlight on a real device: use real media so dates (and
         // audio routing) actually work.
         return false
         #endif
@@ -53,9 +53,19 @@ enum Config {
     static let appVersion: String =
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
 
+    /// "1.1.0 (33)" — marketing version plus build number, for the About
+    /// sheet (SPEC: show both, not just the short version Profile's row uses).
+    static let fullVersion: String = {
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        guard let build, !build.isEmpty else { return appVersion }
+        return "\(appVersion) (\(build))"
+    }()
+
     /// Use Firebase Phone Auth for sign-in (real SMS via Google) when a
-    /// GoogleService-Info.plist is bundled. Falls back to the dev OTP flow
-    /// otherwise (simulator / before Firebase is configured).
+    /// GoogleService-Info.plist is bundled. Falls back to the backend OTP flow
+    /// otherwise (simulator / before Firebase is configured). Only consulted
+    /// when the server's `POST /auth/request-otp` response says
+    /// `transport == "firebase"`.
     static var useFirebaseAuth: Bool {
         Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil
     }

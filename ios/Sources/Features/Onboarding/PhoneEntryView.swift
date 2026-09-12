@@ -6,6 +6,25 @@ struct PhoneEntryView: View {
     @FocusState private var phoneFocused: Bool
 
     var body: some View {
+        KeyboardAvoidingScreen {
+            phoneContent
+        }
+        .background(Theme.Color.bg)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { phoneFocused = true }
+        .onChange(of: vm.countryCode) { _, _ in
+            vm.nationalNumber = PhoneNumberFormatting.national(
+                vm.nationalNumber,
+                country: vm.countryCode
+            )
+        }
+        .sheet(isPresented: $showCountryPicker) {
+            CountryPickerView(selection: $vm.countryCode)
+        }
+    }
+
+    private var phoneContent: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 Text("Your number")
@@ -80,19 +99,6 @@ struct PhoneEntryView: View {
             .padding(.bottom, Theme.Space.lg)
         }
         .padding(.horizontal, Theme.Space.lg)
-        .background(Theme.Color.bg)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear { phoneFocused = true }
-        .onChange(of: vm.countryCode) { _, _ in
-            vm.nationalNumber = PhoneNumberFormatting.national(
-                vm.nationalNumber,
-                country: vm.countryCode
-            )
-        }
-        .sheet(isPresented: $showCountryPicker) {
-            CountryPickerView(selection: $vm.countryCode)
-        }
     }
 }
 

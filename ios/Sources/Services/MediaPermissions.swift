@@ -2,7 +2,7 @@ import AVFoundation
 import UIKit
 
 /// Explicit permission preflight for call media. Asking LiveKit to publish a
-/// microphone from a cold/background CallKit answer cannot present the system
+/// microphone from a cold/background launch cannot present the system
 /// prompt reliably, so the control plane should fail cleanly when access has
 /// never been granted instead of accepting a silent call.
 @MainActor
@@ -22,7 +22,7 @@ enum MediaPermissions {
         case .denied, .restricted:
             return false
         case .notDetermined:
-            // Permission UI cannot be presented from a background PushKit
+            // Permission UI cannot be presented from a background VoIP-push
             // launch. The next foreground call attempt can ask normally.
             guard UIApplication.shared.applicationState == .active else { return false }
             return await withCheckedContinuation { continuation in

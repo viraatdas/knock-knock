@@ -10,10 +10,10 @@ struct WelcomeView: View {
         VStack {
             Spacer()
 
-            VStack(spacing: Theme.Space.md) {
-                Wordmark(size: 44)
+            VStack(spacing: Theme.Space.lg) {
+                Wordmark(size: 52)
                     .rotationEffect(.degrees(knockAngle), anchor: .bottomLeading)
-                Text("Simple, beautiful calls\nwith the people you know.")
+                Text("Five-minute video dates.\nEvery night, 7 to 8.")
                     .font(Theme.Font.title3)
                     .fontWeight(.light)
                     .multilineTextAlignment(.center)
@@ -21,7 +21,12 @@ struct WelcomeView: View {
                     .lineSpacing(4)
             }
 
-            Spacer()
+            // A single Spacer here, the same weight as the one above,
+            // instead of two stacked ones: two left the button pinned to
+            // the very bottom with a bare 400-500pt gap of solid eggshell
+            // above it (SPEC's App Store screenshot material reading as an
+            // unfinished layout). One keeps the greeting and the CTA an
+            // equal, calmer distance from the vertical center.
             Spacer()
 
             VStack(spacing: Theme.Space.md) {
@@ -43,8 +48,9 @@ struct WelcomeView: View {
     private func playKnockKnock() {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
+            SoundEffects.play(.knock)
             for _ in 0..<2 {
-                KnockHaptics.shared.knock()
+                Haptics.tap()
                 withAnimation(.spring(response: 0.10, dampingFraction: 0.45)) { knockAngle = 2.5 }
                 try? await Task.sleep(nanoseconds: 110_000_000)
                 withAnimation(.spring(response: 0.22, dampingFraction: 0.6)) { knockAngle = 0 }
