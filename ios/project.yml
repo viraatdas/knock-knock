@@ -43,7 +43,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.exla.slide
         MARKETING_VERSION: "1.1.0"
-        CURRENT_PROJECT_VERSION: "34"
+        CURRENT_PROJECT_VERSION: "35"
         # Phone-only. Pinned on the target so xcodegen can't fall back to "1,2".
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: "YES"

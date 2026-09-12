@@ -182,15 +182,17 @@ final class OnboardingViewModel: ObservableObject {
                 Haptics.error()
                 if let apiError = error as? APIError {
                     errorMessage = apiError.errorDescription
-                } else {
-                    // Firebase rejected the code (or couldn't finish sign-in).
-                    // Keep the code visible so a review screenshot is diagnosable.
-                    let nsError = error as NSError
-                    let name = (nsError.userInfo["FIRAuthErrorUserInfoNameKey"] as? String) ?? ""
-                    errorMessage = "Incorrect code. Try again. (Firebase \(nsError.code))"
-                    let detail = "firebase \(nsError.code) \(name) \(nsError.localizedDescription)"
+                } else if let verifyError = error as? FirebaseAuthService.VerifyError {
+                    // Keep the Identity Toolkit code visible so a review
+                    // screenshot is diagnosable.
+                    errorMessage = "\(verifyError.message) (\(verifyError.code))"
                     let country = countryCode.dialCode
-                    Task { await APIClient.shared.reportDiagnostic(event: "otp_verify_failed", detail: detail, phoneCountry: country) }
+                    Task { await APIClient.shared.reportDiagnostic(event: "otp_verify_failed", detail: "firebase \(verifyError.code)", phoneCountry: country) }
+                } else {
+                    let nsError = error as NSError
+                    errorMessage = "We couldn't check that code. Try again in a minute. (\(nsError.code))"
+                    let country = countryCode.dialCode
+                    Task { await APIClient.shared.reportDiagnostic(event: "otp_verify_failed", detail: "error \(nsError.domain) \(nsError.code)", phoneCountry: country) }
                 }
                 return nil
             }

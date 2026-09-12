@@ -71,12 +71,54 @@ enum FirebaseAuthService {
     }
 
     /// Verify `code` against `verificationID`, returning a Firebase ID token.
+    /// Verify `code` against `verificationID` and return a Firebase ID token.
+    ///
+    /// This talks to Identity Toolkit directly instead of `Auth.signIn(with:)`.
+    /// The SDK's sign-in persists a user in the keychain and fails the whole
+    /// verification when the keychain does (restored devices, managed
+    /// profiles, unsigned builds). We never need a Firebase user object: the
+    /// ID token is exchanged once at `POST /auth/firebase` and the backend
+    /// owns the session from there.
     static func verify(verificationID: String, code: String) async throws -> String {
-        let credential = PhoneAuthProvider.provider().credential(
-            withVerificationID: verificationID, verificationCode: code)
-        let result = try await Auth.auth().signIn(with: credential)
-        let token = try await result.user.getIDToken()
-        return token
+        guard let apiKey = FirebaseApp.app()?.options.apiKey, !apiKey.isEmpty else {
+            throw VerifyError(code: "NO_API_KEY", message: "Firebase isn't configured.")
+        }
+        var request = URLRequest(url: URL(string: "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=\(apiKey)")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The Firebase iOS API key is restricted to this bundle id.
+        request.setValue(Bundle.main.bundleIdentifier ?? "", forHTTPHeaderField: "X-Ios-Bundle-Identifier")
+        request.timeoutInterval = 20
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "sessionInfo": verificationID,
+            "code": code,
+        ])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        if let idToken = object["idToken"] as? String, (200..<300).contains(status) {
+            return idToken
+        }
+        let error = object["error"] as? [String: Any]
+        let code = (error?["message"] as? String)?.components(separatedBy: " ").first ?? "HTTP_\(status)"
+        throw VerifyError(code: code, message: userMessage(forIdentityToolkitCode: code))
+    }
+
+    /// Identity Toolkit error codes for `signInWithPhoneNumber`, in plain words.
+    private static func userMessage(forIdentityToolkitCode code: String) -> String {
+        switch code {
+        case "INVALID_CODE": return "That code isn't right. Check the text and try again."
+        case "SESSION_EXPIRED": return "That code expired. Tap Resend to get a new one."
+        case "INVALID_SESSION_INFO", "MISSING_SESSION_INFO": return "Request a new code and try again."
+        case "TOO_MANY_ATTEMPTS_TRY_LATER", "QUOTA_EXCEEDED": return "Too many tries. Wait a bit, then request a new code."
+        default: return "We couldn't check that code. Try again in a minute."
+        }
+    }
+
+    struct VerifyError: LocalizedError {
+        let code: String
+        let message: String
+        var errorDescription: String? { message }
     }
 
     enum AuthErrorShim: LocalizedError {
