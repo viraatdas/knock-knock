@@ -24,7 +24,7 @@ export CPLUSPLUS="$CXX_WRAPPER"
 SIM_NAME="iPhone 17 Pro Max"          # 6.9-inch class
 BUNDLE="app.exla.slide"
 RAW_DIR="/tmp/knock-shots/raw"
-DERIVED="/tmp/knock-dd-shots"
+DERIVED="${DERIVED:-/tmp/knock-dd-shots}"   # override to reuse an existing build dir
 SPM_CACHE="/tmp/knock-dd-skel/SourcePackages"
 SCENES=(tonightClosed lobby date decision match chat)
 
@@ -35,7 +35,7 @@ xcodegen generate >/dev/null 2>&1
 xcodebuild -project Slide.xcodeproj -scheme Slide -sdk iphonesimulator \
   -configuration Debug -derivedDataPath "$DERIVED" \
   -clonedSourcePackagesDirPath "$SPM_CACHE" \
-  -destination "platform=iOS Simulator,name=$SIM_NAME" \
+  -destination "generic/platform=iOS Simulator" \
   -skipMacroValidation \
   build CODE_SIGNING_ALLOWED=NO "CC=$CC_WRAPPER" "CPLUSPLUS=$CXX_WRAPPER" \
   >/tmp/knock-shots-build.log 2>&1
@@ -51,7 +51,7 @@ if [ -z "$SIM_ID" ]; then
   RUNTIME_LINE=$(xcrun simctl list runtimes | grep -E '^iOS ' | grep -vi unavailable | sort -V | tail -1)
   RUNTIME_ID=$(printf '%s' "$RUNTIME_LINE" | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9_.-]+')
   [ -n "$RUNTIME_ID" ] || { echo "no available iOS runtime found (xcrun simctl list runtimes)" >&2; exit 1; }
-  echo "    creating \"$SIM_NAME\" ($DEVICE_TYPE_ID) on $RUNTIME_ID…"
+  echo "    creating \"$SIM_NAME\" ($DEVICE_TYPE_ID) on ${RUNTIME_ID}…"
   SIM_ID=$(xcrun simctl create "$SIM_NAME" "$DEVICE_TYPE_ID" "$RUNTIME_ID")
 fi
 echo "    sim: $SIM_ID"
@@ -67,7 +67,10 @@ xcrun simctl install "$SIM_ID" "$APP"
 shot () {  # $1 = scene name -> $RAW_DIR/<scene>.png
   local scene="$1"
   xcrun simctl terminate "$SIM_ID" "$BUNDLE" 2>/dev/null || true
-  xcrun simctl launch "$SIM_ID" "$BUNDLE" -scene "$scene" >/dev/null 2>&1 || true
+  # People scenes get realistic DEBUG-only faces (ios/tools/faces, synthetic).
+  local extra=()
+  case "$scene" in date|decision|match|matches|chat) extra=(-mockPhotosDir "$(cd "$(dirname "$0")/faces" && pwd)");; esac
+  xcrun simctl launch "$SIM_ID" "$BUNDLE" -scene "$scene" "${extra[@]}" >/dev/null 2>&1 || true
   sleep 3.2
   xcrun simctl io "$SIM_ID" screenshot "$RAW_DIR/$scene.png" >/dev/null 2>&1
   echo "    shot: $scene"

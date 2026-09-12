@@ -122,6 +122,11 @@ jobs:
       - name: Archive
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # Manual signing (Apple Distribution + the "app.exla.slide AppStore"
+        # profile) is pinned on the app target's Release config in project.yml.
+        # Do NOT pass CODE_SIGN_STYLE/PROVISIONING_PROFILE_SPECIFIER here: as
+        # global build settings they also hit the SPM packages, which refuse
+        # provisioning profiles and fail the archive.
         run: |
           set -euo pipefail
           cd ios
@@ -132,9 +137,6 @@ jobs:
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" \
             -skipMacroValidation \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
             TARGETED_DEVICE_FAMILY=1 \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*Slide|\*\* ARCHIVE|Signing Identity|Provisioning Profile" || true
