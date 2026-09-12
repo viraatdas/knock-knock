@@ -74,6 +74,14 @@ def fit_font(draw, text, max_width, start_size=88, min_size=40, step=2):
     return load_font(min_size)
 
 
+def contain_fit(img, target_w, target_h):
+    """Scale img to fit inside target_w x target_h (whole screen visible,
+    including the tab bar / composer), returning the resized image."""
+    src_w, src_h = img.size
+    scale = min(target_w / src_w, target_h / src_h)
+    return img.resize((max(1, round(src_w * scale)), max(1, round(src_h * scale))), Image.LANCZOS)
+
+
 def cover_crop(img, target_w, target_h):
     """Scale img to fully cover target_w x target_h, then center-crop.
 
@@ -94,8 +102,8 @@ def compose_one(raw_path, caption):
     canvas = Image.new("RGB", (W69, H69), EGGSHELL)
 
     shot_h = H69 - BAND_H
-    fitted = cover_crop(shot, W69, shot_h)
-    canvas.paste(fitted, (0, BAND_H))
+    fitted = contain_fit(shot, W69, shot_h)
+    canvas.paste(fitted, ((W69 - fitted.width) // 2, BAND_H))
 
     draw = ImageDraw.Draw(canvas)
     margin = 110

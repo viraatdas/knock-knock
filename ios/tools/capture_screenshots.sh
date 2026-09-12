@@ -62,6 +62,11 @@ xcrun simctl bootstatus "$SIM_ID" -b >/dev/null 2>&1 || true
 xcrun simctl status_bar "$SIM_ID" override \
   --time "9:41" --batteryState charged --batteryLevel 100 --cellularBars 4 \
   --dataNetwork wifi --wifiBars 3 2>/dev/null || true
+# Mock dates need camera/mic (and location for the Tonight nag) already
+# granted, or the Date scene shows a permission banner + "Connecting…".
+for svc in camera microphone location; do
+  xcrun simctl privacy "$SIM_ID" grant "$svc" "$BUNDLE" >/dev/null 2>&1 || true
+done
 xcrun simctl install "$SIM_ID" "$APP"
 
 shot () {  # $1 = scene name -> $RAW_DIR/<scene>.png
@@ -70,7 +75,7 @@ shot () {  # $1 = scene name -> $RAW_DIR/<scene>.png
   # People scenes get realistic DEBUG-only faces (ios/tools/faces, synthetic).
   local extra=()
   case "$scene" in date|decision|match|matches|chat) extra=(-mockPhotosDir "$(cd "$(dirname "$0")/faces" && pwd)");; esac
-  xcrun simctl launch "$SIM_ID" "$BUNDLE" -scene "$scene" "${extra[@]}" >/dev/null 2>&1 || true
+  xcrun simctl launch "$SIM_ID" "$BUNDLE" -scene "$scene" ${extra[@]+"${extra[@]}"} >/dev/null 2>&1 || true
   sleep 3.2
   xcrun simctl io "$SIM_ID" screenshot "$RAW_DIR/$scene.png" >/dev/null 2>&1
   echo "    shot: $scene"
