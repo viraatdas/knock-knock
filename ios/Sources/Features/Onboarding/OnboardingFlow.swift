@@ -28,6 +28,38 @@ struct OnboardingFlow: View {
                     default:
                         break
                     }
+                    #if DEBUG
+                    // Real sign-in smoke test from the simulator, against a live
+                    // backend + Firebase: `-sendCodeTo +1XXXXXXXXXX` prefills the
+                    // number and presses Continue, so the whole transport chain
+                    // (request-otp -> Firebase verify -> SMS) runs unattended.
+                    let args = ProcessInfo.processInfo.arguments
+                    if let i = args.firstIndex(of: "-sendCodeTo"), i + 1 < args.count {
+                        let e164 = args[i + 1]
+                        if let country = CountryCode.all.first(where: { e164.hasPrefix($0.dialCode) }) {
+                            vm.countryCode = country
+                            vm.nationalNumber = String(e164.dropFirst(country.dialCode.count))
+                        }
+                        vm.path = [.phone]
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            guard await vm.requestOtp() else { return }
+                            vm.code = ""
+                            vm.path.append(.code)
+                            // `-verifyCodeFromFile <path>`: poll a host file for the
+                            // six-digit SMS code and submit it, so the whole flow
+                            // (verify -> /auth/firebase -> session) runs unattended.
+                            guard let j = args.firstIndex(of: "-verifyCodeFromFile"), j + 1 < args.count else { return }
+                            let path = args[j + 1]
+                            for _ in 0..<300 {
+                                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                                let raw = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+                                let digits = raw.filter(\.isNumber)
+                                if digits.count == 6 { vm.code = digits; break }
+                            }
+                        }
+                    }
+                    #endif
                 }
                 .navigationDestination(for: OnboardingStep.self) { step in
                     switch step {
@@ -148,7 +180,18 @@ final class OnboardingViewModel: ObservableObject {
                 return (resp.user, resp.isNewUser)
             } catch {
                 Haptics.error()
-                errorMessage = (error as? APIError)?.errorDescription ?? "Incorrect code. Try again."
+                if let apiError = error as? APIError {
+                    errorMessage = apiError.errorDescription
+                } else {
+                    // Firebase rejected the code (or couldn't finish sign-in).
+                    // Keep the code visible so a review screenshot is diagnosable.
+                    let nsError = error as NSError
+                    let name = (nsError.userInfo["FIRAuthErrorUserInfoNameKey"] as? String) ?? ""
+                    errorMessage = "Incorrect code. Try again. (Firebase \(nsError.code))"
+                    let detail = "firebase \(nsError.code) \(name) \(nsError.localizedDescription)"
+                    let country = countryCode.dialCode
+                    Task { await APIClient.shared.reportDiagnostic(event: "otp_verify_failed", detail: detail, phoneCountry: country) }
+                }
                 return nil
             }
         }
