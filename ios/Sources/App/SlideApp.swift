@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+
 @main
 struct SlideApp: App {
     @StateObject private var appState = AppState()
@@ -21,6 +25,17 @@ struct SlideApp: App {
                 .preferredColorScheme(.light) // design is warm/light-first, no dark mode
                 .onAppear { appDelegate.appState = appState }
                 .task { await appState.bootstrap() }
+                .onOpenURL { url in
+                    // Under the SwiftUI app lifecycle, AppDelegate's
+                    // application(_:open:options:) is never called: only this
+                    // fires. Firebase Phone Auth's reCAPTCHA fallback returns
+                    // through this URL, so it must be forwarded here too.
+                    #if canImport(FirebaseAuth)
+                    if Config.useFirebaseAuth {
+                        _ = Auth.auth().canHandle(url)
+                    }
+                    #endif
+                }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:

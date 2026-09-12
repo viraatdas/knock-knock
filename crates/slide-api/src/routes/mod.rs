@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod chat;
 pub mod dates;
+pub mod diagnostics;
 pub mod profile;
 pub mod safety;
 pub mod users;
@@ -25,6 +26,8 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/firebase", post(auth::firebase_auth))
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
+        // diagnostics
+        .route("/diagnostics", post(diagnostics::post_diagnostics))
         // session
         .route("/session", get(profile::get_session))
         // profile

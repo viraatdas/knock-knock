@@ -150,6 +150,22 @@ code screen waiting for an SMS that doesn't exist:
   verification itself and exchange the resulting ID token at
   `POST /auth/firebase`.
 
+### Diagnostics
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/diagnostics` | `{ "event", "detail"?, "phoneCountry", "os", "device", "app"? }` | `204` |
+
+Unauthenticated, for client-side failures that never reach a human (a
+reviewer's device, a user who closes the app on an error). `event` is
+1-64 chars of `[a-z0-9_]`; `detail` and `app` are optional (`detail` up to
+500 chars, `app` up to 64); `phoneCountry`, `os`, and `device` are required,
+each up to 64 chars. Anything else is `422`. Rate-limited 20/min per client
+IP (from `Fly-Client-IP`/`X-Forwarded-For`, falling back to the TCP peer).
+The body is never stored: on success the backend emits one structured
+`tracing` line (`warn` when `event` ends in `_failed`, `info` otherwise) so
+it shows up in `fly logs`, then returns `204`.
+
 ### Session
 
 | Method | Path | Body | Returns |

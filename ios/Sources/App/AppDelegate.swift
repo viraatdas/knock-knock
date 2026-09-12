@@ -61,12 +61,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #endif
     }
 
-    func application(_ app: UIApplication, open url: URL,
-                     options _: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+    // No application(_:open:options:) here: under this app's SwiftUI
+    // lifecycle (@main App + @UIApplicationDelegateAdaptor, no scene
+    // delegate), UIKit never calls it. The reCAPTCHA URL callback is
+    // forwarded to Firebase from SlideApp.swift's .onOpenURL instead, which
+    // is the only handler SwiftUI actually invokes. Do not re-add a
+    // look-alike method here; it would be dead code that misleads a future
+    // reader into thinking URL handling is wired through AppDelegate.
+
+    /// Firebase Phone Auth's silent-push device check arrives here as a
+    /// standard remote notification (project.yml sets
+    /// FirebaseAppDelegateProxyEnabled=false, so nothing forwards this
+    /// automatically). Without this, Firebase never sees the silent push and
+    /// every real sign-in falls through to reCAPTCHA, which needs the URL
+    /// callback below to complete.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         #if canImport(FirebaseAuth)
-        if Config.useFirebaseAuth, Auth.auth().canHandle(url) { return true }
+        if Config.useFirebaseAuth, Auth.auth().canHandleNotification(userInfo) {
+            completionHandler(.noData)
+            return
+        }
         #endif
-        return false
+        completionHandler(.noData)
     }
 }
 

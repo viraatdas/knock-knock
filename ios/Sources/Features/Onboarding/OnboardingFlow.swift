@@ -95,19 +95,32 @@ final class OnboardingViewModel: ObservableObject {
                 do {
                     firebaseVerificationID = try await FirebaseAuthService.sendCode(toE164: e164)
                     usingFirebase = true
+                    reportDiagnostic(event: "otp_send_ok", detail: "firebase")
                     return true
                 } catch {
                     usingFirebase = false
-                    errorMessage = "We couldn't send a code. Try again in a minute."
+                    // Keep the message plain for the person stuck on it, but
+                    // fold in the Firebase error code so a report from a
+                    // reviewer's or user's device is actually diagnosable
+                    // (see the 2.1a rejection this shipped to fix).
+                    let firebaseError = error as? FirebaseAuthService.SendCodeError
+                        ?? FirebaseAuthService.SendCodeError(underlying: error)
+                    errorMessage = "We couldn't send a code. Try again in a minute. (Firebase \(firebaseError.code))"
+                    reportDiagnostic(
+                        event: "otp_send_failed",
+                        detail: "firebase \(firebaseError.code) \(firebaseError.message)"
+                    )
                     return false
                 }
                 #else
                 errorMessage = "We couldn't send a code. Try again in a minute."
+                reportDiagnostic(event: "otp_send_failed", detail: "firebase unavailable")
                 return false
                 #endif
             }
 
             usingFirebase = false
+            reportDiagnostic(event: "otp_send_ok", detail: resp.transport)
             return true
         } catch {
             if Config.useMockData {
@@ -155,6 +168,16 @@ final class OnboardingViewModel: ObservableObject {
             Haptics.error()
             errorMessage = (error as? APIError)?.errorDescription ?? "Incorrect code. Try again."
             return nil
+        }
+    }
+
+    /// Fire-and-forget: never awaited by a caller, never surfaces its own
+    /// errors, and must not delay or block the sign-in flow it reports on.
+    /// `phoneCountry` is the dial code only, e.g. "+1" — never the full number.
+    private func reportDiagnostic(event: String, detail: String) {
+        let phoneCountry = countryCode.dialCode
+        Task.detached(priority: .utility) {
+            await APIClient.shared.reportDiagnostic(event: event, detail: detail, phoneCountry: phoneCountry)
         }
     }
 }

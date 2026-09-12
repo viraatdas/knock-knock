@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Async/await URLSession client implementing every endpoint in SPEC §1.
 /// Performs a silent refresh on 401 via POST /auth/refresh.
@@ -68,6 +71,45 @@ actor APIClient {
         let resp = try decode(VerifyOtpResponse.self, from: data)
         tokens.save(access: resp.accessToken, refresh: resp.refreshToken)
         return resp
+    }
+
+    /// Fire-and-forget diagnostic beacon for client-side auth failures that
+    /// never reach a human (App Review's device, a user who just closes the
+    /// app on an error). Never throws to the caller and never blocks the auth
+    /// flow it's called from; a delivery failure here is simply lost.
+    /// `phoneCountry` is the dial code only ("+1"), never the full number.
+    func reportDiagnostic(event: String, detail: String = "", phoneCountry: String) async {
+        var body: [String: Any] = [
+            "event": event,
+            "phoneCountry": phoneCountry,
+            "os": "iOS \(Self.osVersion)",
+            "device": Self.deviceModelIdentifier,
+            "app": Config.fullVersion
+        ]
+        if !detail.isEmpty { body["detail"] = detail }
+        _ = try? await send(path: "/diagnostics", method: "POST",
+                            jsonObject: body, authenticated: false, allowEmpty: true)
+    }
+
+    private static var osVersion: String {
+        #if canImport(UIKit)
+        return UIDevice.current.systemVersion
+        #else
+        return ProcessInfo.processInfo.operatingSystemVersionString
+        #endif
+    }
+
+    /// Hardware identifier ("iPhone17,2") rather than the generic marketing
+    /// name, so a report is actually useful for narrowing down a device-model
+    /// specific failure like the one that caused the 2.1a rejection.
+    private static var deviceModelIdentifier: String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let machineMirror = Mirror(reflecting: systemInfo.machine)
+        return machineMirror.children.reduce(into: "") { identifier, element in
+            guard let value = element.value as? Int8, value != 0 else { return }
+            identifier += String(UnicodeScalar(UInt8(value)))
+        }
     }
 
     func logout() async {
