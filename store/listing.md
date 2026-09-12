@@ -1,50 +1,71 @@
-# Store listing copy (shared)
+# Store listing copy (iOS)
+
+## Scope
+This is the iOS App Store listing for **Knock Knock - 5 Minute Dates** (1.1.0, the
+speed-dating pivot). Android isn't migrated yet and stays on the old "Knock
+Knock - Video Chat" calling product, so its Play listing isn't covered here.
+See `android/fastlane/metadata` for what's actually live on Play; treat it as
+frozen until Android gets its own pivot.
 
 ## App name
-**Slide**
+**Knock Knock - 5 Minute Dates**
 
-## Subtitle / short description (≤30 chars iOS subtitle, ≤80 Play short)
-- iOS subtitle: `Video calls, beautifully simple`
-- Play short description: `The cleanest way to video call the people you actually want to talk to.`
+## Subtitle (iOS, ≤30 chars)
+`Nightly 5-minute video dates`
 
 ## Promotional text (iOS, ≤170 chars)
-`No accounts, no clutter. Just your number and a clean, fast video call. Slide is the calmest way to see the people you love.`
+`Every night, 7 to 8 PM Pacific: five-minute video dates with people nearby. Keep talking or pass, then chat if you both say yes. Just your phone number to start.`
 
 ## Full description
 ```
-Slide is the cleanest, fastest way to video call.
+Every night from 7 to 8 PM Pacific, the doors open on Knock Knock - 5 Minute Dates.
+You get five-minute video dates with people near you, one after another, for
+the hour.
 
-Sign up with just your phone number — no email, no password, no profiles to fill
-out. Open the app, tap a name, and you're talking.
+Here's how it works. When the doors open, you tap in and we pair you with
+someone within 75 miles who matches what you're looking for. You talk for
+five minutes. When the clock runs out, you each privately choose keep talking
+or pass. Both say keep talking and it's a match. A text chat opens up so you
+can keep the conversation going. Say pass and nothing happens. No one finds
+out, and you're back in line for the next date.
 
-WHY SLIDE
-• Phone number is your whole account. Verify once, you're in.
-• A quiet, beautiful interface. White space, thin type, nothing in the way.
-• Crisp 1:1 and group video calls.
-• Screen share, right from the call.
-• Rings natively on your lock screen — answer like any other call.
+No profiles to scroll through. No swiping through photos of strangers. You
+show up, talk to a real person on video, and decide if you want to talk again
+after actually talking to them once.
 
-Slide stays out of the way so the conversation doesn't. For the friends who
-never call.
+Sign in with just your phone number. No email, no password, nothing else to
+set up.
+
+A few things worth knowing:
+- You have to be 18 or older to use Knock Knock.
+- Dates only happen 7 to 8 PM Pacific, every day.
+- Chat is text only, no photos, no attachments, and it only opens once you
+  both say yes.
+- You can block or report anyone, any time.
+
+Come back tomorrow night. The doors open again at 7.
 ```
 
 ## Keywords (iOS, ≤100 chars, comma-separated)
-`video call,video chat,group call,facetime,screen share,calling,minimal,phone,contacts,talk`
+`dating,video dating,singles,meet people,match,video chat,blind dating,mixer,new people,nightly`
 
 ## Categories
-- Primary: **Social Networking** (iOS) / **Communication** (Play)
-- Secondary (iOS): **Utilities**
+- Primary: **Lifestyle**
+- Secondary: **Social Networking**
 
 ## Support / marketing URLs
-- Marketing: `https://web-viraatdas-projects.vercel.app`
-- Support: `https://web-viraatdas-projects.vercel.app/support` (or a mailto)
-- Privacy policy: `https://web-viraatdas-projects.vercel.app/privacy`  ← REQUIRED by both stores
-- Terms: `https://web-viraatdas-projects.vercel.app/terms`
+- Marketing: `https://slide.viraat.dev`
+- Support: `https://slide.viraat.dev` (or a mailto to `viraat@exla.ai`)
+- Privacy policy: `https://slide.viraat.dev/privacy`  ← REQUIRED by both stores
+- Terms: `https://slide.viraat.dev/terms`
+
+These match `ios/fastlane/metadata/en-US/*_url.txt`, which is what actually
+feeds the App Store Connect submission.
 
 ## Age rating
-- 4+ (iOS) / Everyone (Play), pending content-rating questionnaire
-  (user-generated real-time communication may push this to 12+/Teen — answer the
-  questionnaire honestly; see submission-checklist.md).
+- iOS: **17+** (dating, messaging with strangers, user-generated content).
+  Play's rating stays whatever the old calling app already has, since Android
+  isn't on this product yet.
 
 ## Copyright
 `© 2026 Slide`

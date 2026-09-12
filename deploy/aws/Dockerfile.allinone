@@ -9,14 +9,17 @@
 #   docker build -f deploy/aws/Dockerfile.allinone --platform linux/amd64 -t slide-allinone .
 
 # ── Stage 1: build slide-api ──────────────────────────────────────────────────
-# Pin to bookworm so the binary links against the SAME glibc/openssl as the
-# bookworm runtime stage below. (Plain rust:1.94-slim tracks trixie, whose
-# newer OPENSSL_3.2.0 / GLIBC_2.38 symbols are absent at runtime → boot crash.)
+# Pin to bookworm so the binary links against the SAME glibc as the bookworm
+# runtime stage below. (Plain rust:1.94-slim tracks trixie, whose newer
+# GLIBC_2.38 symbols are absent at runtime → boot crash.)
 FROM rust:1.94-slim-bookworm AS builder
 WORKDIR /app
-# libssl-dev: web-push -> isahc/curl-sys + ece -> openssl-sys need OpenSSL headers.
+# cmake + build-essential: aws-lc-sys (TLS for reqwest/rustls, via aws-config)
+# builds its own crypto from source. No libssl-dev: the old web-push
+# dependency (the only thing that ever needed system OpenSSL headers here) is
+# gone, and every HTTP client in this crate is rustls-based now.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends pkg-config cmake build-essential libssl-dev \
+ && apt-get install -y --no-install-recommends pkg-config cmake build-essential \
  && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN cargo build --release --bin slide-api && cp target/release/slide-api /app/slide-api

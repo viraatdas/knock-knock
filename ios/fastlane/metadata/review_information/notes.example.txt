@@ -1,0 +1,21 @@
+Knock Knock - 5 Minute Dates is a phone-number-only dating app. Every night from 7 to 8 PM Pacific, users get five-minute video dates with people nearby, then privately choose keep talking or pass. A mutual yes opens a text chat.
+
+HOW TO SIGN IN FOR REVIEW
+Two review phone numbers are configured so you can test with one device or two:
+- +1 650 555 0100
+- +1 650 555 0101
+Enter either number, then enter <REVIEW_OTP_CODE> when asked for the verification code. No SMS is sent for these numbers, the code just works.
+
+TESTING ON ONE DEVICE
+Sign in with +1 650 555 0100. This account already has a match named "Sam" with a short message history, so you can test the chat, plus report, block, and unmatch, without a second device.
+
+TESTING A LIVE DATE ON TWO DEVICES
+Sign in with +1 650 555 0100 on one device and +1 650 555 0101 on the other. Both of these review accounts always see the doors as open, regardless of the real time in California, so you don't need to wait for 7 PM Pacific. On the Tonight tab, tap "Start a date" on both devices within a few seconds of each other and the two accounts will be paired for a real five-minute video date. When the timer runs out, either account can choose keep talking or pass.
+
+OTHER THINGS TO KNOW
+- CallKit and PushKit have been removed from the app entirely. There is no VoIP push and no native incoming-call screen anymore.
+- China has been removed from the app's availability.
+- Users must be 18 or older. Birthdate is collected during profile setup and checked against this.
+- Account deletion is in Profile, under Delete account. It removes the account and its data right away.
+
+If anything above doesn't work as described, email viraat@exla.ai and we'll help right away.

@@ -1,4 +1,4 @@
-import { AppleIcon, PlayIcon, WebIcon } from "./icons";
+import { AppleIcon } from "./icons";
 
 function Badge({
   href,
@@ -31,22 +31,10 @@ export default function StoreBadges() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row">
       <Badge
-        href="/web"
-        icon={<WebIcon />}
-        line1="Use now on"
-        line2="Web"
-      />
-      <Badge
-        href="https://apps.apple.com/us/app/knock-knock-video-chat/id6774902208"
+        href="https://apps.apple.com/us/app/knock-knock-speed-date/id6774902208"
         icon={<AppleIcon />}
         line1="Download on the"
         line2="App Store"
-      />
-      <Badge
-        href="#"
-        icon={<PlayIcon />}
-        line1="Coming to"
-        line2="Google Play"
       />
     </div>
   );

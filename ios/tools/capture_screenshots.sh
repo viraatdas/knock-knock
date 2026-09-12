@@ -1,65 +1,85 @@
 #!/usr/bin/env bash
 # Capture real App Store screenshots from the running app in the simulator,
-# using the in-app debug launch hooks. Produces authentic UI (warm theme) rather
-# than PIL mockups. Run from ios/:  ./tools/capture_screenshots.sh
+# using the in-app debug launch hooks (-scene <name>, see Config.useMockData
+# and AppState's scene seeding). Produces authentic UI (warm theme) rather
+# than mockups, then composites captions with compose_screenshots.py.
+#
+# Run from ios/:  ./tools/capture_screenshots.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export PATH="/opt/homebrew/bin:$PATH"
+
+TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Same clang-probe-deadlock workaround the Fastfile applies to xcodebuild/gym
+# (see clang-probe-wrapper.sh for why): export the wrappers as CC/CPLUSPLUS
+# and also pass them on the xcodebuild command line, since the build service
+# is a persistent daemon that may not pick up a freshly exported shell env.
+CC_WRAPPER="$TOOLS_DIR/clang-probe-wrapper.sh"
+CXX_WRAPPER="$TOOLS_DIR/clang-probe-wrapper++.sh"
+export CC="$CC_WRAPPER"
+export CPLUSPLUS="$CXX_WRAPPER"
+
 SIM_NAME="iPhone 17 Pro Max"          # 6.9-inch class
 BUNDLE="app.exla.slide"
-OUT="fastlane/screenshots/en-US"
-DERIVED="/tmp/slide-shots-dd"
-mkdir -p "$OUT"
+RAW_DIR="/tmp/knock-shots/raw"
+DERIVED="/tmp/knock-dd-shots"
+SPM_CACHE="/tmp/knock-dd-skel/SourcePackages"
+SCENES=(tonightClosed lobby date decision match chat)
 
-echo "[1/4] build app for the simulator…"
+mkdir -p "$RAW_DIR" "$SPM_CACHE"
+
+echo "[1/5] build app for the simulator…"
 xcodegen generate >/dev/null 2>&1
 xcodebuild -project Slide.xcodeproj -scheme Slide -sdk iphonesimulator \
   -configuration Debug -derivedDataPath "$DERIVED" \
+  -clonedSourcePackagesDirPath "$SPM_CACHE" \
   -destination "platform=iOS Simulator,name=$SIM_NAME" \
-  build CODE_SIGNING_ALLOWED=NO -skipMacroValidation >/tmp/shots_build.log 2>&1
+  -skipMacroValidation \
+  build CODE_SIGNING_ALLOWED=NO "CC=$CC_WRAPPER" "CPLUSPLUS=$CXX_WRAPPER" \
+  >/tmp/knock-shots-build.log 2>&1
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/Slide.app"
 echo "    app: $APP"
 
-echo "[2/4] boot simulator…"
-SIM_ID=$(xcrun simctl list devices available | grep "$SIM_NAME (" | head -1 | grep -oE '[0-9A-F-]{36}')
+echo "[2/5] find or create the \"$SIM_NAME\" simulator…"
+SIM_ID=$(xcrun simctl list devices available | grep -F "$SIM_NAME (" | head -1 | grep -oE '[0-9A-F-]{36}' || true)
+if [ -z "$SIM_ID" ]; then
+  DEVICE_TYPE_ID=$(xcrun simctl list devicetypes | grep -F "$SIM_NAME (" | grep -oE 'com\.apple\.CoreSimulator\.SimDeviceType\.[A-Za-z0-9_.-]+' | head -1)
+  [ -n "$DEVICE_TYPE_ID" ] || { echo "no device type found for \"$SIM_NAME\" (xcrun simctl list devicetypes)" >&2; exit 1; }
+  # Newest installed iOS runtime (sort -V so "iOS 9" doesn't outrank "iOS 17").
+  RUNTIME_LINE=$(xcrun simctl list runtimes | grep -E '^iOS ' | grep -vi unavailable | sort -V | tail -1)
+  RUNTIME_ID=$(printf '%s' "$RUNTIME_LINE" | grep -oE 'com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9_.-]+')
+  [ -n "$RUNTIME_ID" ] || { echo "no available iOS runtime found (xcrun simctl list runtimes)" >&2; exit 1; }
+  echo "    creating \"$SIM_NAME\" ($DEVICE_TYPE_ID) on $RUNTIME_ID…"
+  SIM_ID=$(xcrun simctl create "$SIM_NAME" "$DEVICE_TYPE_ID" "$RUNTIME_ID")
+fi
+echo "    sim: $SIM_ID"
+
+echo "[3/5] boot simulator + set status bar…"
 xcrun simctl boot "$SIM_ID" 2>/dev/null || true
 xcrun simctl bootstatus "$SIM_ID" -b >/dev/null 2>&1 || true
-# Cosmetic: clean status bar (9:41, full battery/signal)
 xcrun simctl status_bar "$SIM_ID" override \
   --time "9:41" --batteryState charged --batteryLevel 100 --cellularBars 4 \
   --dataNetwork wifi --wifiBars 3 2>/dev/null || true
 xcrun simctl install "$SIM_ID" "$APP"
 
-shot () {  # $1 = launch args (space sep), $2 = output filename
-  local args="$1" name="$2"
+shot () {  # $1 = scene name -> $RAW_DIR/<scene>.png
+  local scene="$1"
   xcrun simctl terminate "$SIM_ID" "$BUNDLE" 2>/dev/null || true
-  # shellcheck disable=SC2086
-  xcrun simctl launch "$SIM_ID" "$BUNDLE" $args >/dev/null 2>&1 || true
+  xcrun simctl launch "$SIM_ID" "$BUNDLE" -scene "$scene" >/dev/null 2>&1 || true
   sleep 3.2
-  xcrun simctl io "$SIM_ID" screenshot "$OUT/$name" >/dev/null 2>&1
-  echo "    shot: $name"
+  xcrun simctl io "$SIM_ID" screenshot "$RAW_DIR/$scene.png" >/dev/null 2>&1
+  echo "    shot: $scene"
 }
 
-echo "[3/4] capture screens…"
-shot "-home"                "01_APP_IPHONE_6_9_01-home.png"
-shot "-incall"             "02_APP_IPHONE_6_9_02-incall-video.png"
-shot "-incall -audio"      "03_APP_IPHONE_6_9_03-incall-audio.png"
-shot "-incoming"           "04_APP_IPHONE_6_9_04-incoming.png"
-shot "-group"              "05_APP_IPHONE_6_9_05-group.png"
-shot "-startPhone"         "06_APP_IPHONE_6_9_06-phone.png"
+echo "[4/5] capture scenes…"
+for scene in "${SCENES[@]}"; do
+  shot "$scene"
+done
 
-echo "[4/4] make 6.5-inch variants (resize)…"
-python3 - <<'PY'
-from PIL import Image
-import glob, os
-OUT="fastlane/screenshots/en-US"
-for f in glob.glob(f"{OUT}/*_APP_IPHONE_6_9_*.png"):
-    im = Image.open(f).convert("RGB")
-    b = os.path.basename(f)
-    im.resize((1242, 2688), Image.LANCZOS).save(f"{OUT}/{b.replace('APP_IPHONE_6_9','APP_IPHONE_65')}")
-print("variants written")
-PY
+echo "[5/5] compose captioned App Store screenshots…"
+python3 "$TOOLS_DIR/compose_screenshots.py" --raw-dir "$RAW_DIR"
 
 xcrun simctl status_bar "$SIM_ID" clear 2>/dev/null || true
 echo "done."

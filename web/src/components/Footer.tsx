@@ -13,7 +13,7 @@ export default function Footer() {
             Knock Knock
           </Link>
           <p className="text-[13px] font-light text-text-secondary">
-            video calls you&apos;ll actually want to make
+            five-minute video dates, every night at 7
           </p>
         </div>
 

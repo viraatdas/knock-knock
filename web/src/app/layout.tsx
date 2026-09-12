@@ -14,26 +14,26 @@ const siteUrl = "https://slide.viraat.dev";
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Knock Knock: video calls you'll actually want to make",
-    template: "%s · Knock Knock",
+    default: "Knock Knock - 5 Minute Dates: five-minute video dates, every night",
+    template: "%s · Knock Knock - 5 Minute Dates",
   },
   description:
-    "Knock Knock is the open-source video calling app where you knock instead of ring: your taps travel in real time and nobody knows who's at the door until they answer. Phone-number signup, no ads, no tracking.",
+    "Every night from 7 to 8 PM Pacific, the doors open for five-minute video dates with people within 75 miles. Say keep talking or pass. A mutual yes unlocks a text chat. Sign in with your phone number, no profiles to scroll.",
   keywords: [
-    "video calling",
-    "fun video calling",
+    "speed dating",
+    "video dating",
+    "dating app",
     "phone number signup",
-    "group video",
-    "screen share",
-    "Knock Knock app",
+    "singles",
+    "Knock Knock - 5 Minute Dates",
   ],
-  authors: [{ name: "Knock Knock" }],
+  authors: [{ name: "Knock Knock - 5 Minute Dates" }],
   openGraph: {
-    title: "Knock Knock: video calls you'll actually want to make",
+    title: "Knock Knock - 5 Minute Dates: five-minute video dates, every night",
     description:
-      "Knock, don't ring. Open-source video calls with real-time taps.",
+      "Doors open 7 to 8 PM Pacific. Five-minute video dates with people nearby. Keep talking or pass.",
     url: siteUrl,
-    siteName: "Knock Knock",
+    siteName: "Knock Knock - 5 Minute Dates",
     type: "website",
     locale: "en_US",
     images: [
@@ -41,15 +41,15 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "Knock Knock: video calls you'll actually want to make",
+        alt: "Knock Knock - 5 Minute Dates: five-minute video dates, every night",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Knock Knock: video calls you'll actually want to make",
+    title: "Knock Knock - 5 Minute Dates: five-minute video dates, every night",
     description:
-      "Knock, don't ring. Open-source video calls with real-time taps.",
+      "Doors open 7 to 8 PM Pacific. Five-minute video dates with people nearby. Keep talking or pass.",
     images: ["/og.png"],
   },
   icons: {

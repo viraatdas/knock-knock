@@ -6,9 +6,8 @@
 //! no server-to-server RPC is needed — minting here in the control plane is the
 //! whole integration. See https://docs.livekit.io/home/get-started/authentication/
 //!
-//! We replace the legacy custom-SFU join token with this: the client connects to
-//! `livekit_url` with the LiveKit SDK using the returned token; the room name is
-//! the call id so both participants land in the same room.
+//! Every date is a LiveKit room named after the date id; both participants
+//! mint their own token for that room via [`crate::views::date_session_for`].
 
 use chrono::Utc;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};

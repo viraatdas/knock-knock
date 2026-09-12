@@ -77,3 +77,36 @@ Fastlane performs the App Store Connect token check when the lane runs.
   `upload_to_app_store`; privacy answers are in `store/privacy.md`.
 - Review is human (~1–2 days) and out of CLI scope — the skill submits; Apple
   decides.
+
+## Local build hang on this Mac (Xcode 26.6)
+`xcodebuild archive` / `fastlane gym` never return here: Xcode 26.6's
+`SWBBuildService` deadlocks running a `clang -v -E -dM` capability probe into
+an undrained 16 KB pipe. Pass a wrapper compiler that answers the probe
+directly and execs straight through to the real `clang` for everything else:
+
+```bash
+CC=ios/tools/clang-probe-wrapper.sh CPLUSPLUS=ios/tools/clang-probe-wrapper++.sh \
+  .claude/skills/app-store-deploy/deploy.sh beta
+```
+
+Any `xcodebuild`/`fastlane gym` invocation on this machine needs both env
+vars set; they're transparent on machines that don't have the deadlock, so
+it's safe to always pass them here. See `AGENTS.md` "Release Automation" for
+the full explanation.
+
+## CI alternative: `.github/workflows/ios-release.yml`
+When you'd rather not fight the local build service at all, archive on a
+clean macOS GitHub Actions runner instead:
+
+```bash
+gh workflow run ios-release.yml -f build_number=33
+```
+
+It restores the signing identity, the App Store Connect API key, and the
+Firebase config from repo secrets (`IOS_DIST_P12_B64`, `IOS_DIST_P12_PASSWORD`,
+`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_B64`, `APPLE_TEAM_ID`,
+`GOOGLE_SERVICE_INFO_PLIST_B64` — see `SECURITY.md`), archives, checks that no
+CallKit/PushKit symbols linked into the binary, and uploads the `.ipa` to App
+Store Connect. Submission for review still happens afterward from a
+maintainer's machine with `fastlane ios submit_review` (ASC API only, no
+build), once the uploaded build finishes processing.

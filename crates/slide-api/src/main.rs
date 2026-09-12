@@ -1,18 +1,23 @@
-//! Slide control-plane API (axum). Phone-OTP auth, profile, contacts, call
-//! control, and the app-signaling WebSocket.
+//! Knock Knock - 5 Minute Dates control-plane API (axum). Phone-OTP auth, profile,
+//! the nightly lobby/date/match/chat flow, and the app-signaling WebSocket.
 
 mod auth;
 mod config;
 mod firebase;
+mod geo;
 mod hub;
 mod livekit;
+mod matcher;
 mod otp_store;
 mod push;
+mod review;
 mod routes;
-mod sfu_client;
+mod scheduler;
+mod session;
 mod sms;
 mod state;
 mod tokens;
+mod views;
 
 use std::time::Duration;
 
@@ -56,9 +61,7 @@ async fn main() -> anyhow::Result<()> {
         );
     }
     if !any_livekit_config {
-        tracing::error!(
-            "LiveKit is disabled; maintained mobile/web clients cannot connect media (legacy SFU fallback only)"
-        );
+        tracing::error!("LiveKit is disabled; dates cannot mint a video join token");
     }
     let apns_credentials_present =
         !cfg.apns_key_id.is_empty() || !cfg.apns_team_id.is_empty() || !cfg.apns_key_p8.is_empty();
@@ -66,13 +69,17 @@ async fn main() -> anyhow::Result<()> {
         && (cfg.apns_key_id.is_empty()
             || cfg.apns_team_id.is_empty()
             || cfg.apns_key_p8.is_empty()
-            || cfg.apns_topic.is_empty()
-            || cfg.apns_alert_topic.is_empty())
+            || cfg.apns_topic.is_empty())
     {
-        anyhow::bail!("APNs is partially configured; set credentials and non-empty APNS topics");
+        anyhow::bail!("APNs is partially configured; set credentials and a non-empty APNS_TOPIC");
     }
     if apns_credentials_present && !matches!(cfg.apns_env.as_str(), "sandbox" | "prod") {
         anyhow::bail!("APNS_ENV must be sandbox or prod");
+    }
+    if !cfg.review_phones.is_empty() && cfg.review_otp_code.is_empty() {
+        tracing::error!(
+            "REVIEW_PHONES is set but REVIEW_OTP_CODE is empty; review login is disabled"
+        );
     }
 
     // ── Postgres ──
@@ -102,12 +109,12 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(cfg, db, redis, sms, hub);
     tracing::info!(providers = %state.push.enabled_summary(), "push notifications");
     if !state.push.any_enabled() {
-        tracing::error!(
-            "all push providers are disabled; closed/backgrounded apps cannot receive calls"
-        );
+        tracing::error!("push is disabled; matches/messages/doors-open won't reach closed apps");
     }
 
-    tokio::spawn(routes::calls::run_call_expirer(state.clone()));
+    tokio::spawn(matcher::run(state.clone()));
+    tokio::spawn(routes::dates::run_date_expirer(state.clone()));
+    tokio::spawn(scheduler::run(state.clone()));
 
     let app = routes::router(state)
         .layer(TraceLayer::new_for_http())

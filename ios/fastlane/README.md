@@ -151,6 +151,14 @@ Declare App Privacy: 'Data Not Collected' (publishes the privacy answers).
 
 Set the age-rating declaration to all-clear (4+), auto-resolving STRING vs BOOLEAN per field.
 
+### ios asc_age_rating_dating
+
+```sh
+[bundle exec] fastlane ios asc_age_rating_dating
+```
+
+Set the age-rating declaration for a dating app: mild mature themes + messaging/chat + user-generated content, everything else clear.
+
 ### ios asc_names
 
 ```sh
@@ -167,6 +175,14 @@ Show every name field ASC has (app record + app_info localizations) so we know w
 
 Set name/subtitle on the editable App Info localization (bypass deliver).
 
+### ios rename_app
+
+```sh
+[bundle exec] fastlane ios rename_app
+```
+
+Rename the App Info localization to the Knock Knock - 5 Minute Dates pivot (SLIDE_APP_NAME/SLIDE_APP_SUBTITLE still override).
+
 ### ios asc_probe2
 
 ```sh
@@ -182,6 +198,22 @@ Probe pricing + privacy API surface.
 ```
 
 Authoritative: is the app actually submitted for review?
+
+### ios asc_prepare_version
+
+```sh
+[bundle exec] fastlane ios asc_prepare_version
+```
+
+Ensure an editable App Store version 1.1.0 exists (bumps a rejected editable version's versionString, or creates a new appStoreVersion if Apple refuses).
+
+### ios asc_remove_china_check
+
+```sh
+[bundle exec] fastlane ios asc_remove_china_check
+```
+
+Report whether China (CHN) is available in the app's territory availabilities (China was already switched off; this only reports current state).
 
 ### ios tf_status
 

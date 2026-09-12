@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --bg: #ffffff;
-  --bg-grouped: #fafafa;
-  --text: #0a0a0a;
-  --text-secondary: #6b7280;
-  --hairline: #ececec;
-  --accent: #0a0a0a;
-  --danger: #e5484d;
+  --bg: #faf6ef;
+  --bg-grouped: #f2ece1;
+  --text: #2a211b;
+  --text-secondary: #8a7c6d;
+  --hairline: #e6dccb;
+  --accent: #5a4632;
+  --danger: #d4694f;
 }
 
 html {
@@ -57,98 +57,23 @@ body {
 }
 
 ::selection {
-  background: #0a0a0a;
-  color: #ffffff;
+  background: #2a211b;
+  color: #faf6ef;
 }
 
-/* ── Knock: immersive rhythm duet ───────────────────────────────────────── */
-.knock-stage {
-  background: radial-gradient(circle at 50% 38%, #161616 0%, #0a0a0a 68%);
+/* Gentle breathing pulse used while waiting for a match. */
+.pulse-ring {
+  animation: pulse-ring 3.2s ease-in-out infinite;
 }
 
-/* Each tap blooms an expanding ring from where it landed. */
-.knock-ripple {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  margin: -9px 0 0 -9px;
-  border-radius: 9999px;
-  pointer-events: none;
-  will-change: transform, opacity;
-  animation: knock-ripple 950ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.knock-ripple.mine {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
-}
-.knock-ripple.theirs {
-  box-shadow: 0 0 0 2px rgba(125, 175, 255, 0.92);
-}
-@keyframes knock-ripple {
-  0% {
-    transform: scale(0.4);
-    opacity: 0.95;
-  }
-  100% {
-    transform: scale(16);
-    opacity: 0;
-  }
-}
-
-/* Slow breathing core so the stage feels alive between taps. */
-.knock-core {
-  animation: knock-breathe 3.4s ease-in-out infinite;
-}
-
-.knock-hit-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  opacity: 0;
-  animation: knock-core-hit 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes knock-core-hit {
-  0% {
-    transform: scale(0.82);
-    opacity: 0.9;
-  }
-  100% {
-    transform: scale(1.62);
-    opacity: 0;
-  }
-}
-
-@keyframes knock-breathe {
+@keyframes pulse-ring {
   0%,
   100% {
     transform: scale(1);
-    opacity: 0.55;
+    opacity: 0.7;
   }
   50% {
-    transform: scale(1.08);
-    opacity: 0.85;
-  }
-}
-
-/* Inner glow pulse on the incoming card for each received tap. */
-.knock-flash {
-  animation: knock-flash 520ms ease-out;
-}
-@keyframes knock-flash {
-  0% {
-    box-shadow:
-      0 0 0 0 rgba(10, 10, 10, 0.16) inset,
-      0 24px 90px rgba(10, 10, 10, 0.18);
-  }
-  35% {
-    box-shadow:
-      0 0 0 7px rgba(10, 10, 10, 0.09) inset,
-      0 24px 90px rgba(10, 10, 10, 0.18);
-  }
-  100% {
-    box-shadow:
-      0 0 0 0 rgba(10, 10, 10, 0) inset,
-      0 24px 90px rgba(10, 10, 10, 0.18);
+    transform: scale(1.04);
+    opacity: 1;
   }
 }

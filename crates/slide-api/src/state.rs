@@ -16,16 +16,14 @@ pub struct Inner {
     pub cfg: Config,
     pub db: PgPool,
     pub redis: ConnectionManager,
-    /// Signs/verifies access tokens (and opaque-token helpers live elsewhere).
+    /// Signs/verifies access tokens.
     pub access_signer: TokenSigner,
-    /// Signs SFU join tokens under the SFU's separate secret.
-    pub sfu_signer: TokenSigner,
     pub sms: SmsSender,
     /// Verifies Firebase phone-auth ID tokens (POST /auth/firebase).
     pub firebase: FirebaseVerifier,
     /// In-memory fan-out for the app-signaling WebSocket.
     pub hub: Hub,
-    /// Server-side push (APNs/FCM/Web Push) for offline callees.
+    /// Server-side push (APNs alert) for matches/messages/doors-open.
     pub push: Push,
 }
 
@@ -45,7 +43,6 @@ impl AppState {
         hub: Hub,
     ) -> Self {
         let access_signer = TokenSigner::new(&cfg.jwt_secret);
-        let sfu_signer = TokenSigner::new(&cfg.sfu_jwt_secret);
         let firebase = FirebaseVerifier::new(cfg.firebase_project_id.clone());
         let push = Push::from_config(&cfg);
         AppState(Arc::new(Inner {
@@ -53,7 +50,6 @@ impl AppState {
             db,
             redis,
             access_signer,
-            sfu_signer,
             sms,
             firebase,
             hub,

@@ -121,6 +121,24 @@ export function LockIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function ChatIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M4 6.5h16v9.5H9.5L5.5 19v-3H4Z" />
+      <path d="M8 10.2h8M8 13h5" />
+    </svg>
+  );
+}
+
+export function LocationIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props} aria-hidden="true">
+      <path d="M12 21s7-6.3 7-11.5A7 7 0 0 0 5 9.5C5 14.7 12 21 12 21Z" />
+      <circle cx="12" cy="9.5" r="2.4" />
+    </svg>
+  );
+}
+
 export function CodeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props} aria-hidden="true">

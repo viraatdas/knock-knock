@@ -24,14 +24,13 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 
 jsonwebtoken.workspace = true
 sha2.workspace = true
 hex.workspace = true
 rand.workspace = true
-
-# Web Push (browser notifications): VAPID + RFC 8291 ECE encryption.
-web-push = "0.10"
+constant_time_eq.workspace = true
 
 thiserror.workspace = true
 anyhow.workspace = true

@@ -23,14 +23,19 @@ pub enum AppError {
     #[error("{0}")]
     BadRequest(String),
 
-    #[error("{0}")]
-    Conflict(String),
+    /// `code` is the machine-readable `error.code` on the wire (SPEC.md
+    /// section 1.6's named preconditions, e.g. `session_closed`); it defaults
+    /// to the generic `"conflict"` for call sites that only have a
+    /// human-readable message and don't need a specific token.
+    #[error("{message}")]
+    Conflict { code: &'static str, message: String },
 
     #[error("too many requests")]
     RateLimited { retry_after_secs: u64 },
 
-    #[error("{0}")]
-    Validation(String),
+    /// See `Conflict`'s `code` doc — same deal, defaulting to `"validation"`.
+    #[error("{message}")]
+    Validation { code: &'static str, message: String },
 
     #[error("service unavailable: {0}")]
     Unavailable(String),
@@ -44,10 +49,33 @@ impl AppError {
         Self::BadRequest(msg.into())
     }
     pub fn conflict(msg: impl Into<String>) -> Self {
-        Self::Conflict(msg.into())
+        Self::Conflict {
+            code: "conflict",
+            message: msg.into(),
+        }
     }
     pub fn validation(msg: impl Into<String>) -> Self {
-        Self::Validation(msg.into())
+        Self::Validation {
+            code: "validation",
+            message: msg.into(),
+        }
+    }
+    /// Like `conflict`, but with `code` as the wire `error.code` instead of
+    /// the generic `"conflict"` — for a named precondition a client branches
+    /// on (SPEC.md section 1.6, e.g. `session_closed`/`date_not_ended`).
+    pub fn conflict_code(code: &'static str, msg: impl Into<String>) -> Self {
+        Self::Conflict {
+            code,
+            message: msg.into(),
+        }
+    }
+    /// Like `validation`, but with `code` as the wire `error.code` (e.g.
+    /// `profile_incomplete`/`location_required`).
+    pub fn validation_code(code: &'static str, msg: impl Into<String>) -> Self {
+        Self::Validation {
+            code,
+            message: msg.into(),
+        }
     }
     pub fn unavailable(msg: impl Into<String>) -> Self {
         Self::Unavailable(msg.into())
@@ -59,9 +87,9 @@ impl AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
             AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
-            AppError::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
+            AppError::Conflict { code, .. } => (StatusCode::CONFLICT, code),
             AppError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
-            AppError::Validation(_) => (StatusCode::UNPROCESSABLE_ENTITY, "validation"),
+            AppError::Validation { code, .. } => (StatusCode::UNPROCESSABLE_ENTITY, code),
             AppError::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         }
@@ -107,5 +135,34 @@ impl From<jsonwebtoken::errors::Error> for AppError {
 impl From<serde_json::Error> for AppError {
     fn from(e: serde_json::Error) -> Self {
         AppError::BadRequest(format!("invalid json: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A named precondition's `code` must reach `error.code` on the wire
+    // (SPEC.md 1.6) instead of collapsing to the generic variant name — a
+    // client branching on `session_closed`/`profile_incomplete`/
+    // `location_required` needs to tell them apart from each other and from
+    // an arbitrary field-validation message that also goes through
+    // `AppError::validation(...)`.
+    #[test]
+    fn conflict_code_carries_through_as_the_wire_code() {
+        let err = AppError::conflict_code("session_closed", "the doors are closed for tonight");
+        assert_eq!(err.parts().1, "session_closed");
+    }
+
+    #[test]
+    fn validation_code_carries_through_as_the_wire_code() {
+        let err = AppError::validation_code("profile_incomplete", "finish your profile");
+        assert_eq!(err.parts().1, "profile_incomplete");
+    }
+
+    #[test]
+    fn plain_conflict_and_validation_default_to_generic_codes() {
+        assert_eq!(AppError::conflict("already exists").parts().1, "conflict");
+        assert_eq!(AppError::validation("bad input").parts().1, "validation");
     }
 }

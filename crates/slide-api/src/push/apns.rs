@@ -1,8 +1,9 @@
-//! APNs VoIP push (iOS).
+//! APNs alert push (iOS).
 //!
 //! HTTP/2 to `api.push.apple.com` (or the sandbox host), authenticated with a
-//! provider JWT signed ES256 using the APNs `.p8` key. A VoIP push wakes the
-//! app even when fully closed so CallKit can ring.
+//! provider JWT signed ES256 using the APNs `.p8` key. Every push here is a
+//! standard, user-visible alert (banner + sound) — there is no VoIP/PushKit
+//! path anymore (no CallKit anywhere in this app).
 //!
 //! Disabled unless APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_P8 and APNS_TOPIC are
 //! all set; attempted sends then return a logged delivery error.
@@ -14,13 +15,10 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde::Serialize;
 use serde_json::json;
 
-use super::IncomingPush;
 use crate::config::Config;
 
 /// Refresh the provider JWT well before APNs' 60-min limit.
 const TOKEN_REFRESH_SECS: u64 = 45 * 60;
-const BACKGROUND_PUSH_TYPE: &str = "background";
-const BACKGROUND_PRIORITY: &str = "5";
 
 /// Why an APNs send failed. `DeadToken` means APNs told us the device token is
 /// permanently gone (HTTP 410 "Unregistered", or 400 with reason
@@ -57,16 +55,40 @@ fn classify_failure(status: reqwest::StatusCode, body: &str) -> ApnsError {
     }
 }
 
+/// Build the APNs alert payload: `aps` plus any custom top-level fields
+/// (never nested inside `aps`) so the client can read a `type` (and
+/// `matchId`, for message/match pushes) off the notification without a
+/// separate socket round trip.
+fn build_payload(
+    title: &str,
+    body: &str,
+    sound: Option<&str>,
+    data: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> serde_json::Value {
+    let mut payload = serde_json::Map::new();
+    payload.insert(
+        "aps".to_string(),
+        json!({
+            "alert": { "title": title, "body": body },
+            "sound": sound.unwrap_or("default"),
+        }),
+    );
+    if let Some(data) = data {
+        for (key, value) in data {
+            payload.insert(key.clone(), value.clone());
+        }
+    }
+    serde_json::Value::Object(payload)
+}
+
 #[derive(Clone)]
 pub struct Apns(Option<Arc<Inner>>);
 
 struct Inner {
     key_id: String,
     team_id: String,
+    /// Bare bundle-id topic (e.g. "app.exla.slide") for standard alert pushes.
     topic: String,
-    /// Topic for standard (visible) alert pushes: the bare bundle id, i.e. the
-    /// VoIP topic with its ".voip" suffix trimmed (or APNS_ALERT_TOPIC).
-    alert_topic: String,
     host: &'static str,
     encoding_key: EncodingKey,
     http: reqwest::Client,
@@ -78,14 +100,6 @@ struct Inner {
 struct Claims {
     iss: String,
     iat: u64,
-}
-
-fn background_terminal_body(payload: &IncomingPush) -> serde_json::Value {
-    json!({
-        "aps": { "content-available": 1 },
-        "type": payload.kind,
-        "callId": payload.call_id,
-    })
 }
 
 impl Apns {
@@ -108,8 +122,7 @@ impl Apns {
             }
         };
 
-        // HTTP/2 is required by APNs. reqwest negotiates h2 over TLS (ALPN);
-        // force prior-knowledge off but ensure http2 is allowed.
+        // HTTP/2 is required by APNs. reqwest negotiates h2 over TLS (ALPN).
         let http = match reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(10))
@@ -132,7 +145,6 @@ impl Apns {
             key_id: cfg.apns_key_id.clone(),
             team_id: cfg.apns_team_id.clone(),
             topic: cfg.apns_topic.clone(),
-            alert_topic: cfg.apns_alert_topic.clone(),
             host,
             encoding_key,
             http,
@@ -144,79 +156,13 @@ impl Apns {
         self.0.is_some()
     }
 
-    pub async fn send(
-        &self,
-        device_token: &str,
-        payload: &IncomingPush,
-        ttl_secs: u32,
-        collapse_id: Option<&str>,
-    ) -> Result<(), ApnsError> {
-        let Some(inner) = &self.0 else {
-            return Err(ApnsError::Other(
-                "apns disabled: missing or invalid credentials".to_string(),
-            ));
-        };
-
-        let jwt = inner.provider_token().map_err(ApnsError::Other)?;
-        let ttl_secs = payload.ttl_secs(ttl_secs);
-        if payload.kind == "incoming_call" && ttl_secs == 0 {
-            return Ok(());
-        }
-
-        // VoIP push: `aps` is empty; our routing fields ride alongside.
-        let body = json!({
-            "aps": {},
-            "type": payload.kind,
-            "callId": payload.call_id,
-            "callType": payload.call_type,
-            "fromUserId": payload.from_user_id,
-            "fromName": payload.from_name,
-            "videoEnabled": payload.video_enabled,
-            "ringStyle": payload.ring_style,
-            "knock": payload.knock,
-            "expiresAt": payload.expires_at_ms,
-        });
-
-        let url = format!("{}/3/device/{}", inner.host, device_token);
-        let mut req = inner
-            .http
-            .post(&url)
-            .bearer_auth(&jwt)
-            .header("apns-topic", &inner.topic)
-            .header("apns-push-type", "voip")
-            .header("apns-priority", "10")
-            // Never let APNs deliver a ringing invitation after the server's
-            // ring window has closed. A bounded expiry is more reliable than
-            // an unbounded stored notification and less lossy than expiry=0.
-            .header("apns-expiration", {
-                payload
-                    .expires_at_ms
-                    .map(|deadline_ms| deadline_ms.max(0) as u64 / 1_000)
-                    .unwrap_or_else(|| unix_now().saturating_add(u64::from(ttl_secs)))
-                    .to_string()
-            });
-        if let Some(collapse_id) = collapse_id {
-            req = req.header("apns-collapse-id", collapse_id);
-        }
-        let resp = req
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| ApnsError::Other(format!("apns request failed: {e}")))?;
-
-        let status = resp.status();
-        if status.is_success() {
-            Ok(())
-        } else {
-            let txt = resp.text().await.unwrap_or_default();
-            Err(classify_failure(status, &txt))
-        }
-    }
-
-    /// Send a standard, user-visible alert push (banner + sound) to a regular
-    /// (non-VoIP) device token. Uses the bare bundle-id topic and
-    /// `apns-push-type: alert`. `sound` is a bundled sound file name
-    /// (e.g. "knock.caf"); `None` plays the system default.
+    /// Send a standard, user-visible alert push (banner + sound). `sound` is a
+    /// bundled sound file name (e.g. "knock.caf"); `None` plays the system
+    /// default. `data` is merged into the payload at the top level, alongside
+    /// `aps` (never inside it), so the iOS app can read a custom `type` (and
+    /// `matchId`, for message/match pushes) off the notification's
+    /// `userInfo` to route a tap without waiting on a socket.
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_alert(
         &self,
         device_token: &str,
@@ -225,6 +171,7 @@ impl Apns {
         collapse_id: Option<&str>,
         sound: Option<&str>,
         ttl_secs: u32,
+        data: Option<&serde_json::Map<String, serde_json::Value>>,
     ) -> Result<(), ApnsError> {
         let Some(inner) = &self.0 else {
             return Err(ApnsError::Other(
@@ -234,19 +181,14 @@ impl Apns {
 
         let jwt = inner.provider_token().map_err(ApnsError::Other)?;
 
-        let payload = json!({
-            "aps": {
-                "alert": { "title": title, "body": body },
-                "sound": sound.unwrap_or("default"),
-            }
-        });
+        let payload = build_payload(title, body, sound, data);
 
         let url = format!("{}/3/device/{}", inner.host, device_token);
         let mut req = inner
             .http
             .post(&url)
             .bearer_auth(&jwt)
-            .header("apns-topic", &inner.alert_topic)
+            .header("apns-topic", &inner.topic)
             .header("apns-push-type", "alert")
             .header("apns-priority", "10")
             .header(
@@ -268,55 +210,6 @@ impl Apns {
         } else {
             let txt = resp.text().await.unwrap_or_default();
             Err(classify_failure(status, &txt))
-        }
-    }
-
-    /// Wake the regular app process to reconcile a terminal call event. Apple
-    /// requires every VoIP push to report a new call, so cancellation/answered-
-    /// elsewhere events use the standard token as silent background pushes.
-    pub async fn send_background_terminal(
-        &self,
-        device_token: &str,
-        payload: &IncomingPush,
-        collapse_id: Option<&str>,
-        ttl_secs: u32,
-    ) -> Result<(), ApnsError> {
-        let Some(inner) = &self.0 else {
-            return Err(ApnsError::Other(
-                "apns disabled: missing or invalid credentials".to_string(),
-            ));
-        };
-
-        let jwt = inner.provider_token().map_err(ApnsError::Other)?;
-        let url = format!("{}/3/device/{}", inner.host, device_token);
-        let mut req = inner
-            .http
-            .post(&url)
-            .bearer_auth(&jwt)
-            .header("apns-topic", &inner.alert_topic)
-            .header("apns-push-type", BACKGROUND_PUSH_TYPE)
-            .header("apns-priority", BACKGROUND_PRIORITY)
-            .header(
-                "apns-expiration",
-                unix_now().saturating_add(u64::from(ttl_secs)).to_string(),
-            );
-        if let Some(collapse_id) = collapse_id {
-            req = req.header("apns-collapse-id", collapse_id);
-        }
-        let response = req
-            .json(&background_terminal_body(payload))
-            .send()
-            .await
-            .map_err(|error| {
-                ApnsError::Other(format!("apns background request failed: {error}"))
-            })?;
-
-        let status = response.status();
-        if status.is_success() {
-            Ok(())
-        } else {
-            let body = response.text().await.unwrap_or_default();
-            Err(classify_failure(status, &body))
         }
     }
 }
@@ -371,13 +264,39 @@ fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use reqwest::StatusCode;
-    use uuid::Uuid;
 
-    use super::{
-        background_terminal_body, classify_failure, ApnsError, BACKGROUND_PRIORITY,
-        BACKGROUND_PUSH_TYPE,
-    };
-    use crate::push::IncomingPush;
+    use super::{build_payload, classify_failure, ApnsError};
+
+    #[test]
+    fn payload_without_data_has_only_aps() {
+        let payload = build_payload("Knock Knock", "Doors are open.", Some("knock.caf"), None);
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "aps": { "alert": { "title": "Knock Knock", "body": "Doors are open." }, "sound": "knock.caf" }
+            })
+        );
+    }
+
+    #[test]
+    fn payload_merges_custom_data_alongside_aps() {
+        let mut data = serde_json::Map::new();
+        data.insert("type".to_string(), serde_json::json!("message"));
+        data.insert("matchId".to_string(), serde_json::json!("match-123"));
+
+        let payload = build_payload("Sam", "Hey there", None, Some(&data));
+
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "aps": { "alert": { "title": "Sam", "body": "Hey there" }, "sound": "default" },
+                "type": "message",
+                "matchId": "match-123",
+            })
+        );
+        // Custom fields sit at the top level, never nested inside "aps".
+        assert!(payload.get("aps").unwrap().get("type").is_none());
+    }
 
     #[test]
     fn only_permanent_apns_errors_are_dead_tokens() {
@@ -397,29 +316,5 @@ mod tests {
             classify_failure(StatusCode::INTERNAL_SERVER_ERROR, ""),
             ApnsError::Other(_)
         ));
-    }
-
-    #[test]
-    fn terminal_background_push_has_silent_aps_and_routing_fields() {
-        let call_id = Uuid::new_v4();
-        let payload = IncomingPush {
-            kind: "call_ended".to_string(),
-            call_id: Some(call_id),
-            call_type: None,
-            from_user_id: Uuid::new_v4(),
-            from_name: "Slide".to_string(),
-            video_enabled: true,
-            ring_style: "call".to_string(),
-            knock: false,
-            expires_at_ms: None,
-        };
-
-        let body = background_terminal_body(&payload);
-        assert_eq!(body["aps"]["content-available"], 1);
-        assert!(body["aps"].get("alert").is_none());
-        assert_eq!(body["type"], "call_ended");
-        assert_eq!(body["callId"], call_id.to_string());
-        assert_eq!(BACKGROUND_PUSH_TYPE, "background");
-        assert_eq!(BACKGROUND_PRIORITY, "5");
     }
 }

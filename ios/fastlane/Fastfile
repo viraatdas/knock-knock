@@ -21,6 +21,14 @@ APP_ID   = ENV["APP_IDENTIFIER"] || "app.exla.slide"
 SCHEME   = "Slide"
 PROJECT  = "Slide.xcodeproj"
 
+# Absolute paths to the clang-probe-deadlock workaround (see the scripts
+# themselves for why). Computed from this Fastfile's location so the lanes
+# work no matter what directory `fastlane` was invoked from.
+TOOLS_DIR = File.expand_path("../tools", __dir__)
+CC_WRAPPER  = File.join(TOOLS_DIR, "clang-probe-wrapper.sh")
+CXX_WRAPPER = File.join(TOOLS_DIR, "clang-probe-wrapper++.sh")
+CLANG_PROBE_XCARGS = "CC=#{CC_WRAPPER} CPLUSPLUS=#{CXX_WRAPPER}"
+
 def asc_api_key
   # Returns an App Store Connect API token from env, or nil if not configured.
   return nil unless ENV["ASC_KEY_ID"] && ENV["ASC_ISSUER_ID"] && ENV["ASC_KEY_PATH"]
@@ -47,7 +55,7 @@ platform :ios do
       configuration: "Debug",
       sdk: "iphonesimulator",
       destination: "generic/platform=iOS Simulator",
-      xcargs: "CODE_SIGNING_ALLOWED=NO -skipMacroValidation",
+      xcargs: "CODE_SIGNING_ALLOWED=NO -skipMacroValidation #{CLANG_PROBE_XCARGS}",
     )
     UI.success("Simulator build succeeded.")
   end
@@ -109,7 +117,7 @@ platform :ios do
       # packages stay automatic). CODE_SIGNING_ALLOWED/REQUIRED=YES is REQUIRED
       # here — without them the archive step skips embedding the entitlements
       # file, dropping aps-environment (Firebase phone auth then breaks).
-      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} TARGETED_DEVICE_FAMILY=1 CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES",
+      xcargs: "-skipMacroValidation DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']} TARGETED_DEVICE_FAMILY=1 CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES #{CLANG_PROBE_XCARGS}",
     )
   end
 
@@ -573,6 +581,36 @@ platform :ios do
     end
   end
 
+  # Shared self-correcting update loop: ASC's age-rating declaration schema has
+  # drifted over time (fields flip between STRING enums and BOOLEAN, and new
+  # fields get added), so instead of hardcoding types we submit our best guess
+  # and let the API's own error tell us which field needs which type.
+  def apply_age_rating_declaration(decl, attrs)
+    ok = false
+    20.times do |i|
+      begin
+        decl.update(attributes: attrs)
+        UI.success("Age rating set on attempt #{i + 1}")
+        ok = true
+        break
+      rescue => e
+        msg = e.message.to_s
+        m = msg.match(/attribute '([A-Za-z]+)'.*?Expected a (BOOLEAN|STRING)/m)
+        if m
+          field = m[1].to_sym
+          want = m[2]
+          attrs[field] = (want == "BOOLEAN" ? false : "NONE")
+          UI.message("  fix #{field} -> #{want}")
+        else
+          UI.error("Unparseable: #{msg[0,200]}")
+          raise
+        end
+      end
+    end
+    UI.user_error!("age rating: gave up after 20 attempts") unless ok
+    ok
+  end
+
   desc "Set the age-rating declaration to all-clear (4+), auto-resolving STRING vs BOOLEAN per field."
   lane :asc_agerating do
     app = asc_connect
@@ -596,28 +634,43 @@ platform :ios do
     string_fields.each { |f| attrs[f.to_sym] = "NONE" }
     bool_fields.each   { |f| attrs[f.to_sym] = false }
 
-    ok = false
-    20.times do |i|
-      begin
-        decl.update(attributes: attrs)
-        UI.success("Age rating set on attempt #{i + 1}")
-        ok = true
-        break
-      rescue => e
-        msg = e.message.to_s
-        m = msg.match(/attribute '([A-Za-z]+)'.*?Expected a (BOOLEAN|STRING)/m)
-        if m
-          field = m[1].to_sym
-          want = m[2]
-          attrs[field] = (want == "BOOLEAN" ? false : "NONE")
-          UI.message("  fix #{field} -> #{want}")
-        else
-          UI.error("Unparseable: #{msg[0,200]}")
-          raise
-        end
-      end
-    end
-    UI.user_error!("age rating: gave up after 20 attempts") unless ok
+    apply_age_rating_declaration(decl, attrs)
+  end
+
+  desc "Set the age-rating declaration for a dating app: mild mature themes + messaging/chat + user-generated content, everything else clear."
+  lane :asc_age_rating_dating do
+    app = asc_connect
+    info = app.fetch_edit_app_info
+    decl = info.fetch_age_rating_declaration
+    UI.user_error!("no age rating declaration") unless decl
+
+    # Content-severity fields stay clear except the one dating requires.
+    string_fields = %w[
+      alcoholTobaccoOrDrugUseOrReferences contests gamblingSimulated
+      medicalOrTreatmentInformation profanityOrCrudeHumor
+      sexualContentGraphicAndNudity sexualContentOrNudity horrorOrFearThemes
+      violenceCartoonOrFantasy violenceRealistic
+      violenceRealisticProlongedGraphicOrSadistic gunsOrOtherWeapons
+    ]
+    bool_fields = %w[
+      gambling unrestrictedWebAccess lootBox
+      healthOrWellnessTopics advertising parentalControls ageAssurance
+    ]
+    attrs = {}
+    string_fields.each  { |f| attrs[f.to_sym] = "NONE" }
+    bool_fields.each    { |f| attrs[f.to_sym] = false }
+    attrs[:matureOrSuggestiveThemes] = "INFREQUENT_OR_MILD"
+    attrs[:messagingAndChat] = true
+    attrs[:userGeneratedContent] = true
+    # Apple computes 9+ from the answers above; dating apps must be 17+. The
+    # override lives in `ageRatingOverrideV2` (values NONE, NINE_PLUS,
+    # THIRTEEN_PLUS, SIXTEEN_PLUS, EIGHTEEN_PLUS, UNRATED; EIGHTEEN_PLUS shows
+    # as 17+ on the store). Never send the legacy `ageRatingOverride` next to
+    # it: the API rejects the pair (verified 2026-09-11).
+    attrs[:ageRatingOverrideV2] = "EIGHTEEN_PLUS"
+
+    apply_age_rating_declaration(decl, attrs)
+    UI.success("Dating age rating set: mature/suggestive themes infrequent/mild, messaging+chat, user-generated content.")
   end
 
   desc "Show every name field ASC has (app record + app_info localizations) so we know what TestFlight reads."
@@ -647,6 +700,15 @@ platform :ios do
     new_sub = ENV["SLIDE_APP_SUBTITLE"] || "Cozy video calls, made simple"
     loc.update(attributes: { name: new_name, subtitle: new_sub })
     UI.success "set name (#{new_name}) + subtitle (#{new_sub}) on #{loc.locale}"
+  end
+
+  desc "Rename the App Info localization to the Knock Knock - 5 Minute Dates pivot (SLIDE_APP_NAME/SLIDE_APP_SUBTITLE still override)."
+  lane :rename_app do
+    subtitle_path = File.expand_path("metadata/en-US/subtitle.txt", __dir__)
+    file_subtitle = File.exist?(subtitle_path) ? File.read(subtitle_path).strip : nil
+    ENV["SLIDE_APP_NAME"] ||= "Knock Knock - 5 Minute Dates"
+    ENV["SLIDE_APP_SUBTITLE"] ||= file_subtitle if file_subtitle && !file_subtitle.empty?
+    asc_text
   end
 
   desc "Probe pricing + privacy API surface."
@@ -701,6 +763,58 @@ platform :ios do
     end
   end
 
+  desc "Ensure an editable App Store version 1.1.0 exists (bumps a rejected editable version's versionString, or creates a new appStoreVersion if Apple refuses)."
+  lane :asc_prepare_version do
+    app = asc_connect
+    target = "1.1.0"
+    v = app.get_edit_app_store_version
+    if v && v.version_string == target
+      UI.header "VERSION id=#{v.id} versionString=#{v.version_string} state=#{v.app_store_state}"
+      next
+    end
+
+    if v
+      UI.message "editable version is #{v.version_string} (state=#{v.app_store_state}); trying to bump it to #{target}"
+      code, body = asc_raw(:patch, "v1/appStoreVersions/#{v.id}",
+        { data: { type: "appStoreVersions", id: v.id, attributes: { versionString: target } } })
+      if (200..299).include?(code)
+        UI.success "Bumped editable version #{v.id} -> #{target}"
+        UI.header "VERSION id=#{v.id} versionString=#{target} state=#{body.dig('data','attributes','appStoreState')}"
+        next
+      end
+      UI.important "PATCH versionString #{code}: #{body.inspect[0,300]} — Apple refused the bump, creating a new version instead"
+    else
+      UI.message "no editable version found — creating #{target}"
+    end
+
+    code, body = asc_raw(:post, "v1/appStoreVersions", {
+      data: { type: "appStoreVersions",
+              attributes: { versionString: target, platform: "IOS" },
+              relationships: { app: { data: { type: "apps", id: app.id } } } } })
+    UI.user_error!("create appStoreVersion #{code}: #{body.inspect[0,300]}") unless (200..299).include?(code)
+    new_id = body.dig("data", "id")
+    new_state = body.dig("data", "attributes", "appStoreState")
+    UI.success "Created appStoreVersion #{target} (id=#{new_id})"
+    UI.header "VERSION id=#{new_id} versionString=#{target} state=#{new_state}"
+  end
+
+  desc "Report whether China (CHN) is available in the app's territory availabilities (China was already switched off; this only reports current state)."
+  lane :asc_remove_china_check do
+    require "base64"
+    app = asc_connect
+    # The list endpoint doesn't support filter[territory], and single-row GET on
+    # territoryAvailabilities is UPDATE-only (403 on GET), so pull the full list
+    # (175 territories total, well under one page at limit=200) and match the
+    # row whose id decodes to this app + CHN.
+    row_id = Base64.urlsafe_encode64(%({"s":"#{app.id}","t":"CHN"})).sub(/=+$/, "")
+    code, body = asc_raw(:get, "v2/appAvailabilities/#{app.id}/territoryAvailabilities?limit=200")
+    UI.user_error!("territoryAvailabilities GET #{code}: #{body.inspect[0,300]}") unless (200..299).include?(code)
+    rows = body["data"] || []
+    row = rows.find { |r| r["id"] == row_id }
+    UI.user_error!("CHN row not found among #{rows.size} territories (total=#{body.dig('meta','paging','total')})") unless row
+    UI.header "China (CHN): available=#{row.dig('attributes', 'available')}"
+  end
+
   # Return [{id,name,internal,publicLink}] for the app's beta groups (raw REST).
   def tf_groups(app)
     code, body = asc_raw(:get, "v1/apps/#{app.id}/betaGroups?limit=200")
@@ -744,7 +858,7 @@ platform :ios do
   desc "Fill the TestFlight beta metadata (description + feedback email + review contact) required for external beta review."
   lane :tf_beta_meta do
     app = asc_connect
-    desc_text = "The clearest video calls with the people you know. On any device."
+    desc_text = "Five-minute video dates every night, 7 to 8 PM Pacific."
     feedback_email = ENV["TF_FEEDBACK_EMAIL"] || ENV["FASTLANE_APPLE_ID"] || "viraat@exla.ai"
 
     # 1) Beta app localization (description + feedback email + marketing/privacy URLs)
@@ -771,7 +885,11 @@ platform :ios do
     rdetail = { contactFirstName: contact_first, contactLastName: contact_last,
                 contactEmail: feedback_email, contactPhone: contact_phone,
                 demoAccountRequired: false, demoAccountName: "", demoAccountPassword: "",
-                notes: "Phone-first video calling. No login wall for testing; the app uses phone-number OTP — use any number, the dev build accepts the echoed code." }
+                notes: "Two review accounts are seeded on the backend: +1 650 555 0100 and " \
+                       "+1 650 555 0101, both using OTP code #{ENV['REVIEW_OTP_CODE'] || '<REVIEW_OTP_CODE>'}. Sign in with either number " \
+                       "and that code; review accounts see the doors open at any time, not just " \
+                       "7 to 8 PM Pacific. The first account already has a match with seeded chat " \
+                       "history to test messaging, unmatch, block and report." }
     rc, rbody = asc_raw(:get, "v1/apps/#{app.id}/betaAppReviewDetail")
     rid = rbody.dig("data","id")
     if rid

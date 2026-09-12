@@ -2,46 +2,52 @@ import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import Reveal from "@/components/Reveal";
 import StoreBadges from "@/components/StoreBadges";
-import PhoneMockup from "@/components/PhoneMockup";
+import TonightMockup from "@/components/TonightMockup";
 import {
-  PhoneIcon,
+  WaveformIcon,
   VideoIcon,
   PeopleIcon,
-  ShareIcon,
-  WaveformIcon,
+  ChatIcon,
+  LocationIcon,
+  PhoneIcon,
   CodeIcon,
 } from "@/components/icons";
 
 const features = [
   {
     icon: WaveformIcon,
-    title: "Knock, don\u2019t ring.",
-    body: "Tap, and their phone knocks \u2014 your actual rhythm, tap for tap, in real time. Keep knocking until they pick up. It feels like knuckles on wood, not a ringtone.",
+    title: "The doors open at 7.",
+    body: "Every night, 7 to 8 PM Pacific, the lobby opens near you. Show up any time in that hour and you're in for the night.",
   },
   {
     icon: VideoIcon,
-    title: "Knock knock. Who\u2019s there?",
-    body: "Knocks ring anonymously: no name, no photo, just a door. They answer by knocking back twice \u2014 and only then find out it\u2019s you. Answering a call hasn\u2019t felt like this before.",
-  },
-  {
-    icon: PhoneIcon,
-    title: "Your number is your account.",
-    body: "No usernames, no passwords, no email. Sign in with your phone number, find the friends already on Knock Knock, and call them in two taps.",
+    title: "Five minutes. That's the whole date.",
+    body: "Video dates run exactly five minutes. Long enough to know if you want to talk again, short enough that it never drags.",
   },
   {
     icon: PeopleIcon,
-    title: "Bring everyone into the room.",
-    body: "Group calls stay simple: pick the people you want and start the moment. No calendar invite, no link to hunt down.",
+    title: "Keep talking, or pass.",
+    body: "After the date, you both quietly say keep talking or pass. Only a mutual yes turns into a match. A pass is never shown to the other person.",
   },
   {
-    icon: ShareIcon,
-    title: "Made to feel good.",
-    body: "Warm eggshell and espresso instead of clinical white. Haptics on every knock, a chime when your person arrives, a soft tock when the door closes.",
+    icon: ChatIcon,
+    title: "A real chat once you match.",
+    body: "Matching unlocks a plain text chat. No photos, no attachments, just messages back and forth.",
+  },
+  {
+    icon: LocationIcon,
+    title: "People within 75 miles.",
+    body: "Matches are close enough to actually meet up. We use a rough location, never your exact address.",
+  },
+  {
+    icon: PhoneIcon,
+    title: "Just your phone number.",
+    body: "No usernames, no passwords. Sign in with your number, fill out a quick profile, and you're ready for tonight's lobby.",
   },
   {
     icon: CodeIcon,
     title: "Open source.",
-    body: "The whole app \u2014 iOS, backend, this site \u2014 is on GitHub. Read the code, audit how calls and contacts are handled, file issues, send PRs. Private by default, provable by design.",
+    body: "The whole app, iOS, backend, this site, is on GitHub. Read the code, see how dates and matches are handled, file issues, send PRs.",
     href: "https://github.com/viraatdas/knock-knock",
     linkLabel: "github.com/viraatdas/knock-knock",
   },
@@ -61,17 +67,11 @@ export default function Home() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/slide-logo.svg"
-                  alt="Knock Knock"
+                  alt="Knock Knock - 5 Minute Dates"
                   width={72}
                   height={72}
                   className="mb-6 h-16 w-16 rounded-2xl border border-hairline shadow-sm sm:h-[72px] sm:w-[72px]"
                 />
-              </Reveal>
-
-              <Reveal delay={40}>
-                <p className="text-[12px] font-light uppercase tracking-label text-text-secondary">
-                  Don&apos;t ring. Knock.
-                </p>
               </Reveal>
 
               <Reveal delay={60}>
@@ -82,15 +82,15 @@ export default function Home() {
 
               <Reveal delay={120}>
                 <p className="mt-6 max-w-md text-[22px] font-light leading-snug text-text sm:text-[26px]">
-                  Video calls you&apos;ll actually want to make.
+                  Five-minute video dates. Every night, 7 to 8 PM Pacific.
                 </p>
               </Reveal>
 
               <Reveal delay={180}>
                 <p className="mt-4 max-w-md text-[15px] font-light leading-relaxed text-text-secondary">
-                  Tap, and their phone knocks with your rhythm. They knock back
-                  twice to open the door. No feeds, no links, no ads — just
-                  your people.
+                  Every night the doors open near you for five-minute video
+                  dates with people within 75 miles. After each one, you both
+                  say keep talking or pass. A mutual yes unlocks a text chat.
                 </p>
               </Reveal>
 
@@ -102,13 +102,13 @@ export default function Home() {
             </div>
 
             <Reveal delay={200} className="hidden lg:block">
-              <PhoneMockup />
+              <TonightMockup />
             </Reveal>
           </div>
 
           {/* Mobile mockup, below the fold of the text */}
           <Reveal delay={120} className="mt-16 lg:hidden">
-            <PhoneMockup />
+            <TonightMockup />
           </Reveal>
         </section>
 
@@ -156,13 +156,13 @@ export default function Home() {
           <div className="mx-auto max-w-5xl px-6 py-28 text-center">
             <Reveal>
               <h2 className="mx-auto max-w-2xl text-[36px] font-light leading-tight tracking-tight text-text sm:text-[48px]">
-                Go knock on
-                <br className="hidden sm:block" /> someone&apos;s door.
+                The doors open
+                <br className="hidden sm:block" /> at 7 tonight.
               </h2>
             </Reveal>
             <Reveal delay={80}>
               <p className="mx-auto mt-4 max-w-md text-[15px] font-light text-text-secondary">
-                Free on the App Store today. Android is on the way.
+                Free on the App Store. You have to be 18 or older to join.
               </p>
             </Reveal>
             <Reveal delay={140}>

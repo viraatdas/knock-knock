@@ -1,0 +1,179 @@
+name: ios-release
+
+# Archive, sign and upload the iOS app to App Store Connect from a clean macOS
+# runner. Exists because Xcode 26.6 on the maintainer's Mac deadlocks in
+# SWBBuildService (see AGENTS.md "Release Automation"). Everything here is
+# driven by repo secrets:
+#   IOS_DIST_P12_B64 / IOS_DIST_P12_PASSWORD  Apple Distribution identity (.p12)
+#   ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_P8_B64  App Store Connect API key
+#   APPLE_TEAM_ID                              10-char team id
+#   GOOGLE_SERVICE_INFO_PLIST_B64              Firebase plist (gitignored file)
+#
+# Run it from the Actions tab (or `gh workflow run ios-release.yml -f build_number=33`).
+# The uploaded build then gets attached to the version + submitted from the
+# maintainer's machine with `fastlane ios submit_review` (ASC API only, no build).
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "CFBundleVersion for this upload (empty = value in ios/project.yml)"
+        required: false
+        default: ""
+      upload:
+        description: "Upload the .ipa to App Store Connect after archiving"
+        required: false
+        default: "true"
+
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      APP_IDENTIFIER: app.exla.slide
+      SCHEME: Slide
+      PROFILE_NAME: app.exla.slide AppStore
+      KEYCHAIN: ci-signing.keychain-db
+      KEYCHAIN_PASSWORD: ci-signing-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode on the image
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Restore gitignored inputs from secrets
+        env:
+          GOOGLE_SERVICE_INFO_PLIST_B64: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST_B64 }}
+          ASC_KEY_P8_B64: ${{ secrets.ASC_KEY_P8_B64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          IOS_DIST_P12_B64: ${{ secrets.IOS_DIST_P12_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$GOOGLE_SERVICE_INFO_PLIST_B64" || { echo "GOOGLE_SERVICE_INFO_PLIST_B64 secret missing"; exit 1; }
+          test -n "$ASC_KEY_P8_B64" || { echo "ASC_KEY_P8_B64 secret missing"; exit 1; }
+          test -n "$IOS_DIST_P12_B64" || { echo "IOS_DIST_P12_B64 secret missing"; exit 1; }
+          echo "$GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > ios/Resources/GoogleService-Info.plist
+          plutil -lint ios/Resources/GoogleService-Info.plist
+          mkdir -p "$HOME/private_keys"
+          echo "$ASC_KEY_P8_B64" | base64 --decode > "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$IOS_DIST_P12_B64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          # fastlane's api_key_path JSON (sigh reads the key contents from it)
+          python3 - <<PY
+          import json, os
+          json.dump({"key_id": os.environ["ASC_KEY_ID"], "issuer_id": os.environ["ASC_ISSUER_ID"],
+                     "key": open(os.path.expanduser("~/private_keys/AuthKey_%s.p8" % os.environ["ASC_KEY_ID"])).read(),
+                     "in_house": False}, open(os.environ["RUNNER_TEMP"] + "/asc_key.json", "w"))
+          PY
+
+      - name: Import signing identity into a temporary keychain
+        env:
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN" -P "$IOS_DIST_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Fetch the App Store provisioning profile (sigh, ASC API key)
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cd ios
+          fastlane run sigh app_identifier:"$APP_IDENTIFIER" api_key_path:"$RUNNER_TEMP/asc_key.json" \
+            team_id:"$APPLE_TEAM_ID" platform:ios force:true output_path:build/profiles \
+            filename:AppStore.mobileprovision
+          NAME=$(security cms -D -i build/profiles/AppStore.mobileprovision | plutil -extract Name raw -)
+          echo "Installed profile: $NAME"
+          test "$NAME" = "$PROFILE_NAME" || { echo "profile name mismatch (project.yml pins '$PROFILE_NAME')"; exit 1; }
+
+      - name: Set build number
+        if: ${{ github.event.inputs.build_number != '' }}
+        run: |
+          sed -i '' "s/^\( *CURRENT_PROJECT_VERSION: *\)\"[0-9]*\"/\1\"${{ github.event.inputs.build_number }}\"/" ios/project.yml
+          grep -n "CURRENT_PROJECT_VERSION" ios/project.yml
+
+      - name: Generate the Xcode project
+        run: cd ios && xcodegen generate
+
+      - name: Resolve Swift packages
+        run: |
+          cd ios
+          xcodebuild -resolvePackageDependencies -project Slide.xcodeproj -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" | tail -20
+
+      - name: Archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cd ios
+          xcodebuild archive \
+            -project Slide.xcodeproj -scheme "$SCHEME" -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Slide.xcarchive" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/spm" \
+            -skipMacroValidation \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=YES \
+            TARGETED_DEVICE_FAMILY=1 \
+            | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|warning: .*Slide|\*\* ARCHIVE|Signing Identity|Provisioning Profile" || true
+          test -d "$RUNNER_TEMP/Slide.xcarchive" || { echo "archive missing"; tail -80 "$RUNNER_TEMP/archive.log"; exit 1; }
+          grep -q "ARCHIVE SUCCEEDED" "$RUNNER_TEMP/archive.log"
+          echo "== linked frameworks (must not contain CallKit/PushKit) =="
+          otool -L "$RUNNER_TEMP/Slide.xcarchive/Products/Applications/Slide.app/Slide" | grep -Ei "callkit|pushkit" && { echo "CallKit/PushKit linked!"; exit 1; } || echo "ok: no CallKit/PushKit"
+
+      - name: Export .ipa
+        run: |
+          set -euo pipefail
+          cd ios
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Slide.xcarchive" \
+            -exportOptionsPlist ExportOptions-appstore.plist \
+            -exportPath "$RUNNER_TEMP/export" | tail -20
+          ls -la "$RUNNER_TEMP/export"
+
+      - name: Upload artifacts (ipa + archive log)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slide-ipa
+          path: |
+            ${{ runner.temp }}/export/*.ipa
+            ${{ runner.temp }}/archive.log
+          retention-days: 14
+
+      - name: Validate + upload to App Store Connect
+        if: ${{ github.event.inputs.upload != 'false' }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA=$(ls "$RUNNER_TEMP"/export/*.ipa | head -1)
+          xcrun altool --validate-app -f "$IPA" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" --output-format json | tail -5
+          xcrun altool --upload-app -f "$IPA" -t ios --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" --output-format json | tail -5
+          echo "Uploaded. Processing takes ~5-15 minutes; check with: cd ios && fastlane ios tf_build_state"
+
+      - name: Clean up keychain
+        if: always()
+        run: security delete-keychain "$KEYCHAIN" || true

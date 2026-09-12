@@ -13,15 +13,13 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    time::Instant,
 };
 
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
 const CONNECTION_QUEUE_CAPACITY: usize = 128;
-const MAX_KNOCKS_PER_SECOND: u32 = 12;
 
 pub type Tx = mpsc::Sender<Value>;
 
@@ -29,7 +27,6 @@ pub type Tx = mpsc::Sender<Value>;
 pub struct Hub {
     inner: Arc<RwLock<HashMap<Uuid, HashMap<u64, Tx>>>>,
     next_conn: Arc<AtomicU64>,
-    knock_windows: Arc<Mutex<HashMap<Uuid, (Instant, u32)>>>,
 }
 
 impl Hub {
@@ -41,7 +38,7 @@ impl Hub {
     /// connection id to deregister with on disconnect.
     pub async fn connect(&self, user_id: Uuid) -> (u64, mpsc::Receiver<Value>) {
         // A bounded queue prevents a suspended or slow client from turning a
-        // high-rate knock stream into unbounded server memory growth.
+        // high-rate event stream into unbounded server memory growth.
         let (tx, rx) = mpsc::channel(CONNECTION_QUEUE_CAPACITY);
         let conn_id = self.next_conn.fetch_add(1, Ordering::Relaxed);
         let mut map = self.inner.write().await;
@@ -60,33 +57,14 @@ impl Hub {
     }
 
     /// True if the user has at least one live socket. This is presence only,
-    /// never proof that push may be suppressed.
-    #[allow(dead_code)]
+    /// never proof that push may be suppressed — a message push still checks
+    /// this to decide whether to also send an APNs alert.
     pub async fn is_online(&self, user_id: Uuid) -> bool {
         self.inner.read().await.contains_key(&user_id)
     }
 
-    /// Per-account tap limiter shared by all of the user's sockets. Without
-    /// this, a malicious sender can fill another user's bounded socket queue
-    /// and force a disconnect. Normal knock rhythms stay far below 12Hz.
-    pub async fn allow_knock(&self, user_id: Uuid) -> bool {
-        let now = Instant::now();
-        let mut windows = self.knock_windows.lock().await;
-        let (started, count) = windows.entry(user_id).or_insert((now, 0));
-        if now.duration_since(*started).as_secs_f32() >= 1.0 {
-            *started = now;
-            *count = 0;
-        }
-        if *count >= MAX_KNOCKS_PER_SECOND {
-            return false;
-        }
-        *count += 1;
-        true
-    }
-
     /// Send an event to every live socket of one user. Returns how many
-    /// bounded socket queues accepted it. Incoming calls use push regardless;
-    /// this count is telemetry, not a mobile-delivery guarantee.
+    /// bounded socket queues accepted it.
     pub async fn publish(&self, user_id: Uuid, event: Value) -> usize {
         let conns: Vec<(u64, Tx)> = {
             let map = self.inner.read().await;
@@ -144,7 +122,7 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
 
-    use super::{Hub, CONNECTION_QUEUE_CAPACITY, MAX_KNOCKS_PER_SECOND};
+    use super::{Hub, CONNECTION_QUEUE_CAPACITY};
 
     #[tokio::test]
     async fn publishes_to_every_device_connection() {
@@ -153,9 +131,9 @@ mod tests {
         let (_, mut first) = hub.connect(user).await;
         let (_, mut second) = hub.connect(user).await;
 
-        assert_eq!(hub.publish(user, json!({ "type": "call" })).await, 2);
-        assert_eq!(first.recv().await.unwrap()["type"], "call");
-        assert_eq!(second.recv().await.unwrap()["type"], "call");
+        assert_eq!(hub.publish(user, json!({ "type": "message" })).await, 2);
+        assert_eq!(first.recv().await.unwrap()["type"], "message");
+        assert_eq!(second.recv().await.unwrap()["type"], "message");
     }
 
     #[tokio::test]
@@ -187,15 +165,5 @@ mod tests {
         }
         assert_eq!(hub.publish(stalled_user, json!("overflow")).await, 0);
         assert!(!hub.is_online(stalled_user).await);
-    }
-
-    #[tokio::test]
-    async fn limits_knocks_across_all_sender_connections() {
-        let hub = Hub::new();
-        let sender = Uuid::new_v4();
-        for _ in 0..MAX_KNOCKS_PER_SECOND {
-            assert!(hub.allow_knock(sender).await);
-        }
-        assert!(!hub.allow_knock(sender).await);
     }
 }

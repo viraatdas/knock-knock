@@ -2,6 +2,8 @@
 
 use std::env;
 
+use chrono_tz::Tz;
+
 #[derive(Clone)]
 pub struct Config {
     pub database_url: String,
@@ -10,10 +12,6 @@ pub struct Config {
     pub jwt_secret: String,
     pub access_ttl_secs: i64,
     pub refresh_ttl_secs: i64,
-    pub join_ttl_secs: i64,
-    /// Maximum time a call may remain unanswered before the durable sweeper
-    /// marks it missed and emits terminal events.
-    pub call_ring_timeout_secs: i64,
 
     pub otp_ttl_secs: i64,
     pub otp_max_attempts: i64,
@@ -36,57 +34,48 @@ pub struct Config {
     /// provider never implies leaking the code.
     pub expose_dev_otp: bool,
 
-    pub sfu_public_url: String,
-    pub sfu_jwt_secret: String,
-    pub sfu_node_id: String,
-
-    /// LiveKit media server. When `livekit_url` is set the call control plane
-    /// hands clients a LiveKit access token (signed with `livekit_api_secret`)
-    /// + the LiveKit ws URL instead of the legacy custom-SFU join token.
+    /// LiveKit media server. Every date session is minted as a LiveKit access
+    /// token (signed with `livekit_api_secret`); the room name is the date id.
+    /// `GET /dates/:id`-ish flows return 503 when this is unset.
     pub livekit_url: String,
     pub livekit_api_key: String,
     pub livekit_api_secret: String,
 
-    pub turn_uris: Vec<String>,
-    pub turn_shared_secret: String,
-    pub turn_cred_ttl_secs: i64,
-
-    // Reserved for the real S3 avatar upload path (routes::users::post_avatar).
-    #[allow(dead_code)]
-    pub s3_bucket: String,
-    pub s3_public_base_url: String,
-
     pub api_bind: String,
 
-    // ── Push notifications (all optional; empty ⇒ that provider is disabled) ──
-    /// APNs (iOS VoIP push).
+    // ── Nightly session window (session.rs is the only place that reads these) ──
+    pub session_tz: Tz,
+    pub session_open_hour: u32,
+    pub session_open_minute: u32,
+    pub session_close_hour: u32,
+    pub session_close_minute: u32,
+    /// Dev/CI only: forces the session open at all times.
+    pub session_always_open: bool,
+    /// Length of a date, in seconds. Clamped to 30..900.
+    pub date_seconds: i64,
+    /// Matching radius, fixed (not user-adjustable).
+    pub match_radius_miles: f64,
+
+    // ── Review accounts (App Review must be able to test outside 7-8 PM PT) ──
+    /// E.164 phone numbers that get review-account treatment.
+    pub review_phones: Vec<String>,
+    /// Fixed OTP code for review phones. Empty disables review login entirely.
+    pub review_otp_code: String,
+    /// The seeded "Sam" demo account review accounts match with. Read by
+    /// `review::ensure_fixtures`.
+    pub review_demo_phone: String,
+
+    // ── Push notifications (APNs alert only; empty ⇒ disabled) ──
+    /// The full contents of the .p8 auth key (PEM). May also be a file path.
     pub apns_key_id: String,
     pub apns_team_id: String,
-    /// The full contents of the .p8 auth key (PEM). May also be a file path.
     pub apns_key_p8: String,
-    /// APNs topic = bundle id + ".voip" (e.g. "app.exla.slide.voip").
-    pub apns_topic: String,
     /// APNs topic for standard alert pushes = the bare bundle id (e.g.
-    /// "app.exla.slide"). Defaults to `apns_topic` with a trailing ".voip"
-    /// trimmed; override with APNS_ALERT_TOPIC.
-    pub apns_alert_topic: String,
+    /// "app.exla.slide"). No CallKit/PushKit means there is no separate VoIP
+    /// topic to track.
+    pub apns_topic: String,
     /// "sandbox" | "prod". Defaults to "prod".
     pub apns_env: String,
-
-    /// FCM (Android). Service-account JSON, inline or a file path.
-    pub fcm_service_account_json: String,
-    /// Optional override; otherwise taken from the service-account JSON.
-    pub fcm_project_id: String,
-
-    /// Web Push (browser) VAPID keys (base64url). The public key is the
-    /// applicationServerKey clients subscribe with; the server signs with the
-    /// private key. Kept in config for completeness / a future "get VAPID
-    /// public key" endpoint.
-    #[allow(dead_code)]
-    pub vapid_public_key: String,
-    pub vapid_private_key: String,
-    /// VAPID subject, e.g. "mailto:ops@exla.ai".
-    pub vapid_subject: String,
 }
 
 fn var(key: &str, default: &str) -> String {
@@ -98,6 +87,38 @@ fn var_i64(key: &str, default: i64) -> i64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
+}
+
+fn var_u32(key: &str, default: u32) -> u32 {
+    env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+fn var_bool(key: &str, default: bool) -> bool {
+    env::var(key).ok().map(|v| v == "true").unwrap_or(default)
+}
+
+/// The old calling product used a separate VoIP-push topic, `<bundle-id>.voip`
+/// (PushKit). That path is gone — no CallKit/PushKit anywhere in this app —
+/// but the Fly secret `APNS_TOPIC` may still carry that old value. APNs
+/// rejects a push whose `apns-topic` doesn't match a registered topic, so a
+/// stale `.voip` suffix would silently break every alert push (match,
+/// message, doors-open) in production. Strip it here, once, at boot, and log
+/// so the stale secret gets noticed and fixed.
+fn normalize_apns_topic(topic: String) -> String {
+    match topic.strip_suffix(".voip") {
+        Some(stripped) if !stripped.is_empty() => {
+            tracing::warn!(
+                original = %topic,
+                normalized = %stripped,
+                "config: APNS_TOPIC has a stale .voip suffix (VoIP pushes were removed); stripping it"
+            );
+            stripped.to_string()
+        }
+        _ => topic,
+    }
 }
 
 impl Config {
@@ -112,8 +133,6 @@ impl Config {
             jwt_secret: var("JWT_SECRET", "dev-only-insecure-secret-change-me"),
             access_ttl_secs: var_i64("ACCESS_TOKEN_TTL_SECS", 900),
             refresh_ttl_secs: var_i64("REFRESH_TOKEN_TTL_SECS", 5_184_000),
-            join_ttl_secs: var_i64("JOIN_TOKEN_TTL_SECS", 300),
-            call_ring_timeout_secs: var_i64("CALL_RING_TIMEOUT_SECS", 45).clamp(10, 120),
 
             otp_ttl_secs: var_i64("OTP_TTL_SECS", 300),
             otp_max_attempts: var_i64("OTP_MAX_ATTEMPTS", 5),
@@ -130,46 +149,36 @@ impl Config {
             // Only ever true when explicitly opted in. Never derive from provider.
             expose_dev_otp: var("EXPOSE_DEV_OTP", "false") == "true",
 
-            sfu_public_url: var("SFU_PUBLIC_URL", "ws://localhost:9000"),
-            sfu_jwt_secret: var("SFU_JWT_SECRET", "dev-only-sfu-secret-change-me"),
-            sfu_node_id: var("SFU_NODE_ID", "sfu-local-1"),
-
             livekit_url: var("LIVEKIT_URL", ""),
             livekit_api_key: var("LIVEKIT_API_KEY", ""),
             livekit_api_secret: var("LIVEKIT_API_SECRET", ""),
 
-            turn_uris: var("TURN_URIS", "")
+            api_bind: var("API_BIND", "0.0.0.0:8080"),
+
+            session_tz: var("SESSION_TZ", "America/Los_Angeles")
+                .parse()
+                .unwrap_or(chrono_tz::America::Los_Angeles),
+            session_open_hour: var_u32("SESSION_OPEN_HOUR", 19),
+            session_open_minute: var_u32("SESSION_OPEN_MINUTE", 0),
+            session_close_hour: var_u32("SESSION_CLOSE_HOUR", 20),
+            session_close_minute: var_u32("SESSION_CLOSE_MINUTE", 0),
+            session_always_open: var_bool("SESSION_ALWAYS_OPEN", false),
+            date_seconds: var_i64("DATE_SECONDS", 300).clamp(30, 900),
+            match_radius_miles: var("MATCH_RADIUS_MILES", "75.0").parse().unwrap_or(75.0),
+
+            review_phones: var("REVIEW_PHONES", "")
                 .split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
-            turn_shared_secret: var("TURN_SHARED_SECRET", "dev-only-turn-secret-change-me"),
-            turn_cred_ttl_secs: var_i64("TURN_CRED_TTL_SECS", 600),
-
-            s3_bucket: var("S3_BUCKET", "slide-avatars"),
-            s3_public_base_url: var("S3_PUBLIC_BASE_URL", ""),
-
-            api_bind: var("API_BIND", "0.0.0.0:8080"),
+            review_otp_code: var("REVIEW_OTP_CODE", ""),
+            review_demo_phone: var("REVIEW_DEMO_PHONE", "+16505550199"),
 
             apns_key_id: var("APNS_KEY_ID", ""),
             apns_team_id: var("APNS_TEAM_ID", ""),
             apns_key_p8: var("APNS_KEY_P8", ""),
-            apns_topic: var("APNS_TOPIC", "app.exla.slide.voip"),
-            apns_alert_topic: {
-                let topic = var("APNS_TOPIC", "app.exla.slide.voip");
-                var(
-                    "APNS_ALERT_TOPIC",
-                    topic.strip_suffix(".voip").unwrap_or(&topic),
-                )
-            },
+            apns_topic: normalize_apns_topic(var("APNS_TOPIC", "app.exla.slide")),
             apns_env: var("APNS_ENV", "prod"),
-
-            fcm_service_account_json: var("FCM_SERVICE_ACCOUNT_JSON", ""),
-            fcm_project_id: var("FCM_PROJECT_ID", ""),
-
-            vapid_public_key: var("VAPID_PUBLIC_KEY", ""),
-            vapid_private_key: var("VAPID_PRIVATE_KEY", ""),
-            vapid_subject: var("VAPID_SUBJECT", ""),
         }
     }
 
@@ -179,5 +188,49 @@ impl Config {
     /// delivery is misconfigured the code is never leaked to the caller.
     pub fn is_dev_sms(&self) -> bool {
         self.expose_dev_otp
+    }
+
+    /// `true` when a real (non-console) SMS provider is configured.
+    pub fn has_real_sms_provider(&self) -> bool {
+        matches!(self.sms_provider.as_str(), "sns" | "twilio")
+    }
+
+    pub fn is_review_phone(&self, e164: &str) -> bool {
+        self.review_phones.iter().any(|p| p == e164)
+    }
+
+    /// `true` when review login is enabled at all (phones configured + a code
+    /// to check them against).
+    pub fn review_login_enabled(&self) -> bool {
+        !self.review_phones.is_empty() && !self.review_otp_code.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_apns_topic;
+
+    #[test]
+    fn strips_stale_voip_suffix_from_apns_topic() {
+        // The exact stale value the Fly secret carries today.
+        assert_eq!(
+            normalize_apns_topic("app.exla.slide.voip".to_string()),
+            "app.exla.slide"
+        );
+    }
+
+    #[test]
+    fn leaves_a_bare_bundle_id_topic_unchanged() {
+        assert_eq!(
+            normalize_apns_topic("app.exla.slide".to_string()),
+            "app.exla.slide"
+        );
+    }
+
+    #[test]
+    fn leaves_empty_topic_unchanged() {
+        // Empty disables APNs entirely (Apns::from_config checks is_empty());
+        // stripping must never turn "" into something else.
+        assert_eq!(normalize_apns_topic(String::new()), "");
     }
 }

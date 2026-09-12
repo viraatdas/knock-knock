@@ -45,6 +45,9 @@ jobs:
     env:
       DATABASE_URL: postgres://slide:slide@localhost:5432/slide
       REDIS_URL: redis://localhost:6379
+      # Real doors only open 7-8 PM America/Los_Angeles; force the session
+      # open so the smoke test can join the lobby and match at any time of day.
+      SESSION_ALWAYS_OPEN: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -58,12 +61,13 @@ jobs:
       - name: Test
         run: cargo test --workspace
       - name: Build release binaries
-        run: cargo build --release --bin slide-api --bin slide-sfu
+        run: cargo build --release --bin slide-api
       - name: Smoke test (API end-to-end)
         run: |
           set -a; source .env.example; set +a
           export SMS_PROVIDER=console
           export EXPOSE_DEV_OTP=true
+          export SESSION_ALWAYS_OPEN=true
           ./target/release/slide-api &
           for i in $(seq 1 30); do curl -fsS http://localhost:8080/v1/health && break || sleep 1; done
           ./scripts/smoke.sh
@@ -77,12 +81,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Deploy coturn / sfu / api
+      - name: Deploy api
         if: ${{ env.FLY_API_TOKEN != '' }}
-        run: |
-          flyctl deploy -c deploy/fly/coturn.fly.toml --remote-only || true
-          flyctl deploy -c deploy/fly/slide-sfu.fly.toml --remote-only
-          flyctl deploy -c deploy/fly/slide-api.fly.toml --remote-only
+        # Only the control plane deploys from CI. Media is a separately managed
+        # LiveKit box; slide-sfu/coturn are legacy and not deployed anymore.
+        run: flyctl deploy -c deploy/fly/slide-api.fly.toml --remote-only
       - name: Note when no token
         if: ${{ env.FLY_API_TOKEN == '' }}
         run: echo "FLY_API_TOKEN secret not set — skipping deploy. Add it in repo settings to enable auto-deploy."

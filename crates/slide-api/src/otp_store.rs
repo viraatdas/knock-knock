@@ -73,6 +73,44 @@ pub async fn check_otp(state: &AppState, phone: &str, code: &str) -> AppResult<O
     }
 }
 
+/// Cap wrong guesses against the review OTP code. Unlike a normal challenge
+/// (`check_otp`), the review code is a static, non-expiring value with no
+/// per-request state to exhaust, so the attempt cap has to be tracked
+/// directly against the phone number: `otp_max_attempts` wrong guesses within
+/// `otp_ttl_secs`, then locked out until the window rolls over. Mirrors
+/// `check_otp`'s attempt bookkeeping, but there's no challenge row to delete
+/// on success — only the attempt counter.
+pub async fn check_review_code(
+    state: &AppState,
+    phone: &str,
+    code_is_correct: bool,
+) -> AppResult<OtpCheck> {
+    let mut conn = state.redis.clone();
+    let key = format!("review_attempts:{phone}");
+
+    let attempts: i64 = conn.get(&key).await.unwrap_or(0);
+    if attempts >= state.cfg.otp_max_attempts {
+        return Ok(OtpCheck::TooManyAttempts);
+    }
+
+    if code_is_correct {
+        let _: () = conn.del(&key).await.unwrap_or(());
+        Ok(OtpCheck::Ok)
+    } else {
+        let count: i64 = conn
+            .incr(&key, 1)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+        if count == 1 {
+            let _: () = conn
+                .expire(&key, state.cfg.otp_ttl_secs)
+                .await
+                .unwrap_or(());
+        }
+        Ok(OtpCheck::Wrong)
+    }
+}
+
 /// Sliding-window-ish rate limit: increment a counter under `key`, setting a
 /// TTL on first hit. Returns `Err(RateLimited)` if the count exceeds `limit`.
 pub async fn rate_limit(

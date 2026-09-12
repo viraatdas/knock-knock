@@ -20,8 +20,16 @@ primary_region = "iad"
 
 [env]
   API_BIND = "0.0.0.0:8080"
+  # Length of one video date, in seconds, and the fixed matching radius.
+  # Non-secret. REVIEW_PHONES / REVIEW_OTP_CODE / REVIEW_DEMO_PHONE are set as
+  # Fly secrets instead (`fly secrets set REVIEW_PHONES=... REVIEW_OTP_CODE=...`),
+  # since REVIEW_OTP_CODE is a real (if narrow) auth bypass.
+  DATE_SECONDS = "300"
   EXPOSE_DEV_OTP = "false"
   FIREBASE_PROJECT_ID = "slide-b4c50"
+  MATCH_RADIUS_MILES = "75.0"
+  # Doors open/close 7-8 PM in this timezone, for everyone.
+  SESSION_TZ = "America/Los_Angeles"
   # LIVEKIT_URL/API_KEY/API_SECRET are Fly secrets for the maintained clients.
   # This URL remains the legacy custom-SFU fallback for older builds.
   SFU_PUBLIC_URL = "wss://178-156-247-146.sslip.io"

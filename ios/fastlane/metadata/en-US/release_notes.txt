@@ -1,10 +1,5 @@
-Knock knock — who's there? Knocks now ring as an anonymous door: feel every tap in real time, watch the door rattle, and answer by knocking back twice. Only then do you see who it is.
+This is a new app, not an update to the old one.
 
-Also new:
-• Knocks buzz your phone even when the app is closed
-• Missed a knock? You'll get a note
-• Picture-in-picture video when you switch apps
-• Turn your camera on mid-call to go video
-• Smoother audio + speaker/AirPods switching in calls
-• Pick your knock sound: Wood, Glass, or Soft
-• Retry failed calls, see when they're muted, rotate to landscape
+Knock Knock is now a nightly speed-dating app. Every night from 7 to 8 PM Pacific, you get five-minute video dates with people within 75 miles. After each date you privately choose keep talking or pass, and a mutual yes opens a text chat.
+
+The old calling, contacts, recents, and group calls are gone. So is the native call screen (CallKit) and the VoIP push that came with it.

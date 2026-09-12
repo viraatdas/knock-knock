@@ -4,140 +4,169 @@ import { LegalShell, Section } from "@/components/Legal";
 export const metadata: Metadata = {
   title: "Privacy Policy",
   description:
-    "How Knock Knock collects, uses, and protects your information. Phone number as identity, hashed contact matching, and a commitment to never sell your data.",
+    "How Knock Knock - 5 Minute Dates collects, uses, and protects your information: your phone number, profile, coarse location, and messages between matches.",
 };
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="May 28, 2026">
+    <LegalShell title="Privacy Policy" updated="September 11, 2026">
       <Section heading="Overview">
         <p>
-          Knock Knock is a phone-only video calling app. We built it to be quiet,
-          fast, and private. This policy explains what we collect, why, and the
-          choices you have. We collect as little as we can while still letting
-          you reach the people you care about.
+          Knock Knock - 5 Minute Dates is a phone-only video dating app. We collect
+          as little as we can while still being able to match you with people
+          nearby and let you talk to them. This policy explains what we
+          collect, why, and the choices you have.
         </p>
         <p>
-          By using Knock Knock, you agree to the practices described here. If you do
-          not agree, please do not use the app.
+          You have to be 18 or older to use Knock Knock - 5 Minute Dates. By using
+          the app, you agree to the practices described here. If you do not
+          agree, please do not use the app.
         </p>
       </Section>
 
       <Section heading="Your phone number is your identity">
         <p>
-          Knock Knock uses your mobile phone number as your account identifier. There
-          are no passwords, usernames, or email addresses required to sign in.
-          When you register, we send a one-time verification code by SMS to
-          confirm you control the number.
-        </p>
-        <p>
-          We store your verified phone number, a unique account ID, and an
-          optional display name and profile photo if you choose to add one.
+          We use your mobile phone number as your account identifier. There
+          are no usernames, passwords, or email addresses required to sign
+          in. When you register, we verify a one-time code sent to your
+          number to confirm you control it.
         </p>
       </Section>
 
-      <Section heading="Contacts and hashed matching">
+      <Section heading="Your profile">
         <p>
-          To help you find friends already on Knock Knock, the app can check your
-          device contacts against our service. Before any phone number leaves
-          your device, it is transformed into an irreversible cryptographic hash.
-          We compare hashes, not raw numbers, so we never receive a readable copy
-          of your address book.
+          To set up a profile, we collect your name, birthday (so we can show
+          your age and confirm you are 18 or older), gender, and who you want
+          to be matched with. You can also add a short bio and a photo,
+          which are optional.
         </p>
         <p>
-          Hashes for numbers that are not Knock Knock users are not retained in a form
-          tied to you. You can decline contact access at any time and still use
-          Knock Knock by dialing numbers directly.
+          Your birthday itself is never shown to other users, only the age we
+          calculate from it. Gender and who you want to see are used to find
+          compatible matches and are shown on your profile the way you set
+          them.
         </p>
       </Section>
 
-      <Section heading="Calls and content">
+      <Section heading="Location">
         <p>
-          Knock Knock transmits your audio, video, and screen-share streams between
-          participants to connect your calls. We do not record the contents of
-          your calls, and we do not store your audio or video after a call ends.
+          We use your location to find people within 75 miles of you.
+          Before it is stored, your location is rounded to about a
+          kilometer, so we keep a coarse location, not your exact address.
+          Other users only ever see an approximate distance, such as
+          &ldquo;12 miles away,&rdquo; never a location on a map.
         </p>
+      </Section>
+
+      <Section heading="Video dates">
         <p>
-          We keep limited call metadata, such as participants, start time, and
-          duration, to show your recent calls list and to operate and
-          troubleshoot the service. You can delete entries from your call history
-          on your device.
+          Each date is a five-minute video call routed through our media
+          infrastructure to connect you with the other person. We do not
+          record video dates, and we do not store the audio or video after a
+          date ends.
+        </p>
+      </Section>
+
+      <Section heading="Matches and messages">
+        <p>
+          When you and someone else both choose to keep talking after a
+          date, that is a match, and a text chat opens between you. Chat is
+          text only: no photos or attachments. We store your messages so the
+          chat works and so you can see your history, and we delete them if
+          either person unmatches or deletes their account.
+        </p>
+      </Section>
+
+      <Section heading="Reports and blocking">
+        <p>
+          If you block or report someone, we store who reported whom, the
+          reason, and any details you provide, so we can review it and keep
+          the app safe. Blocking someone ends any match between you and
+          keeps you from being paired again.
         </p>
       </Section>
 
       <Section heading="Information we collect automatically">
         <p>
-          To keep the service reliable and secure, we collect basic technical
-          information such as device type, operating system version, app version,
-          approximate region derived from your IP address, and diagnostic logs.
-          We use this to fix crashes, prevent abuse, and improve call quality.
+          To keep the service reliable and secure, we collect basic
+          technical information such as device type, operating system
+          version, app version, approximate region derived from your IP
+          address, and diagnostic logs. We use this to fix crashes, prevent
+          abuse, and keep dates connecting smoothly.
         </p>
       </Section>
 
       <Section heading="How we use information">
         <p>
-          We use the information above to: verify your number and create your
-          account; connect and route your calls; match you with contacts who use
-          Knock Knock; keep the service secure and prevent fraud or spam; and diagnose
-          and improve performance.
+          We use the information above to verify your number and create your
+          account, match you with people nearby who fit your preferences,
+          connect your video dates, deliver messages between matches, keep
+          the service secure and respond to reports, and diagnose and
+          improve the app.
         </p>
         <p>
-          We do not use your information to build advertising profiles, and we do
-          not show third-party ads in Knock Knock.
+          We do not use your information to build advertising profiles, and
+          we do not show ads in Knock Knock - 5 Minute Dates.
         </p>
       </Section>
 
       <Section heading="We do not sell your data">
         <p>
-          We do not sell, rent, or trade your personal information to anyone. We
-          have no advertising business and no incentive to. The only parties who
-          process data on our behalf are infrastructure providers (for example,
-          SMS delivery, cloud hosting, and real-time media relays) that are bound
-          by contract to use the data only to provide their service to us.
+          We do not sell, rent, or trade your personal information to
+          anyone. We have no advertising business and no incentive to. The
+          only parties who process data on our behalf are infrastructure
+          providers, such as SMS delivery, cloud hosting, and video
+          infrastructure, that are bound by contract to use the data only to
+          provide their service to us.
         </p>
       </Section>
 
       <Section heading="Data retention">
         <p>
-          We keep your account information for as long as your account is active.
-          Call metadata is retained for a limited period to operate the service
-          and then deleted or aggregated. If you delete your account, we remove
-          your profile and associated account data, except where we must retain
-          limited records to comply with legal obligations.
+          We keep your account and profile information for as long as your
+          account is active. You can delete your account from within the
+          app at any time. Deleting your account removes your profile,
+          photo, location, matches, and messages, except where we must
+          retain limited records, such as open reports, to comply with legal
+          obligations or keep the app safe.
         </p>
       </Section>
 
       <Section heading="Security">
         <p>
-          Call media is encrypted in transit. We use industry-standard safeguards
-          to protect account data at rest and in transit. No system is perfectly
-          secure, but we work to limit what we collect so there is less to
-          protect in the first place.
+          Video and messages are encrypted in transit. We use
+          industry-standard safeguards to protect account data at rest and
+          in transit. No system is perfectly secure, but we work to limit
+          what we collect so there is less to protect in the first place.
         </p>
       </Section>
 
       <Section heading="Your choices and rights">
         <p>
-          You can edit or remove your display name and photo, revoke contact
-          access in your device settings, and delete your account from within the
-          app at any time. Depending on where you live, you may have additional
-          rights to access, correct, or delete your personal information. To
-          exercise them, contact us at the address below.
+          You can edit your profile, bio, and photo, turn off location
+          access in your device settings (Knock Knock - 5 Minute Dates will not be
+          able to find you matches without it), and delete your account from
+          within the app at any time. Depending on where you live, you may
+          have additional rights to access, correct, or delete your
+          personal information. To exercise them, contact us at the address
+          below.
         </p>
       </Section>
 
-      <Section heading="Children">
+      <Section heading="Age requirement">
         <p>
-          Knock Knock is not directed to children under 13 (or the minimum age in your
-          country), and we do not knowingly collect information from them.
+          Knock Knock - 5 Minute Dates is for adults. You must be 18 or older to
+          create an account, and we ask for your birthday to confirm it. We
+          do not knowingly collect information from anyone under 18, and we
+          remove accounts we find are not eligible.
         </p>
       </Section>
 
       <Section heading="Changes to this policy">
         <p>
-          We may update this policy as the app evolves. When we make material
-          changes, we will update the date at the top and, where appropriate,
-          notify you in the app.
+          We may update this policy as the app evolves. When we make
+          material changes, we will update the date at the top and, where
+          appropriate, notify you in the app.
         </p>
       </Section>
 
@@ -145,10 +174,10 @@ export default function PrivacyPage() {
         <p>
           Questions about privacy? Email us at{" "}
           <a
-            href="mailto:privacy@slide.app"
+            href="mailto:viraat@exla.ai"
             className="text-text underline decoration-hairline underline-offset-4 transition-colors duration-150 ease-out hover:decoration-text"
           >
-            privacy@slide.app
+            viraat@exla.ai
           </a>
           .
         </p>

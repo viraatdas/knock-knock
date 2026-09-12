@@ -1,8 +1,8 @@
-# Android — Google Play submission
+# Android: Google Play submission
 
 **Application ID:** `app.slide` (matches `android/app/build.gradle.kts`).
 
-## Prerequisites (gated — needs Google Play Console account, $25 one-time)
+## Prerequisites (gated, needs Google Play Console account, $25 one-time)
 1. Create a Play Console developer account.
 2. Create the app (name **Slide**, default language, app/game = app, free).
 3. Store listing from `store/listing.md` + assets from `store/assets.md`

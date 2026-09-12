@@ -78,3 +78,8 @@ android/fastlane/play-service-account.json
 ios/Resources/GoogleService-Info.plist
 .rudder-worktrees/
 .gstack/
+.rudder-workspaces/
+RUDDER_SHARED.md
+
+# App Review notes contain the review-account OTP; keep the real file local, commit notes.example.txt
+ios/fastlane/metadata/review_information/notes.txt

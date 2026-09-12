@@ -1,8 +1,10 @@
 //! HTTP route table.
 
 pub mod auth;
-pub mod calls;
-pub mod contacts;
+pub mod chat;
+pub mod dates;
+pub mod profile;
+pub mod safety;
 pub mod users;
 pub mod ws;
 
@@ -23,22 +25,49 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/firebase", post(auth::firebase_auth))
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
-        // me
-        .route("/me", get(users::get_me).patch(users::patch_me))
-        .route("/me/avatar", post(users::post_avatar))
+        // session
+        .route("/session", get(profile::get_session))
+        // profile
+        .route(
+            "/me",
+            get(profile::get_me)
+                .patch(profile::patch_me)
+                .delete(profile::delete_me),
+        )
+        .route(
+            "/me/photo",
+            axum::routing::put(profile::put_photo).delete(profile::delete_photo),
+        )
+        .route("/users/{id}/photo", get(profile::get_user_photo))
+        .route("/me/location", axum::routing::put(profile::put_location))
+        // devices + push
         .route("/devices", post(users::register_device))
         .route(
             "/push/register",
             post(users::register_push).delete(users::unregister_push),
         )
-        // contacts
-        .route("/contacts/sync", post(contacts::sync))
-        .route("/contacts", get(contacts::list))
-        // calls
-        .route("/calls", post(calls::create_call).get(calls::list_calls))
-        .route("/calls/{id}/accept", post(calls::accept_call))
-        .route("/calls/{id}/decline", post(calls::decline_call))
-        .route("/calls/{id}/leave", post(calls::leave_call))
+        // lobby + dates
+        .route("/lobby/join", post(dates::lobby_join))
+        .route("/lobby/heartbeat", post(dates::lobby_heartbeat))
+        .route("/lobby", axum::routing::delete(dates::lobby_leave))
+        .route("/dates/current", get(dates::current_date))
+        .route("/dates/today", get(dates::today_dates))
+        .route("/dates/{id}/leave", post(dates::leave_date))
+        .route("/dates/{id}/decision", post(dates::decide_date))
+        // matches + chat
+        .route("/matches", get(chat::list_matches))
+        .route(
+            "/matches/{id}/messages",
+            get(chat::list_messages).post(chat::post_message),
+        )
+        .route("/matches/{id}/read", post(chat::mark_read))
+        .route("/matches/{id}", axum::routing::delete(chat::unmatch))
+        // safety
+        .route(
+            "/users/{id}/block",
+            post(safety::block_user).delete(safety::unblock_user),
+        )
+        .route("/users/{id}/report", post(safety::report_user))
         // realtime
         .route("/ws", get(ws::ws_handler))
         .with_state(state);
