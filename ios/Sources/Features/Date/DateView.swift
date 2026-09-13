@@ -5,6 +5,11 @@ import SwiftUI
 /// Owns a `DateViewModel` for the LiveKit/mock call; leaving (button or the
 /// 5-minute mark) moves `AppState.dateFlow` to `.deciding`, which swaps this
 /// view out for `DecisionView` from underneath (see `onDisappear`).
+///
+/// The date is anonymous: the server sends `date.partner` redacted (id only,
+/// no name, age, distance, bio or photo), so nothing here shows who the other
+/// person is. Only the countdown and the call controls are on screen; their
+/// identity appears after a mutual match, from the `MatchSummary`.
 struct DateView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var vm: DateViewModel
@@ -13,6 +18,14 @@ struct DateView: View {
     @State private var thumbOffset: CGSize = .zero
     @State private var thumbCornerIndex = 2   // see thumbAnchors: 2 = bottom-trailing
     @State private var hideTask: Task<Void, Never>?
+    /// Measured height of `cameraPermissionBanner` (0 while it isn't shown),
+    /// so the top thumbnail anchors can clear it. See `thumbAnchors`.
+    @State private var cameraBannerHeight: CGFloat = 0
+
+    /// Gap between the top bar, the camera banner and the bottom chrome.
+    /// Explicit (rather than the stack's default) because `thumbAnchors`
+    /// adds it to the banner height.
+    private let chromeSpacing: CGFloat = Theme.Space.xs
 
     init(date: DateSession) {
         _vm = StateObject(wrappedValue: DateViewModel(date: date))
@@ -32,7 +45,7 @@ struct DateView: View {
                     // the other.
                     if !vm.hasRemoteVideo && !vm.showTimeUpOverlay { connectingOverlay }
 
-                    VStack {
+                    VStack(spacing: chromeSpacing) {
                         topBar
                         if let cameraMessage = cameraPermissionMessage {
                             cameraPermissionBanner(cameraMessage)
@@ -42,6 +55,7 @@ struct DateView: View {
                     }
                     .padding(Theme.Space.lg)
                     .padding(.top, Theme.Space.md)
+                    .onPreferenceChange(CameraBannerHeightKey.self) { cameraBannerHeight = $0 }
 
                     // Local self-view thumbnail, draggable, snaps to a corner.
                     // `.simultaneously(with:)` so a stationary tap — which
@@ -136,6 +150,12 @@ struct DateView: View {
             .padding(.vertical, Theme.Space.sm)
             .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: Theme.Radius.small))
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Report the rendered height (padding included, and however
+            // many lines the message wrapped to) for `thumbAnchors`. Reverts
+            // to the key's default of 0 once the banner leaves the tree.
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: CameraBannerHeightKey.self, value: proxy.size.height)
+            })
     }
 
     /// The 1.2s beat between the knock-knock cue and moving to Decision.
@@ -150,25 +170,14 @@ struct DateView: View {
         .animation(Theme.Motion.standard, value: vm.showTimeUpOverlay)
     }
 
+    /// A quiet caption on the leading side and the countdown ring on the
+    /// trailing side. Deliberately no name, age or distance: the partner is
+    /// anonymous until a mutual match (see the type doc).
     private var topBar: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: Theme.Space.xxs) {
-                    Text(vm.date.partner.displayName)
-                        .font(Theme.Font.callout)
-                        .foregroundStyle(.white)
-                    if let age = vm.date.partner.age {
-                        Text("\u{00b7} \(age)")
-                            .font(Theme.Font.callout)
-                            .foregroundStyle(.white.opacity(0.8))
-                    }
-                }
-                if let miles = vm.date.partner.distanceMiles {
-                    Text("\(miles) mi away")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-            }
+        HStack(alignment: .center) {
+            Text("Your date")
+                .font(Theme.Font.caption)
+                .foregroundStyle(.white.opacity(0.7))
             Spacer()
             ZStack {
                 CountdownRing(
@@ -237,10 +246,22 @@ struct DateView: View {
     // MARK: - Draggable thumbnail (snaps to a corner)
 
     /// The four snap anchors for the self-view, inset from the edges and
-    /// clear of the top name/timer and bottom chrome.
+    /// clear of the top bar, the camera banner and the bottom chrome. The
+    /// top bar starts `Theme.Space.lg + Theme.Space.md` below the safe area
+    /// and is 48pt tall (the countdown ring), so its bottom edge is at
+    /// lg + md + 48. While the camera-permission banner is showing it sits
+    /// `chromeSpacing` under the ring and is `cameraBannerHeight` tall (as
+    /// measured, since the message wraps on narrow screens), so the top
+    /// chrome's bottom edge moves down by that much. `yT` is that plus a
+    /// `Theme.Space.md` gap plus half the thumbnail's 128pt height
+    /// (`.position` centers it), which parks the thumbnail's top edge 16pt
+    /// under whichever of the ring or the banner is lowest instead of over
+    /// its lower half.
     private func thumbAnchors(in geo: GeometryProxy) -> [CGPoint] {
         let xL: CGFloat = Theme.Space.lg + 48, xR = geo.size.width - Theme.Space.lg - 48
-        let yT: CGFloat = Theme.Space.xxxl + 64, yB = geo.size.height - 204
+        let banner: CGFloat = cameraPermissionMessage == nil ? 0 : chromeSpacing + cameraBannerHeight
+        let yT: CGFloat = Theme.Space.lg + Theme.Space.md + 48 + banner + Theme.Space.md + 64
+        let yB: CGFloat = geo.size.height - 204
         return [CGPoint(x: xR, y: yT), CGPoint(x: xL, y: yT),
                 CGPoint(x: xR, y: yB), CGPoint(x: xL, y: yB)]
     }
@@ -284,5 +305,14 @@ struct DateView: View {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             if !Task.isCancelled { withAnimation(Theme.Motion.standard) { showChrome = false } }
         }
+    }
+}
+
+/// Rendered height of DateView's camera-permission banner, for the
+/// thumbnail's top anchors. 0 when the banner isn't in the tree.
+private struct CameraBannerHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

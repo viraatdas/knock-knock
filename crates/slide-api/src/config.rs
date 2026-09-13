@@ -121,7 +121,25 @@ fn normalize_apns_topic(topic: String) -> String {
     }
 }
 
+/// True for the only two values `APNS_ENV` accepts. It picks the APNs host
+/// (`push/apns.rs`), so a typo would quietly aim production pushes at the
+/// sandbox host or the reverse, and Apple's answer would then be misleading.
+pub fn apns_env_is_valid(value: &str) -> bool {
+    matches!(value, "sandbox" | "prod")
+}
+
 impl Config {
+    /// The `APNS_ENV` guard shared by `serve()` (at boot, whenever APNs
+    /// credentials are present) and `push-test` (always), so the two cannot
+    /// drift apart.
+    pub fn check_apns_env(&self) -> anyhow::Result<()> {
+        if apns_env_is_valid(&self.apns_env) {
+            Ok(())
+        } else {
+            anyhow::bail!("APNS_ENV must be sandbox or prod, got {:?}", self.apns_env)
+        }
+    }
+
     pub fn from_env() -> Self {
         Self {
             database_url: var(
@@ -208,7 +226,16 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_apns_topic;
+    use super::{apns_env_is_valid, normalize_apns_topic};
+
+    #[test]
+    fn apns_env_accepts_exactly_sandbox_and_prod() {
+        assert!(apns_env_is_valid("sandbox"));
+        assert!(apns_env_is_valid("prod"));
+        for bad in ["", "production", "Sandbox", "prod ", "dev"] {
+            assert!(!apns_env_is_valid(bad), "{bad:?} should be rejected");
+        }
+    }
 
     #[test]
     fn strips_stale_voip_suffix_from_apns_topic() {

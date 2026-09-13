@@ -356,7 +356,18 @@ pub async fn delete_photo(
 }
 
 /// GET /users/:id/photo (auth). 403s before revealing anything else if
-/// either side has blocked the other; 404s when the target has no photo.
+/// either side has blocked the other.
+///
+/// Dates are anonymous, and the redacted `DateSession.partner` still carries
+/// the partner's real user id (the client needs it for block/report), so this
+/// endpoint must not hand a photo to just any signed-in caller with an id.
+/// The photo is served only when the viewer is the target themselves or the
+/// two have an *active* match (`matches` row with `unmatched_at IS NULL`,
+/// the same rule `GET /matches` applies). Every other case, including a
+/// target with no photo, is a plain 404 so the response never confirms that
+/// a photo exists for an id the caller should not be looking at. The review
+/// demo keeps working because `review::ensure_seeded_match` inserts an
+/// active row between the first review phone and the demo account.
 pub async fn get_user_photo(
     State(state): State<AppState>,
     AuthUser(viewer_id): AuthUser,
@@ -375,6 +386,23 @@ pub async fn get_user_photo(
     .await?;
     if blocked {
         return Err(AppError::Forbidden);
+    }
+
+    if viewer_id != target_id {
+        let active_match: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM matches
+                 WHERE unmatched_at IS NULL
+                   AND ((user_a = $1 AND user_b = $2) OR (user_a = $2 AND user_b = $1))
+             )",
+        )
+        .bind(viewer_id)
+        .bind(target_id)
+        .fetch_one(&state.db)
+        .await?;
+        if !active_match {
+            return Err(AppError::NotFound);
+        }
     }
 
     let row: Option<(Option<Vec<u8>>,)> = sqlx::query_as("SELECT photo FROM users WHERE id = $1")

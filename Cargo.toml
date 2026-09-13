@@ -66,8 +66,10 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
-# HTTP client (Twilio, etc.)
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# HTTP client (Twilio, Firebase, APNs). "http2" is required: APNs is HTTP/2-only,
+# and without the feature reqwest advertises only http/1.1 on ALPN, so every
+# push fails with "error sending request" (crates/slide-api/src/push/apns.rs).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "http2"] }
 
 # AWS SDK (SNS for OTP SMS). Credentials resolve from the App Runner instance
 # role / standard AWS env vars; rustls to match the rest of the stack.

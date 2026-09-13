@@ -2,14 +2,22 @@ import SwiftUI
 
 /// Decision screen (SPEC §2.3 "Decision"). Init: `DecisionView(date:
 /// DateSession, endReason: String?, result: DecisionResult?)`.
-/// - `result == nil`: the "Keep talking with X? / Pass" choice, shown while
+/// - `result == nil`: the "Keep talking? / Pass" choice, shown while
 ///   `AppState.dateFlow == .deciding`. The buttons call
 ///   `AppState.decide(explore:)`.
 /// - `result != nil`, only `.waiting` or `.passed` (`.matched` routes to
 ///   `MatchMadeView` instead — see RootView): the outcome copy, shown while
 ///   `AppState.dateFlow == .result`.
+///
+/// The partner is still anonymous here: `date.partner` arrives redacted from
+/// the server (id only), so this screen shows no name and no photo. Their
+/// identity is first shown by `MatchMadeView`, from the `MatchSummary` the
+/// decide endpoint returns on a mutual yes.
 struct DecisionView: View {
     @EnvironmentObject private var appState: AppState
+    /// Not read here since the date went anonymous (the body used to show
+    /// `date.partner`); kept because RootView passes it and the decision
+    /// itself keys off `AppState.dateFlow`, which carries the same session.
     let date: DateSession
     var endReason: String?
     var result: DecisionResult?
@@ -19,10 +27,7 @@ struct DecisionView: View {
     var body: some View {
         VStack(spacing: Theme.Space.xl) {
             Spacer()
-            // Bigger than the usual list-row avatar so the middle of the
-            // screen carries real visual weight instead of reading as bare
-            // space between the greeting and the pinned-bottom actions.
-            PhotoAvatar(profile: date.partner, size: 128)
+            doorMark
             if let result {
                 outcome(result)
             } else {
@@ -41,6 +46,25 @@ struct DecisionView: View {
         .padding(.bottom, Theme.Space.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.bg)
+    }
+
+    /// Stands in for the partner's avatar, which the anonymous date can't
+    /// show. Same 128pt footprint as the `PhotoAvatar` it replaced so the
+    /// middle of the screen still carries real visual weight instead of
+    /// reading as bare space between the question and the pinned-bottom
+    /// actions. A closed door in the warm terracotta: the other side hasn't
+    /// been opened yet.
+    private var doorMark: some View {
+        ZStack {
+            Circle()
+                .fill(Theme.Color.warm.opacity(0.12))
+                .overlay(Circle().stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth))
+            Image(systemName: "door.left.hand.closed")
+                .font(.system(size: 52, weight: .light))
+                .foregroundStyle(Theme.Color.warm)
+        }
+        .frame(width: 128, height: 128)
+        .accessibilityHidden(true)
     }
 
     private var choice: some View {
@@ -62,7 +86,7 @@ struct DecisionView: View {
                     .font(Theme.Font.footnote)
                     .foregroundStyle(Theme.Color.textSecondary)
             }
-            Text("Keep talking with \(date.partner.displayName)?")
+            Text("Keep talking?")
                 .font(Theme.Font.title2)
                 .foregroundStyle(Theme.Color.text)
                 .multilineTextAlignment(.center)
@@ -73,7 +97,7 @@ struct DecisionView: View {
     private func outcome(_ result: DecisionResult) -> some View {
         switch result {
         case .waiting:
-            Text("If \(date.partner.displayName) feels the same, you'll see them in Matches.")
+            Text("If they feel the same, you'll see them in Matches.")
                 .font(Theme.Font.title3)
                 .foregroundStyle(Theme.Color.text)
                 .multilineTextAlignment(.center)

@@ -4,6 +4,11 @@
 //! helpers instead of re-deriving age/distance/profile-completeness math or
 //! re-minting LiveKit tokens inline. Field names are camelCase to match the
 //! wire contract in SPEC.md sections 1.5-1.7 exactly.
+//!
+//! Dates are anonymous: a `DateSession` never carries the partner's identity
+//! (see [`PublicProfile::redacted`] and [`date_session_for`]). The real
+//! profile only ever travels inside a `MatchSummary`, which exists only after
+//! a mutual yes.
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use chrono_tz::Tz;
@@ -19,18 +24,54 @@ use crate::{geo, livekit, state::AppState};
 
 // ── View structs ─────────────────────────────────────────────────────────────
 
+/// The `displayName` on a redacted date partner. Reads as a name wherever the
+/// client interpolates one ("Keep talking with your date?").
+pub const REDACTED_DISPLAY_NAME: &str = "your date";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicProfile {
     pub id: Uuid,
     pub display_name: String,
-    pub age: i32,
-    pub gender: String,
+    /// `None` on a redacted date partner (and, defensively, for a target
+    /// with no birthdate). The iOS model decodes this as `Int?`.
+    pub age: Option<i32>,
+    /// `woman` | `man` | `nonbinary`, or `None` on a redacted date partner.
+    /// The shipped 1.1.0 client decodes this as an optional `Gender` enum:
+    /// `null` decodes, an empty string does not (it fails the whole
+    /// `DateSession`), so this must never be serialized as `""`.
+    pub gender: Option<String>,
     pub bio: String,
     pub has_photo: bool,
     pub photo_url: Option<String>,
     /// Rounded to the nearest mile; `None` when either side has no location.
     pub distance_miles: Option<i32>,
+}
+
+impl PublicProfile {
+    /// The partner card handed out *during* a date: only the id survives, so
+    /// the client can key mock video / block-and-report on it, and every
+    /// identity field is empty. The field set and shape stay identical to a
+    /// real card so the 1.1.0 client already in the App Store keeps decoding
+    /// `DateSession.partner` unchanged; it just has nothing to show.
+    ///
+    /// Two fields are chosen for that client specifically: `gender` is
+    /// `None` (it decodes an optional enum, so `""` would break every date)
+    /// and `display_name` is the placeholder "your date", because the 1.1.0
+    /// decision screen interpolates the name into "Keep talking with
+    /// \(name)?" and has no fallback for an empty one.
+    pub fn redacted(id: Uuid) -> Self {
+        Self {
+            id,
+            display_name: REDACTED_DISPLAY_NAME.to_string(),
+            age: None,
+            gender: None,
+            bio: String::new(),
+            has_photo: false,
+            photo_url: None,
+            distance_miles: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -199,8 +240,12 @@ pub async fn me_view(state: &AppState, uid: Uuid) -> AppResult<MeView> {
 
 /// `target`'s public-facing card as seen by `viewer` (distance is relative to
 /// the viewer's own coarse location). A target with no birthdate (should not
-/// happen once profileComplete is required to appear anywhere) reports age 0
-/// rather than failing the whole response.
+/// happen once profileComplete is required to appear anywhere) reports
+/// `age: null` rather than failing the whole response.
+///
+/// This is the *revealed* card: matches, chat, and the nightly recap. A live
+/// date never uses it; `date_session_for` hands out
+/// [`PublicProfile::redacted`] instead.
 pub async fn public_profile(
     state: &AppState,
     viewer_id: Uuid,
@@ -211,10 +256,10 @@ pub async fn public_profile(
     let now = Utc::now();
 
     let age = match target.birthdate {
-        Some(b) => age_from_birthdate(b, state.cfg.session_tz, now),
+        Some(b) => Some(age_from_birthdate(b, state.cfg.session_tz, now)),
         None => {
             tracing::warn!(user = %target.id, "public_profile: target has no birthdate");
-            0
+            None
         }
     };
     let has_photo = target.photo_updated_at.is_some();
@@ -229,7 +274,7 @@ pub async fn public_profile(
         id: target.id,
         display_name: target.display_name.unwrap_or_default(),
         age,
-        gender: target.gender.unwrap_or_default(),
+        gender: target.gender,
         bio: target.bio,
         has_photo,
         photo_url: photo_url_for(has_photo, target.id),
@@ -240,6 +285,13 @@ pub async fn public_profile(
 /// Build the `DateSession` handed to `recipient_id` for `date_row`: the
 /// partner is the *other* participant, the LiveKit token is minted for
 /// `recipient_id`. Returns 503 `unavailable` if LiveKit isn't configured.
+///
+/// The date is anonymous. `partner` is [`PublicProfile::redacted`] (id plus
+/// the "your date" placeholder name, every other identity field empty) and
+/// the LiveKit token carries no display name, so neither the API payload nor
+/// the room's participant metadata can tell the other side who they're
+/// talking to. Identity is revealed only by the `MatchSummary` a mutual yes
+/// produces (see [`match_summary`]).
 pub async fn date_session_for(
     state: &AppState,
     date_row: &DateRow,
@@ -258,15 +310,14 @@ pub async fn date_session_for(
         return Err(AppError::unavailable("livekit is not configured"));
     }
 
-    let recipient = fetch_user(state, recipient_id).await?;
-    let partner = public_profile(state, recipient_id, partner_id).await?;
+    let partner = PublicProfile::redacted(partner_id);
 
     let ttl = state.cfg.date_seconds + 120;
     let join_token = livekit::mint_token(
         &state.cfg.livekit_api_key,
         &state.cfg.livekit_api_secret,
         &recipient_id.to_string(),
-        recipient.display_name.as_deref(),
+        None,
         &date_row.room_id,
         ttl,
     )
@@ -340,8 +391,69 @@ pub async fn match_summary(
 #[cfg(test)]
 mod tests {
     use chrono::{NaiveDate, TimeZone};
+    use uuid::Uuid;
 
-    use super::age_from_birthdate;
+    use super::{age_from_birthdate, PublicProfile, REDACTED_DISPLAY_NAME};
+
+    /// A fully populated card, the shape a match or chat hands out. The
+    /// redaction tests compare against it so the two can never drift apart.
+    fn real_card(id: Uuid) -> PublicProfile {
+        PublicProfile {
+            id,
+            display_name: "Maya".to_string(),
+            age: Some(30),
+            gender: Some("woman".to_string()),
+            bio: "Coffee and long walks.".to_string(),
+            has_photo: true,
+            photo_url: Some(format!("/v1/users/{id}/photo")),
+            distance_miles: Some(12),
+        }
+    }
+
+    fn sorted_keys(value: &serde_json::Value) -> Vec<String> {
+        let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+        keys.sort_unstable();
+        keys
+    }
+
+    #[test]
+    fn redacted_profile_keeps_only_the_id() {
+        let id = Uuid::new_v4();
+        let profile = PublicProfile::redacted(id);
+
+        assert_eq!(profile.id, id);
+        assert_eq!(profile.display_name, "your date");
+        assert_eq!(profile.display_name, REDACTED_DISPLAY_NAME);
+        assert_eq!(profile.age, None);
+        assert_eq!(profile.gender, None);
+        assert_eq!(profile.bio, "");
+        assert!(!profile.has_photo);
+        assert_eq!(profile.photo_url, None);
+        assert_eq!(profile.distance_miles, None);
+    }
+
+    /// Locks the wire shape: the 1.1.0 client decodes every key of a real
+    /// card, so the redacted card must carry exactly the same key set, and
+    /// nothing but `id` and the placeholder name may carry a value. `gender`
+    /// in particular must be `null`, not `""`: the client decodes it as an
+    /// optional enum and an empty string fails the whole `DateSession`.
+    #[test]
+    fn redacted_profile_serializes_with_no_identity_on_the_wire() {
+        let id = Uuid::new_v4();
+        let json = serde_json::to_value(PublicProfile::redacted(id)).unwrap();
+        let real = serde_json::to_value(real_card(id)).unwrap();
+        assert_eq!(sorted_keys(&json), sorted_keys(&real));
+
+        let object = json.as_object().unwrap();
+        assert_eq!(object["id"], serde_json::json!(id.to_string()));
+        assert_eq!(object["displayName"], serde_json::json!("your date"));
+        assert_eq!(object["bio"], serde_json::json!(""));
+        assert!(object["gender"].is_null(), "gender must be null, not \"\"");
+        for key in ["age", "photoUrl", "distanceMiles"] {
+            assert!(object[key].is_null(), "{key} leaked");
+        }
+        assert_eq!(object["hasPhoto"], serde_json::json!(false));
+    }
 
     #[test]
     fn age_counts_a_same_day_birthday_as_already_had() {

@@ -205,6 +205,14 @@ pub async fn current_date(
 #[serde(rename_all = "camelCase")]
 pub struct TodayDateEntry {
     pub id: Uuid,
+    /// [`PublicProfile::redacted`](crate::views::PublicProfile::redacted)
+    /// unless `matched` is true: a date that did not turn into a match
+    /// stays anonymous after the fact, the same as during the date. A
+    /// matched partner is already revealed through their `MatchSummary`, so
+    /// the recap shows the real card for that row only. `matched` means an
+    /// *active* match (`unmatched_at IS NULL`, the same rule as
+    /// `GET /matches`): once a pair unmatches or one side blocks the other,
+    /// the row goes back to `matched: false` with the redacted card.
     pub partner: crate::views::PublicProfile,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -219,6 +227,11 @@ pub struct TodayDateEntry {
 /// `SessionWindow::compute(...).session_date`, which reports *tomorrow*'s
 /// date once the window has closed for the night (see `session.rs`); this
 /// recap is meant to keep showing tonight's dates right after 8 PM.
+///
+/// Dates are anonymous, and a pass or a still-pending decision must not
+/// undo that: each row's `partner` is the redacted card unless the date is
+/// `matched`, in which case the real card (already handed out in the
+/// `MatchSummary`) is returned so the recap can show who it was.
 pub async fn today_dates(
     State(state): State<AppState>,
     AuthUser(uid): AuthUser,
@@ -241,17 +254,27 @@ pub async fn today_dates(
         } else {
             row.user_a
         };
-        let partner = views::public_profile(&state, uid, partner_id).await?;
         let my_decision = if row.user_a == uid {
             row.decision_a
         } else {
             row.decision_b
         };
-        let matched: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM matches WHERE date_id = $1)")
-                .bind(row.id)
-                .fetch_one(&state.db)
-                .await?;
+        // Active matches only: an unmatched pair (including a block, which
+        // unmatches) is redacted again, consistent with `GET /matches`.
+        let matched: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM matches WHERE date_id = $1 AND unmatched_at IS NULL
+             )",
+        )
+        .bind(row.id)
+        .fetch_one(&state.db)
+        .await?;
+        // Only a mutual yes reveals the partner; see `TodayDateEntry::partner`.
+        let partner = if matched {
+            views::public_profile(&state, uid, partner_id).await?
+        } else {
+            views::PublicProfile::redacted(partner_id)
+        };
         entries.push(TodayDateEntry {
             id: row.id,
             partner,

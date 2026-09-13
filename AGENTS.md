@@ -192,7 +192,7 @@ see the session as open, with `closesAt` an hour out.
 | PATCH | `/me` | `{ "displayName"?, "birthdate"?, "gender"?, "interestedIn"?, "ageMin"?, "ageMax"?, "bio"? }` | `MeView` |
 | PUT | `/me/photo` | raw `image/jpeg` (or multipart field `file`), ≤ 600 KB | `{ "photoUrl", "photoUpdatedAt" }` |
 | DELETE | `/me/photo` | none | `204` |
-| GET | `/users/:id/photo` | none (auth) | `image/jpeg`, `Cache-Control: private, max-age=300`; 404 if none, 403 if either side has blocked the other |
+| GET | `/users/:id/photo` | none (auth) | `image/jpeg`, `Cache-Control: private, max-age=300`; 403 if either side has blocked the other; otherwise served only to the user themselves or to a partner with an active match (`unmatched_at IS NULL`), every other case is 404 (no photo, no match, unmatched) so the call never confirms a photo exists for an id the caller only knows from an anonymous date |
 | PUT | `/me/location` | `{ "lat", "lng" }` | `204` |
 | DELETE | `/me` | none | `204`, deletes the account (FK cascades), revokes refresh tokens, removes push subscriptions |
 | POST | `/push/register` | `{ "pushToken", "kind": "apns", ... }` | `{ "ok": true }` (only `apns` is accepted; other kinds get `422`) |
@@ -225,7 +225,7 @@ privacy label).
 | POST | `/lobby/heartbeat` | none | same shape as `/lobby/join`; call every 5 s |
 | DELETE | `/lobby` | none | `204` |
 | GET | `/dates/current` | none | `{ "date": DateSession \| null }` |
-| GET | `/dates/today` | none | `[{ "id", "partner": PublicProfile, "startedAt", "endedAt", "myDecision": true\|false\|null, "matched": bool }]` |
+| GET | `/dates/today` | none | `[{ "id", "partner": PublicProfile (redacted unless `matched`), "startedAt", "endedAt", "myDecision": true\|false\|null, "matched": bool }]`; `matched` means an active match (`unmatched_at IS NULL`, same rule as `GET /matches`), so an unmatched or blocked pair goes back to `matched: false` with the redacted card |
 | POST | `/dates/:id/leave` | none | `204`; ends the date (`end_reason='left'`), publishes `date_ended` to both |
 | POST | `/dates/:id/decision` | `{ "explore": true }` | `{ "status": "waiting"\|"matched"\|"passed", "match": MatchSummary? }` |
 
@@ -244,16 +244,33 @@ answered first.
 ```json
 DateSession {
   "id", "roomId", "sfuUrl", "joinToken", "startedAt", "endsAt", "dateSeconds": 300,
-  "partner": PublicProfile
+  "partner": PublicProfile   // redacted, see below
 }
 PublicProfile { "id", "displayName", "age", "gender", "bio", "hasPhoto", "photoUrl", "distanceMiles": 12 }
 ```
 
+Dates are anonymous. `DateSession.partner` keeps the `PublicProfile` shape
+so the 1.1.0 client decodes it, but it is redacted (`views.rs`,
+`PublicProfile::redacted`): `id` is the partner's user id, `displayName` is
+the placeholder `"your date"` (the 1.1.0 decision screen reads "Keep
+talking with \(name)?" and has no fallback for an empty name), and every
+other field is empty (`age: null`, `gender: null`, `bio: ""`,
+`hasPhoto: false`, `photoUrl: null`, `distanceMiles: null`). `gender` must
+be `null`, never `""`: the shipped client decodes it as an optional enum,
+and an empty string fails decoding for the whole `DateSession`. The client
+uses the id only for block/report and mock video. The real card is first
+handed out inside the `MatchSummary` that a mutual yes produces
+(`/dates/:id/decision`, `match_made`, `/matches`); `GET /dates/today`
+returns the redacted card for every row except a `matched` one, whose
+partner is already revealed. `age` is `null` on a redacted card and,
+defensively, for a target with no birthdate.
+
 `joinToken` is a LiveKit JWT minted per-recipient (identity = your user id,
-room = the date id, ttl = `DATE_SECONDS + 120`); if LiveKit isn't
-configured the endpoint returns `503 unavailable`. `distanceMiles` is
-haversine over the two stored coarse locations, rounded to an integer, and
-`null` if either side has none.
+no `name` claim so room metadata carries no display name, room = the date
+id, ttl = `DATE_SECONDS + 120`); if LiveKit isn't configured the endpoint
+returns `503 unavailable`. `distanceMiles` is haversine over the two stored
+coarse locations, rounded to an integer, and `null` if either side has
+none.
 
 The matcher (`matcher.rs`) runs every 1.5 s plus once synchronously at the
 end of `/lobby/join`: it drops stale lobby rows (no heartbeat in 20 s), then
@@ -411,6 +428,26 @@ Production backend guidance:
   or a real SMS provider.
 - Unknown environment variables must be ignored at boot, never fatal, since
   Fly still carries a few legacy secrets from the calling product.
+- Push goes to APNs over HTTP/2. The workspace `reqwest` in `Cargo.toml`
+  must keep the `http2` feature; without it every send fails with "error
+  sending request" while `/v1/health` stays green. The nightly job logs
+  `scheduler: doors-open push sent=N failed=M pruned=P recipients=K` right
+  after 7:00 PM Pacific (`SESSION_OPEN_HOUR` defaults to 19); `sent=0` with
+  recipients means APNs is broken, not that nobody is signed up.
+- To test-fire a real push with the production secrets, run the binary on
+  the Fly machine in its one-shot mode:
+  `fly ssh console -a slide-api -C "/usr/local/bin/slide-api push-test --phone +14155550137"`
+  (or `--user <uuid>`). It loads the same env, connects to Postgres, sends
+  "Test: notifications are working." to every APNs token the account has,
+  prints one line per token with Apple's status or error (tokens masked to 8
+  chars, and transport errors printed without the request URL so a full
+  token never lands in the output or the logs), and exits 1 unless at least
+  one token was accepted and none were rejected. It refuses to send unless
+  `APNS_ENV` is exactly `sandbox` or `prod`, the same guard `serve()`
+  applies at boot. A 200 from Apple means the push was accepted; the device
+  still has to allow notifications for Knock Knock in Settings, so a clean
+  run with nothing on the phone points at the device's notification
+  permission, not at APNs. It never starts the server or the scheduler.
 
 ## Release Automation
 

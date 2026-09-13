@@ -12,7 +12,7 @@ use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use redis::{AsyncCommands, ExistenceCheck, SetExpiry, SetOptions};
 use uuid::Uuid;
 
-use crate::{config::Config, state::AppState};
+use crate::{config::Config, push::NotifyOutcome, state::AppState};
 
 /// How long the door's-open guard key sticks around in Redis. Longer than the
 /// 5-minute firing window (so a slow tick can't slip through twice) but short
@@ -92,10 +92,11 @@ async fn tick_once(state: &AppState) -> anyhow::Result<()> {
     .fetch_all(&state.db)
     .await?;
 
+    let mut outcome = NotifyOutcome::default();
     for (user_id,) in &recipients {
         let mut data = serde_json::Map::new();
         data.insert("type".to_string(), serde_json::json!("doors_open"));
-        state
+        outcome += state
             .push
             .notify_alert(
                 &state.db,
@@ -110,7 +111,26 @@ async fn tick_once(state: &AppState) -> anyhow::Result<()> {
             .await;
     }
 
-    tracing::info!(count = recipients.len(), %session_date, "scheduler: sent doors-open push");
+    // `sent` counts tokens APNs accepted, `recipients` the users looked up;
+    // one user can hold several tokens, and every send can fail while the
+    // lookup succeeds, so the two are logged side by side.
+    tracing::info!(
+        sent = outcome.sent,
+        failed = outcome.failed,
+        pruned = outcome.pruned,
+        recipients = recipients.len(),
+        %session_date,
+        "scheduler: doors-open push"
+    );
+    if !recipients.is_empty() && outcome.sent == 0 {
+        tracing::error!(
+            failed = outcome.failed,
+            pruned = outcome.pruned,
+            recipients = recipients.len(),
+            %session_date,
+            "scheduler: doors-open push reached nobody; check APNs with `slide-api push-test`"
+        );
+    }
     Ok(())
 }
 

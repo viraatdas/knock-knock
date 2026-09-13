@@ -83,11 +83,8 @@ struct EditProfileView: View {
 
                     VStack(alignment: .leading, spacing: Theme.Space.sm) {
                         Text("Ages \(Int(ageMin))\u{2013}\(Int(ageMax))").uppercaseLabel()
-                        HStack(spacing: Theme.Space.lg) {
-                            Stepper("Min \(Int(ageMin))", value: $ageMin, in: 18...ageMax, step: 1)
-                            Stepper("Max \(Int(ageMax))", value: $ageMax, in: ageMin...99, step: 1)
-                        }
-                        .font(Theme.Font.footnote)
+                        RangeSlider(lowerValue: $ageMin, upperValue: $ageMax,
+                                    lowerLabel: "Minimum age", upperLabel: "Maximum age")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 

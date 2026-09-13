@@ -162,12 +162,28 @@ final class AppState: ObservableObject {
         signaling.connect()
         startSessionPollLoop()
         await refreshMatches()
+        // A sign-out (manual, or the 401 handler) can land during that await.
+        // Everything below re-arms device-level state for the signed-in
+        // account, so bail before touching any of it on a signed-out device.
+        guard tokens.isAuthenticated else { return }
         // Re-asserts push registration for whichever account is signed in
         // now. `didRegisterForRemoteNotificationsWithDeviceToken` only fires
         // once per process on its own, so a second, already-onboarded user
         // logging in without a relaunch would otherwise never claim this
         // device's token — this call re-triggers that callback.
         NotificationService.registerForRemoteNotifications()
+        // Same idea for the 18:59 PT local doors-open reminder: logoutLocally
+        // cancels it, and nothing else put it back for a later sign-in on the
+        // same device. UNUserNotificationCenter.add replaces the pending
+        // request with the same identifier, so re-scheduling on every
+        // bootstrap/sign-in is idempotent.
+        let authorized = await NotificationService.authorizationStatus() == .authorized
+        // Same race as above: logoutLocally cancels this reminder, and a
+        // logout that landed mid-await must not put it straight back.
+        guard tokens.isAuthenticated else { return }
+        if authorized {
+            NotificationService.scheduleDoorsOpenReminder()
+        }
     }
 
     func didAuthenticate(user: MeView) {
@@ -419,7 +435,7 @@ final class AppState: ObservableObject {
         guard case .deciding(let date, _) = dateFlow else { return nil }
         do {
             let resp = try await api.decideDate(id: date.id, explore: explore)
-            applyDecision(resp, date: date)
+            await applyDecision(resp, date: date)
             return nil
         } catch let error as APIError where error.status == 409 {
             // A changed answer is rejected server-side; the original stands.
@@ -437,16 +453,41 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func applyDecision(_ resp: DecisionResponse, date: DateSession) {
+    private func applyDecision(_ resp: DecisionResponse, date: DateSession) async {
+        // `decide()` awaited the network before calling this; if a sign-out
+        // (or any other transition) moved the flow off this date's decision
+        // meanwhile, drop the response instead of upserting a match row into
+        // a signed-out account or presenting `.result` over onboarding.
+        guard case .deciding(let current, _) = dateFlow, current.id == date.id else { return }
         let result: DecisionResult
         switch resp.status {
         case "matched":
-            let match = resp.match ?? MatchSummary(id: date.id, partner: date.partner,
-                                                   createdAt: Date(), lastMessage: nil, unreadCount: 0)
-            upsertMatch(match)
-            result = .matched(match)
-            SoundEffects.play(.match)
-            Haptics.success()
+            var match = resp.match
+            if match == nil {
+                // "matched" with no match body. Synthesizing a MatchSummary
+                // from date.partner is useless now that the date card is
+                // redacted (blank name, no photo): it would show an empty
+                // match screen and leave a nameless row in the list. The
+                // real card is in /matches, so refetch and pick this
+                // partner's row instead.
+                await refreshMatches()
+                // That await is the only suspension point in here; make sure
+                // the flow is still on this date's decision before writing
+                // its result (a sign-out could have landed meanwhile).
+                guard case .deciding(let current, _) = dateFlow, current.id == date.id else { return }
+                match = matches.first { $0.partner.id == date.partner.id }
+            }
+            if let match {
+                upsertMatch(match)
+                result = .matched(match)
+                SoundEffects.play(.match)
+                Haptics.success()
+            } else {
+                // Still no card. Show "waiting" and let the match_made socket
+                // event or the next matches load put the real row in place;
+                // never insert a synthesized one.
+                result = .waiting
+            }
         case "passed":
             result = .passed
         default:
@@ -752,6 +793,17 @@ extension AppState: SignalingClientDelegate {
             case .dateEnded(let dateId, let reason):
                 self.applyDateEnded(dateId: dateId, reason: reason)
             case .matchMade(let match):
+                // The decision came back "matched" with no card and
+                // /matches hadn't caught up yet, so the result screen is
+                // sitting on "waiting". This event carries the real card:
+                // promote it live to the match screen, with the same
+                // sound + haptic the normal matched path in applyDecision
+                // plays (Haptics.success below covers the haptic).
+                if case .result(.waiting, let date) = self.dateFlow,
+                   match.partner.id == date.partner.id {
+                    self.dateFlow = .result(.matched(match), date)
+                    SoundEffects.play(.match)
+                }
                 self.upsertMatch(match)
                 Haptics.success()
             case .matchRemoved(let matchId):

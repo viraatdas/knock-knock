@@ -8,6 +8,7 @@ mod geo;
 mod hub;
 mod livekit;
 mod matcher;
+mod ops;
 mod otp_store;
 mod push;
 mod review;
@@ -37,6 +38,22 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // No arguments serves, as always. A first argument names a one-shot
+    // operator command (`ops.rs`) that runs with the same env/secrets and
+    // exits without starting the server or any background task.
+    let mut args = std::env::args().skip(1);
+    match args.next() {
+        None => serve().await,
+        Some(cmd) if cmd == "push-test" => ops::push_test(args.collect()).await,
+        Some(cmd) => anyhow::bail!(
+            "unknown command {cmd:?}; run with no arguments to serve, or `push-test --phone <E.164>`"
+        ),
+    }
+}
+
+/// The API server: config guards, Postgres + migrations, Redis, background
+/// tasks (matcher, date expirer, doors-open scheduler), then axum.
+async fn serve() -> anyhow::Result<()> {
     let cfg = Config::from_env();
 
     // ── Safety guards: fail loudly instead of shipping an insecure config ──
@@ -73,8 +90,9 @@ async fn main() -> anyhow::Result<()> {
     {
         anyhow::bail!("APNs is partially configured; set credentials and a non-empty APNS_TOPIC");
     }
-    if apns_credentials_present && !matches!(cfg.apns_env.as_str(), "sandbox" | "prod") {
-        anyhow::bail!("APNS_ENV must be sandbox or prod");
+    if apns_credentials_present {
+        // Shared with `push-test` (ops.rs) so the two guards cannot drift.
+        cfg.check_apns_env()?;
     }
     if !cfg.review_phones.is_empty() && cfg.review_otp_code.is_empty() {
         tracing::error!(

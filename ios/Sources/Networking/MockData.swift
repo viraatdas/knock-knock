@@ -48,14 +48,25 @@ enum MockData {
         profiles.first { $0.id == id } ?? profiles[0]
     }
 
+    /// What the server actually sends as `DateSession.partner`: the id and
+    /// nothing else. Dates are anonymous; the real card only arrives inside
+    /// a `MatchSummary` after a mutual yes.
+    static func anonymousPartner(id: String) -> PublicProfile {
+        PublicProfile(id: id, displayName: "", age: nil, gender: nil, bio: "",
+                      hasPhoto: false, photoUrl: nil, distanceMiles: nil)
+    }
+
     /// A date in progress, 1:48 elapsed of 5:00 (matches the SPEC's "3:12 left" scene).
+    /// `partner` is redacted down to its id before it goes in, mirroring the
+    /// wire contract; the id still picks the stand-in remote feed in
+    /// `MockVideoPlaceholder`.
     static func dateSession(with partner: PublicProfile = profiles[0],
                             secondsLeft: TimeInterval = 192) -> DateSession {
         DateSession(id: "d_mock", roomId: "room_mock", sfuUrl: "wss://sfu.example/mock",
                    joinToken: "mock-token",
                    startedAt: Date(timeIntervalSinceNow: -(300 - secondsLeft)),
                    endsAt: Date(timeIntervalSinceNow: secondsLeft),
-                   dateSeconds: 300, partner: partner)
+                   dateSeconds: 300, partner: anonymousPartner(id: partner.id))
     }
 
     /// 10-message transcript for the first match, with Maya.
