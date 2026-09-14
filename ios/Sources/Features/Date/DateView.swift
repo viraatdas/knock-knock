@@ -137,25 +137,52 @@ struct DateView: View {
     }
 
     /// SPEC: "Turn on camera access in Settings to be seen" — shown instead
-    /// of silently degrading to no video when camera permission was denied.
+    /// of silently degrading to no video/audio when permission was denied.
+    /// Combines camera and microphone into one line (rather than two
+    /// stacked banners) since both point at the same fix: the Settings app.
     private var cameraPermissionMessage: String? {
-        vm.cameraPermissionDenied ? "Camera access is off. Turn it on in Settings to be seen." : nil
+        switch (vm.cameraPermissionDenied, vm.microphonePermissionDenied) {
+        case (true, true):
+            return "Camera and microphone are off. Turn them on in Settings to be seen and heard."
+        case (true, false):
+            return "Camera access is off. Turn it on in Settings to be seen."
+        case (false, true):
+            return "Microphone access is off. Turn it on in Settings to be heard."
+        case (false, false):
+            return nil
+        }
     }
 
+    /// Tappable — unlike a plain notice, this is the fastest way back into
+    /// the flow: open Settings instead of leaving the person to hunt for it
+    /// on their own mid-date.
     private func cameraPermissionBanner(_ message: String) -> some View {
-        Text(message)
-            .font(Theme.Font.footnote)
-            .foregroundStyle(.white)
+        Button {
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        } label: {
+            HStack(spacing: Theme.Space.xs) {
+                Text(message)
+                    .font(Theme.Font.footnote)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: Theme.Space.xs)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
             .padding(.horizontal, Theme.Space.md)
             .padding(.vertical, Theme.Space.sm)
             .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: Theme.Radius.small))
             .frame(maxWidth: .infinity, alignment: .leading)
-            // Report the rendered height (padding included, and however
-            // many lines the message wrapped to) for `thumbAnchors`. Reverts
-            // to the key's default of 0 once the banner leaves the tree.
-            .background(GeometryReader { proxy in
-                Color.clear.preference(key: CameraBannerHeightKey.self, value: proxy.size.height)
-            })
+        }
+        .buttonStyle(PressableButtonStyle())
+        // Report the rendered height (padding included, and however
+        // many lines the message wrapped to) for `thumbAnchors`. Reverts
+        // to the key's default of 0 once the banner leaves the tree.
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: CameraBannerHeightKey.self, value: proxy.size.height)
+        })
     }
 
     /// The 1.2s beat between the knock-knock cue and moving to Decision.

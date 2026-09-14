@@ -39,6 +39,10 @@ final class DateViewModel: ObservableObject {
     /// having video yet), so DateView can explain the black local thumbnail
     /// instead of leaving it silent.
     @Published private(set) var cameraPermissionDenied = false
+    /// True when microphone access was actually denied, so DateView can
+    /// explain why the other person can't hear this side instead of leaving
+    /// it silent (mirrors `cameraPermissionDenied`).
+    @Published private(set) var microphonePermissionDenied = false
     /// True for the 1.2s "Time!" beat between the knock-knock cue and
     /// `onTimeUp` firing.
     @Published var showTimeUpOverlay = false
@@ -87,9 +91,10 @@ final class DateViewModel: ObservableObject {
     private func startMediaAndJoin() {
         Task { [weak self] in
             guard let self else { return }
-            _ = await MediaPermissions.requestMicrophoneAccess()
+            let micGranted = await MediaPermissions.requestMicrophoneAccess()
             let cameraGranted = await MediaPermissions.requestCameraAccess()
             guard !Task.isCancelled else { return }
+            self.microphonePermissionDenied = !micGranted
             self.cameraPermissionDenied = !cameraGranted
             self.callService.join(session: self.date, videoEnabled: cameraGranted)
         }
