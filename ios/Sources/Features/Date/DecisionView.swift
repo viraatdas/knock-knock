@@ -2,9 +2,11 @@ import SwiftUI
 
 /// Decision screen (SPEC §2.3 "Decision"). Init: `DecisionView(date:
 /// DateSession, endReason: String?, result: DecisionResult?)`.
-/// - `result == nil`: the "Keep talking? / Pass" choice, shown while
-///   `AppState.dateFlow == .deciding`. The buttons call
-///   `AppState.decide(explore:)`.
+/// - `result == nil`: a swipeable card — swipe right (or tap the heart) to
+///   keep talking, swipe left (or tap the X) to pass — shown while
+///   `AppState.dateFlow == .deciding`. Either path calls
+///   `AppState.decide(explore:)`; the decision is private (the other person
+///   never sees which way you went unless it's a mutual yes).
 /// - `result != nil`, only `.waiting` or `.passed` (`.matched` routes to
 ///   `MatchMadeView` instead — see RootView): the outcome copy, shown while
 ///   `AppState.dateFlow == .result`.
@@ -23,15 +25,23 @@ struct DecisionView: View {
     var result: DecisionResult?
     @State private var isDeciding = false
     @State private var errorMessage: String?
+    /// Live finger position while dragging the card; `.zero` at rest. Also
+    /// the vehicle for the fly-off-screen animation on release past
+    /// `swipeThreshold`, so `decide(_:)` and the drag gesture share one path.
+    @State private var dragOffset: CGSize = .zero
+    @State private var cardRemoved = false
+
+    private let swipeThreshold: CGFloat = 100
 
     var body: some View {
         VStack(spacing: Theme.Space.xl) {
             Spacer()
-            doorMark
             if let result {
+                doorMark
                 outcome(result)
             } else {
-                choice
+                card
+                swipeHint
             }
             if let errorMessage {
                 Text(errorMessage)
@@ -67,7 +77,76 @@ struct DecisionView: View {
         .accessibilityHidden(true)
     }
 
-    private var choice: some View {
+    /// The swipeable card: `doorMark` plus the prompt, draggable left/right,
+    /// with LIKE/PASS stamps that fade in as the drag crosses the threshold.
+    /// A drag is just a faster path to the same `decide(_:)` the heart/X
+    /// buttons below call — VoiceOver and anyone who'd rather tap keep a
+    /// fully equivalent way to answer.
+    private var card: some View {
+        VStack(spacing: Theme.Space.lg) {
+            ZStack {
+                doorMark
+                stamp("LIKE", color: Theme.Color.warm)
+                    .opacity(likeOpacity)
+                    .rotationEffect(.degrees(-12))
+                    .offset(x: -70, y: -60)
+                stamp("PASS", color: Theme.Color.textSecondary)
+                    .opacity(passOpacity)
+                    .rotationEffect(.degrees(12))
+                    .offset(x: 70, y: -60)
+            }
+            promptText
+        }
+        .padding(Theme.Space.xl)
+        .background(Theme.Color.bg, in: RoundedRectangle(cornerRadius: Theme.Radius.large))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.large)
+                .stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth)
+        )
+        .offset(dragOffset)
+        .rotationEffect(.degrees(Double(dragOffset.width / 16)))
+        .opacity(cardRemoved ? 0 : 1)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    guard !isDeciding else { return }
+                    dragOffset = value.translation
+                }
+                .onEnded { value in
+                    guard !isDeciding else { return }
+                    if value.translation.width > swipeThreshold {
+                        swipe(liked: true)
+                    } else if value.translation.width < -swipeThreshold {
+                        swipe(liked: false)
+                    } else {
+                        withAnimation(Theme.Motion.standard) { dragOffset = .zero }
+                    }
+                }
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(promptAccessibilityLabel)
+    }
+
+    private func stamp(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(Theme.Font.title3.bold())
+            .foregroundStyle(color)
+            .padding(.horizontal, Theme.Space.sm)
+            .padding(.vertical, Theme.Space.xxs)
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.small).stroke(color, lineWidth: 2))
+    }
+
+    /// 0→1 as the card crosses from center to `swipeThreshold` to the right.
+    private var likeOpacity: Double {
+        min(1, max(0, Double(dragOffset.width) / Double(swipeThreshold)))
+    }
+
+    /// 0→1 as the card crosses from center to `swipeThreshold` to the left.
+    private var passOpacity: Double {
+        min(1, max(0, Double(-dragOffset.width) / Double(swipeThreshold)))
+    }
+
+    private var promptText: some View {
         VStack(spacing: Theme.Space.sm) {
             // "left" is a partner-initiated date_ended; "self_left" is your
             // own Leave button (see AppState+date.swift) and gets no extra
@@ -93,6 +172,17 @@ struct DecisionView: View {
         }
     }
 
+    private var promptAccessibilityLabel: String {
+        "Keep talking? Double tap the heart below to say yes, or the X to pass."
+    }
+
+    private var swipeHint: some View {
+        Text("Swipe right to keep talking, left to pass")
+            .font(Theme.Font.caption)
+            .foregroundStyle(Theme.Color.textSecondary)
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private func outcome(_ result: DecisionResult) -> some View {
         switch result {
@@ -114,20 +204,20 @@ struct DecisionView: View {
     @ViewBuilder
     private var actions: some View {
         if result == nil {
-            VStack(spacing: Theme.Space.md) {
-                PrimaryButton(title: "Yes, keep talking", isLoading: isDeciding) { decide(true) }
-                Button { decide(false) } label: {
-                    Text("Pass")
-                        .font(Theme.Font.button)
-                        .foregroundStyle(Theme.Color.text)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.Radius.large)
-                                .stroke(Theme.Color.hairline, lineWidth: Theme.hairlineWidth)
-                        )
+            HStack(spacing: Theme.Space.xxl) {
+                CircleActionButton(systemImage: "xmark", diameter: 64,
+                                   tint: Theme.Color.textSecondary, strokeColor: Theme.Color.hairline,
+                                   background: Theme.Color.bg) {
+                    swipe(liked: false)
                 }
-                .buttonStyle(PressableButtonStyle())
+                .accessibilityLabel("Pass")
+                .disabled(isDeciding)
+
+                CircleActionButton(systemImage: "heart.fill", diameter: 72, filled: true,
+                                   tint: Theme.Color.warm, filledIconColor: Theme.Color.onAccent) {
+                    swipe(liked: true)
+                }
+                .accessibilityLabel("Keep talking")
                 .disabled(isDeciding)
             }
         } else {
@@ -143,6 +233,20 @@ struct DecisionView: View {
         }
     }
 
+    /// Shared by the drag gesture and the heart/X buttons: animate the card
+    /// off in `liked`'s direction, then fire the actual decision. If the
+    /// request fails, bring the card back instead of leaving it stranded
+    /// off-screen with no way to answer again.
+    private func swipe(liked: Bool) {
+        guard !isDeciding else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            dragOffset = CGSize(width: liked ? 700 : -700, height: dragOffset.height)
+            cardRemoved = true
+        }
+        Haptics.gentle()
+        decide(liked)
+    }
+
     private func decide(_ explore: Bool) {
         isDeciding = true
         errorMessage = nil
@@ -151,6 +255,15 @@ struct DecisionView: View {
             await MainActor.run {
                 isDeciding = false
                 errorMessage = failure
+                if failure != nil {
+                    // The card already flew off-screen optimistically; a
+                    // failed request means no decision was recorded, so
+                    // bring it back and let them try again.
+                    withAnimation(Theme.Motion.standard) {
+                        dragOffset = .zero
+                        cardRemoved = false
+                    }
+                }
             }
         }
     }
