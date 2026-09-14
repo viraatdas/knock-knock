@@ -33,24 +33,33 @@ struct DecisionView: View {
 
     private let swipeThreshold: CGFloat = 100
 
+    private func errorText(_ message: String) -> some View {
+        Text(message)
+            .font(Theme.Font.footnote)
+            .foregroundStyle(Theme.Color.danger)
+            .multilineTextAlignment(.center)
+    }
+
     var body: some View {
         VStack(spacing: Theme.Space.xl) {
             Spacer()
             if let result {
                 doorMark
                 outcome(result)
+                if let errorMessage { errorText(errorMessage) }
+                Spacer()
+                actions
             } else {
+                // The X/heart pair sits right under the card (its natural
+                // partner, like Tinder's), not pinned to the screen's bottom
+                // edge with a big gap — that only reads right for the
+                // taller post-decision buttons in the branch above.
                 card
                 swipeHint
+                if let errorMessage { errorText(errorMessage) }
+                actions
+                Spacer()
             }
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(Theme.Font.footnote)
-                    .foregroundStyle(Theme.Color.danger)
-                    .multilineTextAlignment(.center)
-            }
-            Spacer()
-            actions
         }
         .padding(.horizontal, Theme.Space.lg)
         .padding(.bottom, Theme.Space.xl)
