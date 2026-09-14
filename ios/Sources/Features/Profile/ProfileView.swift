@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import CoreLocation
+import AVFoundation
 
 /// Profile tab (SPEC §2.3 "Profile tab"). Reads `AppState.me`. The primary
 /// action wired here is "Log out" (`AppState.logout()`); "Edit profile" opens
@@ -14,6 +15,8 @@ struct ProfileView: View {
     @State private var showAbout = false
     @State private var showDeleteConfirm = false
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var cameraStatus: AVAuthorizationStatus = .notDetermined
+    @State private var microphoneStatus: AVAuthorizationStatus = .notDetermined
 
     private var me: MeView { appState.me ?? MockData.me }
 
@@ -66,6 +69,14 @@ struct ProfileView: View {
                             openSettings()
                         }
                         HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
+                        SettingsRow(icon: "video", title: "Camera", trailing: cameraStatusLabel) {
+                            openSettings()
+                        }
+                        HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
+                        SettingsRow(icon: "mic", title: "Microphone", trailing: microphoneStatusLabel) {
+                            openSettings()
+                        }
+                        HairlineDivider(leadingInset: Theme.Space.lg + 24 + Theme.Space.md)
                         SettingsRow(icon: "lock", title: "Privacy policy") {
                             open("https://slide.viraat.dev/privacy")
                         }
@@ -80,9 +91,18 @@ struct ProfileView: View {
                         HairlineDivider()
                     }
                     .padding(.top, Theme.Space.md)
-                    .task { await refreshNotificationStatus() }
+                    .task {
+                        await refreshNotificationStatus()
+                        refreshMediaStatus()
+                    }
                     .onChange(of: scenePhase) { _, phase in
-                        if phase == .active { Task { await refreshNotificationStatus() } }
+                        // Camera/mic (like location) can only change from the
+                        // system Settings screen, so re-read on every return
+                        // to the foreground — not just the initial `.task`.
+                        if phase == .active {
+                            Task { await refreshNotificationStatus() }
+                            refreshMediaStatus()
+                        }
                     }
 
                     Button { appState.logout() } label: {
@@ -157,6 +177,13 @@ struct ProfileView: View {
         notificationStatus = await NotificationService.authorizationStatus()
     }
 
+    /// Camera/mic authorization is a plain synchronous read (unlike
+    /// notifications), so this needs no `await`.
+    private func refreshMediaStatus() {
+        cameraStatus = MediaPermissions.cameraStatus
+        microphoneStatus = MediaPermissions.microphoneStatus
+    }
+
     private var notificationStatusLabel: String {
         switch notificationStatus {
         case .authorized, .provisional, .ephemeral: return "On"
@@ -168,6 +195,17 @@ struct ProfileView: View {
     private var locationStatusLabel: String {
         switch locationService.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways: return "On"
+        case .denied, .restricted: return "Off"
+        default: return "Not set"
+        }
+    }
+
+    private var cameraStatusLabel: String { mediaStatusLabel(cameraStatus) }
+    private var microphoneStatusLabel: String { mediaStatusLabel(microphoneStatus) }
+
+    private func mediaStatusLabel(_ status: AVAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return "On"
         case .denied, .restricted: return "Off"
         default: return "Not set"
         }

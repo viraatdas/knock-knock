@@ -5,7 +5,7 @@
   html, body {
     margin: 0; padding: 0;
     width: 8.5in; height: 11in;
-    background: #FAF6EF;
+    background: #FFFFFF;
     font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
     color: #2A211B;
     overflow: hidden;
@@ -20,6 +20,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
+    background: #FFFFFF;
   }
 
   .wordmark {
@@ -28,7 +29,6 @@
     font-size: 15pt;
     letter-spacing: 0.02em;
     color: #2A211B;
-    margin-top: 0.05in;
   }
   .wordmark .dot { color: #D4694F; }
 
@@ -36,23 +36,13 @@
     width: 100%;
     height: 1px;
     background: #E6DCCB;
-    margin: 0.32in 0 0.5in;
-  }
-
-  .kicker {
-    font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-weight: 600;
-    font-size: 12pt;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #D4694F;
-    margin-bottom: 0.28in;
+    margin: 0.32in 0 0.55in;
   }
 
   h1 {
     font-family: 'Fraunces', Georgia, serif;
     font-weight: 600;
-    font-size: 56pt;
+    font-size: 58pt;
     line-height: 1.05;
     letter-spacing: -0.01em;
     margin: 0 0 0.22in;
@@ -67,7 +57,7 @@
     font-size: 24pt;
     line-height: 1.3;
     color: #6B5D4F;
-    margin: 0 0 0.62in;
+    margin: 0 0 0.7in;
     max-width: 5.6in;
     text-wrap: balance;
   }
@@ -76,7 +66,7 @@
     display: flex;
     align-items: baseline;
     gap: 0.18in;
-    margin-bottom: 0.68in;
+    margin-bottom: 0.75in;
   }
   .doors .time {
     font-family: 'Fraunces', Georgia, serif;
@@ -95,64 +85,27 @@
   }
 
   .qr-frame {
-    width: 2.5in;
-    height: 2.5in;
+    width: 3.1in;
+    height: 3.1in;
     background: #FFFFFF;
     border: 1.5pt solid #E6DCCB;
-    border-radius: 18pt;
+    border-radius: 22pt;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.24in;
-    box-shadow: 0 8pt 24pt rgba(42, 33, 27, 0.07);
+    padding: 0.22in;
+    box-shadow: 0 10pt 28pt rgba(42, 33, 27, 0.08);
   }
-  .qr-frame img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
-
-  .scan-label {
-    font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-weight: 600;
-    font-size: 12.5pt;
-    letter-spacing: 0.02em;
-    color: #2A211B;
-    margin-top: 0.26in;
-  }
-  .link {
-    font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-weight: 500;
-    font-size: 10.5pt;
-    color: #D4694F;
-    margin-top: 0.05in;
-  }
-
-  .footer {
-    width: 100%;
-    margin-top: 0.65in;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.08in;
-  }
-  .free {
-    font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-weight: 600;
-    font-size: 11pt;
-    color: #2A211B;
-  }
-  .fine {
-    font-family: 'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif;
-    font-weight: 400;
-    font-size: 8.5pt;
-    color: #A69A8B;
-    max-width: 5.4in;
-    line-height: 1.5;
-  }
+  #qr { width: 100%; height: 100%; }
+  /* The library draws at a fixed pixel size (620x620); force it down to the
+     frame's actual box so it doesn't overflow, uncropped and un-rounded —
+     rounding a QR's own corners destroys its finder patterns. */
+  #qr canvas, #qr svg, #qr img { display: block; width: 100% !important; height: 100% !important; }
 </style>
 
 <div class="sheet">
   <div class="wordmark">KNOCK KNOCK<span class="dot">.</span></div>
   <div class="rule"></div>
-
-  <div class="kicker">San Francisco &middot; Every Night</div>
 
   <h1>Go on 5&#8209;minute<br>speed dates.</h1>
   <div class="sub">And potentially meet<br>the love of your life.</div>
@@ -163,14 +116,21 @@
   </div>
 
   <div class="qr-frame">
-    <img alt="QR code to Knock Knock on the App Store" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAxAAAAMQAQAAAACfgr5QAAAEI0lEQVR42u3dQW4bMQwFUKP3v3OKNjBGJL/cTdsF8Qw0qe1x3oKAPyiNpNerPL5+P379fj+v77wf3++cz9/XnJ/5fvx4/fMHAoFAIP7Do6ZA/bb/fvakwJMONSvOz/UkUQsEAoHYkhf1e75+559dw0yP89l8//u3WiAQCMTOvKh5ULuQ2mf0kaeaLvICgUAgNudFGnOa41Q1F/p8hrxAIBCInXlRc2F+65/jVHW2O81jmL9AIBCInXnRe42/8U8tEAgEYltefH31O2XfuXHmR7o/Kr86H2qBQCAQW/Li/F1T4MyU2YekUal+f5W8QCAQiF39Rc+OOcPdc+JzrjzXqAUCgUBsyIvaJ/Tv+nnH1J/X9J2vygsEAoHYNN89R5PS+ovZS9y6i/pTLRAIBGJPXvS7mu5rvmcu3JJFf4FAIBCb8mLuHjXXU+Txqb5W47Z3iFogEAjEjv7ivgvUkxj99TnjnWZBzHcjEAjEa+F41FyZffs5E+LTbLlaIBAIxIa86KNNaa/ZdMZF3y+q/k9/gUAgEPv6i7Rb4Nyz9vNuhDV36nVqgUAgEFvyIp95cVuF0ddx57P2nnfVAoFAIDbkRd9ZdqZAv/bWR6SUsR8IAoFA7NsPJJ2DMc8/SvsK5nfkBQKBQOzKi54cMz3Su+k+qb6nlLxAIBCI18Lz9erztHfgvG6OVs3ORS0QCARiR38xZx9Sz3HbeTCdmVH/glogEAjEjv7i7BX6jHfa5WOOR+W/835dLRAIBGJLXqQRqL5ee94NdR+5qimjFggEArEjL/K8w+wvPl9z61nkBQKBQGzqL9K9UfeTWtN4VP3kOWqlFggEArEnL+Y6i/xq2luwvjNTRy0QCARiS170XOgn7KW7pOa+52nXQrVAIBCIXev10rkVaY+o/r/Uj/TUUAsEAoHYlBdzx8C+0rt+4syJfJX1eggEArEtL3rfMEeZ8hjUPPXb+XoIBAKxNS9qL5DWVPx5v9rP5/GpBQKBQOzIi54UqZvIu4LMa9KKb7VAIBCILf3F3OOj7yZ4m9n+fLetWiAQCMRr5X4gMw3SuFTtSXJ/cWaIWiAQCMSGvOijTHOuIu0Oks5nva39VgsEAoHYkRdzrUU6jbvvP1g7kjTb8b5aLRAIBGJLXvSEyDvV9hmN82d/nNeoBQKBQGzIizMtbv1D7zD6vbVpZcbzulogEAjEjv4idwZzbiLv91FnPFL2qAUCgUDs6S9qD9FHo3pmzPfqK7XbUAsEAoHYkRdz5qL3DXM/wT5zkRNEXiAQCMSuvHh+5z7i0znd+aSM8y+rBQKBQGzMi5QBaQ6jp8f5F+q4llogEAjEzrzI53XfO4h8StKTK2qBQCAQW/JirryYGXBb/f3ky22tt1ogEAjEjrzo2dG7htlN5E/0OXK1QCAQiEXET2vLJxwElRmrAAAAAElFTkSuQmCC">
-  </div>
-
-  <div class="scan-label">Scan to download. Free on the App Store.</div>
-  <div class="link">apps.apple.com/app/id6774902208</div>
-
-  <div class="footer">
-    <div class="free">5-minute video dates &middot; within 75 miles &middot; sign up with your phone number</div>
-    <div class="fine">Your date is anonymous until you both say yes. Free to join. 18+, within 75 miles of San Francisco.</div>
+    <div id="qr" role="img" aria-label="QR code to Knock Knock on the App Store"></div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.6.0-rc.1/lib/qr-code-styling.js"></script>
+<script>
+  new QRCodeStyling({
+    width: 620,
+    height: 620,
+    data: "https://apps.apple.com/us/app/knock-knock-5-minute-dates/id6774902208",
+    margin: 8,
+    qrOptions: { errorCorrectionLevel: "H" },
+    dotsOptions: { type: "rounded", color: "#D4694F" },
+    cornersSquareOptions: { type: "extra-rounded", color: "#2A211B" },
+    cornersDotOptions: { type: "dot", color: "#2A211B" },
+    backgroundOptions: { color: "#FFFFFF" },
+  }).append(document.getElementById("qr"));
+</script>

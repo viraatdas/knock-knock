@@ -15,6 +15,17 @@ enum MediaPermissions {
         await requestAccess(for: .video)
     }
 
+    /// Read-only status, for settings-style UI that shows On/Off/Not set
+    /// without prompting (mirrors `LocationService.authorizationStatus` and
+    /// `NotificationService.authorizationStatus()`).
+    static var cameraStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .video)
+    }
+
+    static var microphoneStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+
     private static func requestAccess(for mediaType: AVMediaType) async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: mediaType) {
         case .authorized:
