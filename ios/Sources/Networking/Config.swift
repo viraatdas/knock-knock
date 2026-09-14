@@ -69,4 +69,17 @@ enum Config {
     static var useFirebaseAuth: Bool {
         Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil
     }
+
+    /// Custom domain for Firebase Auth's reCAPTCHA/auth-handler web surface
+    /// (`Auth.auth().customAuthDomain`), so that if a user ever sees it, it
+    /// reads as our own domain instead of "<project>.firebaseapp.com". `nil`
+    /// today — this needs a Firebase Hosting custom domain connected and
+    /// allowlisted in the Firebase console first (see AGENTS.md's "Known
+    /// follow-ups"); until that exists, leave this unset so
+    /// `FirebaseAuthService.configureIfNeeded()` stays a no-op. Once the
+    /// domain is live, either hardcode it here or keep reading the env var
+    /// for staged rollout/testing.
+    static var firebaseAuthCustomDomain: String? {
+        ProcessInfo.processInfo.environment["FIREBASE_AUTH_CUSTOM_DOMAIN"]
+    }
 }

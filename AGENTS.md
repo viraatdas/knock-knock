@@ -648,3 +648,22 @@ then report any command that could not run and why.
   in App Store Connect has no API; `store/privacy.md` documents the answers
   to enter, but someone has to click through the actual form by hand for
   every submission that changes what data is collected.
+- **Brandable Firebase Auth fallback domain.** When Firebase Phone Auth can't
+  verify a device silently via APNs (cold-launch race, no push, TestFlight
+  APNs-environment misdetection — see `firebase-ios-sdk`'s open issue #10921
+  on that last one), it falls back to a reCAPTCHA challenge rendered in an
+  in-app `SFSafariViewController` pointed at
+  `https://<project-id>.firebaseapp.com/__/auth/handler` (project id
+  `slide-b4c50`). `FirebaseAuthService.sendCode` now waits up to 8s for the
+  APNs token (was 6s) and bails out early on a definitive registration
+  failure, which reduces how often this triggers but can't eliminate it
+  (Firebase's own internal APNs-token wait is a fixed, non-public 5s, and the
+  "silent push actually arrives" leg has no client-side lever at all). To
+  stop `firebaseapp.com` from ever being the domain a user sees in that
+  fallback: connect a Firebase Hosting custom domain (e.g.
+  `auth.slide.viraat.dev`) in the Firebase console, allowlist it under Auth
+  authorized domains, point DNS at Firebase Hosting, then set
+  `Auth.auth().customAuthDomain` to it — `Config.firebaseAuthCustomDomain` /
+  `FirebaseAuthService.configureIfNeeded()` already read that value and are a
+  no-op until it's set (see `Config.swift`). None of the Hosting/console/DNS
+  setup is done; it needs a maintainer with Firebase console access.

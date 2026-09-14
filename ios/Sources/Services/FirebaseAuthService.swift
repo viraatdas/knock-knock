@@ -15,10 +15,27 @@ enum FirebaseAuthService {
     /// the ugly "verifying you're not a robot" reCAPTCHA web page instead.
     @MainActor static var apnsTokenReady = false
 
+    /// True once `UIApplication.registerForRemoteNotifications()` has
+    /// definitively failed (set by the AppDelegate's
+    /// `didFailToRegisterForRemoteNotificationsWithError`) — simulator, no
+    /// network, no valid APNs entitlement, etc. Lets `sendCode` stop waiting
+    /// immediately instead of sitting out the full timeout on a device that
+    /// can never get a token this launch.
+    @MainActor static var apnsRegistrationFailed = false
+
     /// Call once at launch (from the AppDelegate) before any auth.
     static func configureIfNeeded() {
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
+        }
+        // No-op today: `Config.firebaseAuthCustomDomain` is nil until a
+        // Firebase Hosting custom domain is connected and allowlisted in the
+        // Firebase console (see Config.swift and AGENTS.md's "Known
+        // follow-ups"). Once it exists, setting this repoints the reCAPTCHA/
+        // auth-handler fallback page at our own domain instead of
+        // "<project>.firebaseapp.com".
+        if let domain = Config.firebaseAuthCustomDomain, !domain.isEmpty {
+            Auth.auth().customAuthDomain = domain
         }
     }
 
@@ -28,10 +45,18 @@ enum FirebaseAuthService {
         // Give the APNs token a moment to arrive (cold launch → fast typer)
         // so verification happens silently. If it never comes (real device
         // with a slow/dropped APNs registration, simulator, push outage),
-        // proceed anyway — reCAPTCHA remains the fallback. 6s covers a slow
-        // cold-launch APNs round trip without stalling the UI too long.
-        let deadline = Date().addingTimeInterval(6)
-        while await !apnsTokenReady, Date() < deadline {
+        // proceed anyway — reCAPTCHA remains the fallback.
+        //
+        // 8s covers a slower cold-launch APNs round trip than before (was
+        // 6s) without stalling the UI too long — Firebase's own internal
+        // wait for this same token (AuthAPNSTokenManager, not publicly
+        // configurable) is a fixed 5s, so this app-level wait is the only
+        // lever we have to extend the silent-verification window past that.
+        // We bail out early — instead of sitting out the full deadline — the
+        // moment registration definitively fails, since waiting longer can't
+        // help a device that will never get a token this launch.
+        let deadline = Date().addingTimeInterval(8)
+        while await !apnsTokenReady, await !apnsRegistrationFailed, Date() < deadline {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         do {

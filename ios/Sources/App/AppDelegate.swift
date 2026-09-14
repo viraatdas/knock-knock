@@ -56,6 +56,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // No APNs token (simulator, or push not provisioned). Firebase falls
         // back to reCAPTCHA, which needs the URL scheme set in project.yml.
+        #if canImport(FirebaseAuth)
+        if Config.useFirebaseAuth {
+            // Unblocks FirebaseAuthService.sendCode's wait immediately
+            // instead of it sitting out the full timeout on a device that
+            // will never get a token this launch.
+            Task { @MainActor in FirebaseAuthService.apnsRegistrationFailed = true }
+        }
+        #endif
         #if DEBUG
         print("APNs registration failed: \(error.localizedDescription)")
         #endif
