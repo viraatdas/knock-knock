@@ -72,7 +72,8 @@ xcrun simctl install "$SIM_ID" "$APP"
 shot () {  # $1 = scene name -> $RAW_DIR/<scene>.png
   local scene="$1"
   xcrun simctl terminate "$SIM_ID" "$BUNDLE" 2>/dev/null || true
-  # People scenes get realistic DEBUG-only faces (ios/tools/faces, synthetic).
+  # People scenes get realistic DEBUG-only faces (ios/tools/faces: real,
+  # CC-BY-licensed photos, see ios/tools/faces/LICENSES.md).
   local extra=()
   case "$scene" in date|decision|match|matches|chat) extra=(-mockPhotosDir "$(cd "$(dirname "$0")/faces" && pwd)");; esac
   xcrun simctl launch "$SIM_ID" "$BUNDLE" -scene "$scene" ${extra[@]+"${extra[@]}"} >/dev/null 2>&1 || true

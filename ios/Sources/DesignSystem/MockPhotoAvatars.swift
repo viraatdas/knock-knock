@@ -9,7 +9,10 @@ import Foundation
 /// `-scene` itself — a launch-argument seam that only exists in DEBUG builds
 /// (see `Array.sceneArgument`) — and is compiled out of Release entirely.
 ///
-/// The faces are AI-generated, not real people.
+/// The faces are real, licensed photographs (CC BY 2.0, credited in
+/// `ios/tools/faces/LICENSES.md`) — not the app's own users, and not
+/// AI-generated (an earlier StyleGAN-style placeholder set was replaced
+/// after it started showing a burned-in "StyleGAN2" watermark).
 enum MockPhotoAvatars {
     /// nil unless `-mockPhotosDir <dir>` was passed at launch.
     static let directory: String? = {
