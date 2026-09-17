@@ -1,10 +1,13 @@
 import SwiftUI
 
 /// Safety actions for a match/partner (SPEC §2.3 ChatView toolbar menu:
-/// Unmatch, Report, Block). Init: `SafetySheet(partner:matchId:dateId:
-/// onHandled:)` — `onHandled` fires after Unmatch/Block so the presenting
-/// view (ChatView) can pop. Every action confirms before it runs; Report also
-/// collects an optional details note before it submits.
+/// Unmatch, Report, Block; also presented from DecisionView right after any
+/// date, matched or not — abuse during the date itself must be reportable
+/// even when the two never match). Init: `SafetySheet(partner:matchId:
+/// dateId:onHandled:)` — `matchId` nil hides Unmatch; `onHandled` fires
+/// after Unmatch/Block so a presenting view that wants to pop (ChatView) can.
+/// Every action confirms before it runs; Report also collects an optional
+/// details note before it submits.
 struct SafetySheet: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss

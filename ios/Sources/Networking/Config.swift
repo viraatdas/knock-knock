@@ -82,4 +82,9 @@ enum Config {
     static var firebaseAuthCustomDomain: String? {
         ProcessInfo.processInfo.environment["FIREBASE_AUTH_CUSTOM_DOMAIN"]
     }
+
+    /// Marketing site's legal pages (web/src/app/{terms,privacy}), linked from
+    /// the onboarding consent step (Guideline 1.2) and Profile.
+    static let termsURL = "https://slide.viraat.dev/terms"
+    static let privacyURL = "https://slide.viraat.dev/privacy"
 }

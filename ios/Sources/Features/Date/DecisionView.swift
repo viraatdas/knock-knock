@@ -30,6 +30,7 @@ struct DecisionView: View {
     /// `swipeThreshold`, so `decide(_:)` and the drag gesture share one path.
     @State private var dragOffset: CGSize = .zero
     @State private var cardRemoved = false
+    @State private var showSafety = false
 
     private let swipeThreshold: CGFloat = 100
 
@@ -65,6 +66,23 @@ struct DecisionView: View {
         .padding(.bottom, Theme.Space.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.Color.bg)
+        // Report/Block must not depend on a mutual match — the person most
+        // worth reporting is the one who never matches — so this is
+        // reachable right after every date, not only from ChatView.
+        .overlay(alignment: .topTrailing) {
+            Button { showSafety = true } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(Theme.Space.sm)
+            }
+            .buttonStyle(PressableButtonStyle())
+            .accessibilityLabel("Report or block")
+        }
+        .sheet(isPresented: $showSafety) {
+            SafetySheet(partner: date.partner, dateId: date.id)
+                .environmentObject(appState)
+        }
     }
 
     /// Stands in for the partner's avatar, which the anonymous date can't

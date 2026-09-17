@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalShell title="Terms of Service" updated="September 11, 2026">
+    <LegalShell title="Terms of Service" updated="September 17, 2026">
       <Section heading="Agreement">
         <p>
           These Terms of Service govern your access to and use of Knock
@@ -48,21 +48,27 @@ export default function TermsPage() {
         </p>
       </Section>
 
-      <Section heading="Acceptable use">
-        <p>You agree not to use Knock Knock - 5 Minute Dates to:</p>
+      <Section heading="Zero tolerance for abuse">
         <p>
-          harass, threaten, or harm others; misrepresent your age, identity,
-          or intentions; send spam or solicit money, services, or business;
-          record or share another participant&rsquo;s video or messages
-          without consent where consent is required by law; violate any
-          applicable law or the rights of others; or interfere with,
-          disrupt, or attempt to gain unauthorized access to the service or
-          its infrastructure.
+          Knock Knock - 5 Minute Dates has zero tolerance for objectionable
+          content and abusive users. You agree not to use Knock Knock - 5
+          Minute Dates to:
         </p>
         <p>
-          You can report or block anyone from within the app. We may
-          suspend or terminate accounts that violate these terms or that
-          create risk for other users.
+          harass, threaten, or harm others; post or share content that is
+          obscene, hateful, or sexually exploitative, including of minors;
+          misrepresent your age, identity, or intentions; send spam or
+          solicit money, services, or business; record or share another
+          participant&rsquo;s video or messages without consent where
+          consent is required by law; violate any applicable law or the
+          rights of others; or interfere with, disrupt, or attempt to gain
+          unauthorized access to the service or its infrastructure.
+        </p>
+        <p>
+          You can report or block anyone from within the app, right after a
+          video date whether or not you match, or from an active chat. We
+          review every report and remove accounts that violate this policy
+          or that create risk for other users.
         </p>
       </Section>
 
